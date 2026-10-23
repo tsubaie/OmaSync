@@ -50,7 +50,7 @@ export type Overview = {
   online: boolean;
   /** [computer name, last sync as unix time], this computer first. */
   computers: [string, number | null][];
-  apps: { installed: string[]; local_only: string[]; about: Record<string, string> };
+  apps: { installed: string[]; mine: string[]; about: Record<string, string> };
   incoming_files: string[];
   incoming_from: string[];
   history: Entry[];

@@ -785,7 +785,7 @@ kbd {
 
 .matrix {
   display: grid;
-  grid-template-columns: 1fr repeat(var(--n), 104px) 92px;
+  grid-template-columns: 1fr 64px repeat(var(--n), 104px);
 }
 .matrix.head {
   font-size: 11px;

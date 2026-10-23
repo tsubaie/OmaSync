@@ -137,3 +137,20 @@ test("another computer's plugin waits for a yes before it's added here", async (
   ]);
   await expect(waiting).toBeHidden();
 });
+
+test('an app syncs or stops with one switch that stays in its row', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'Installed Apps' }).click();
+  const rows = page.locator('.matrix:not(.head) .text > div:first-child');
+  await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
+  const spotify = page.getByRole('switch', { name: 'Sync spotify' });
+  await expect(spotify).not.toBeChecked();
+  await spotify.focus();
+  await page.keyboard.press('Space');
+  await expect(spotify).toBeChecked();
+  await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
+  await expect(page.getByRole('switch', { name: 'spotify on This Computer' })).toBeChecked();
+  await page.keyboard.press('Space');
+  await expect(spotify).not.toBeChecked();
+  expect((await calls(page, 'add_apps')).length + (await calls(page, 'stop_app')).length).toBe(2);
+});

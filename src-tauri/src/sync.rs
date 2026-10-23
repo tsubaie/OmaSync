@@ -1091,8 +1091,8 @@ pub struct Overview {
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct Apps {
     pub installed: BTreeSet<String>,
-    /// Installed here by the person (not part of Omarchy) and not synced yet.
-    pub local_only: Vec<String>,
+    /// Installed here by the person (not part of Omarchy), synced or not.
+    pub mine: Vec<String>,
     pub about: BTreeMap<String, String>,
 }
 
@@ -1206,16 +1206,13 @@ fn apps(data: &Data) -> Apps {
         );
     }
     let explicit = run(None, "pacman", &["-Qqe"]).unwrap_or_default();
-    let local_only = user_apps(explicit.lines(), &base)
-        .into_iter()
-        .filter(|a| !data.apps.contains(a))
-        .collect::<Vec<_>>();
-    let mut names: Vec<&str> = local_only.iter().map(|s| s.as_str()).collect();
+    let mine = user_apps(explicit.lines(), &base);
     let installed = installed();
+    let mut names: Vec<&str> = mine.iter().map(|s| s.as_str()).collect();
     names.extend(
         data.apps
             .iter()
-            .filter(|a| installed.contains(*a))
+            .filter(|a| installed.contains(*a) && !mine.contains(a))
             .map(|s| s.as_str()),
     );
     let about = if names.is_empty() {
@@ -1227,7 +1224,7 @@ fn apps(data: &Data) -> Apps {
     };
     Apps {
         installed,
-        local_only,
+        mine,
         about,
     }
 }

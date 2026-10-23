@@ -84,7 +84,7 @@ const status = (): Status => ({
     ],
     apps: {
       installed: ['brave-bin', 'yazi'],
-      local_only: ['spotify'],
+      mine: ['brave-bin', 'yazi', 'spotify'],
       about: { 'brave-bin': 'Web browser', spotify: 'Music' },
     },
     incoming_files: [],
@@ -143,6 +143,12 @@ mockIPC((cmd, args) => {
       return scenario === 'conflict' && a.prefer === 'Ask'
         ? Promise.reject(conflict)
         : { notes: [], waiting: [] };
+    case 'add_apps':
+      data = { ...data, apps: [...new Set([...data.apps, ...(a.apps as string[])])] };
+      return data;
+    case 'stop_app':
+      data = { ...data, apps: data.apps.filter((x) => x !== a.app) };
+      return data;
     case 'install_plugins': {
       const laptop = data.computers.aaaa11112222;
       data = {
