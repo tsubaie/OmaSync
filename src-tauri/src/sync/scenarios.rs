@@ -1248,3 +1248,34 @@ fn an_app_name_that_is_a_path_never_becomes_a_folder_to_empty() {
     assert_eq!(lab.read("a", ".cache/omarchy-sync/keep"), "still here\n");
     assert!(lab.exists("a", ".config/hypr/bindings.lua"));
 }
+
+#[test]
+#[ignore]
+fn the_background_timer_tells_the_person_on_the_second_failure_only() {
+    let mut lab = pair();
+    lab.join("b");
+    let ctx = lab.ctx("b").clone();
+    lab.fail_git(Some("fetch"));
+    background(&ctx);
+    lab.check("b");
+    assert!(
+        !lab.calls("b").contains("notify-send"),
+        "{}",
+        lab.calls("b")
+    );
+    background(&ctx);
+    lab.check("b");
+    let calls = lab.calls("b");
+    assert_eq!(calls.matches("notify-send").count(), 1, "{calls}");
+    assert!(calls.contains("Syncing isn't working"), "{calls}");
+    background(&ctx);
+    assert_eq!(lab.calls("b").matches("notify-send").count(), 1);
+    // Back online: a's plugin waits here, which is news once.
+    lab.fail_git(None);
+    background(&ctx);
+    lab.check("b");
+    background(&ctx);
+    let calls = lab.calls("b");
+    assert_eq!(calls.matches("notify-send").count(), 2, "{calls}");
+    assert!(calls.contains("Plugins are ready to add"), "{calls}");
+}

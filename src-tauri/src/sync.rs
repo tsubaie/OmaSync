@@ -3018,6 +3018,17 @@ fn write_state(ctx: &Ctx, state: &BTreeMap<String, String>) {
     );
 }
 
+/// How a background sync went, as far as the person is concerned.
+enum Outcome {
+    /// Synced; these apps and plugins (by name) wait for a yes here.
+    Synced {
+        apps: Vec<String>,
+        plugins: Vec<String>,
+    },
+    Clash,
+    Failed(String),
+}
+
 /// Run by the systemd timer: sync quietly, and notify only when a person is needed.
 pub fn background(ctx: &Ctx) {
     if !is_set_up(ctx) {
@@ -3033,54 +3044,74 @@ pub fn background(ctx: &Ctx) {
         return;
     }
     let mut state = read_state(ctx);
-    match sync(ctx, Prefer::Ask, me.install_without_asking, &|_| {}) {
+    let outcome = match sync(ctx, Prefer::Ask, me.install_without_asking, &|_| {}) {
         Ok(report) => {
-            state.remove("failures");
-            state.remove("conflict");
             // Apps, and plugins other computers have, that wait for a yes here.
             let data = ctx.load_data();
-            let plugins = data.missing_plugins(&ctx.host);
-            let mut names = report.waiting.clone();
-            names.extend(
+            let mut apps = report.waiting;
+            apps.extend(
                 missing_scripted(&data, &ctx.host, &installed())
                     .into_iter()
                     .map(|(app, _)| app),
             );
-            names.extend(plugins.iter().map(|id| ctx.plugin(id).name));
-            let waiting = names.join(", ");
-            if !waiting.is_empty() && state.get("waiting") != Some(&waiting) {
-                let apps_waiting = names.len() > plugins.len();
-                let what = match (!apps_waiting, plugins.is_empty()) {
+            let plugins = data
+                .missing_plugins(&ctx.host)
+                .iter()
+                .map(|id| ctx.plugin(id).name)
+                .collect();
+            Outcome::Synced { apps, plugins }
+        }
+        Err(SyncError::Conflict(_)) => Outcome::Clash,
+        Err(SyncError::Failed(e)) => Outcome::Failed(e),
+    };
+    if let Some((title, body)) = tell(&mut state, &outcome) {
+        notify(&title, &body);
+    }
+    write_state(ctx, &state);
+}
+
+/// What to tell the person about an outcome, given what they were already told (`state`,
+/// brought up to date here): a clash once, the second failure in a row (one is usually a
+/// blip: offline, asleep), and a waiting list whenever it changes.
+fn tell(state: &mut BTreeMap<String, String>, outcome: &Outcome) -> Option<(String, String)> {
+    match outcome {
+        Outcome::Synced { apps, plugins } => {
+            state.remove("failures");
+            state.remove("conflict");
+            let waiting = [apps.as_slice(), plugins.as_slice()].concat().join(", ");
+            let changed = !waiting.is_empty() && state.get("waiting") != Some(&waiting);
+            state.insert("waiting".into(), waiting.clone());
+            changed.then(|| {
+                let what = match (apps.is_empty(), plugins.is_empty()) {
                     (false, true) => "Apps are ready to install",
                     (true, false) => "Plugins are ready to add",
                     _ => "Apps and plugins are ready to add",
                 };
-                notify(what, &format!("{waiting}. Open Omarchy Sync to add them."));
-            }
-            state.insert("waiting".into(), waiting);
+                (
+                    what.to_string(),
+                    format!("{waiting}. Open Omarchy Sync to add them."),
+                )
+            })
         }
-        Err(SyncError::Conflict(_)) => {
-            if state.insert("conflict".into(), "1".into()).is_none() {
-                notify(
-                    "Omarchy Sync needs you",
-                    "The same setting was changed on two computers. Open Omarchy Sync to choose which version to keep.",
-                );
-            }
-        }
-        Err(SyncError::Failed(e)) => {
+        Outcome::Clash => state
+            .insert("conflict".into(), "1".into())
+            .is_none()
+            .then(|| {
+                (
+                    "Omarchy Sync needs you".to_string(),
+                    "The same setting was changed on two computers. Open Omarchy Sync to choose which version to keep.".to_string(),
+                )
+            }),
+        Outcome::Failed(e) => {
             let failures = state
                 .get("failures")
                 .and_then(|n| n.parse::<u32>().ok())
                 .unwrap_or(0)
                 + 1;
-            // One failure is usually a blip (offline, asleep); twice in a row is worth a word.
-            if failures == 2 {
-                notify("Syncing isn't working", &friendly(&e));
-            }
             state.insert("failures".into(), failures.to_string());
+            (failures == 2).then(|| ("Syncing isn't working".to_string(), friendly(e)))
         }
     }
-    write_state(ctx, &state);
 }
 
 // ---------- What the main screen shows ----------
@@ -4035,6 +4066,53 @@ mod tests {
         assert!(friendly("checksum: sha256sum -c: x: FAILED").starts_with("The downloaded update"));
         assert!(friendly("0.1.2 isn't the latest release").starts_with("A newer release appeared"));
         assert!(friendly("curl: Could not resolve host").starts_with("Couldn't reach GitHub"));
+    }
+
+    #[test]
+    fn the_background_sync_speaks_up_once_per_thing() {
+        let mut state = BTreeMap::new();
+        let failed = Outcome::Failed("git fetch: could not resolve host".into());
+        // One failure is a blip; the second gets a word; the third is the same news.
+        assert!(tell(&mut state, &failed).is_none());
+        let (title, body) = tell(&mut state, &failed).unwrap();
+        assert_eq!(title, "Syncing isn't working");
+        assert!(body.starts_with("Couldn't reach GitHub"));
+        assert!(tell(&mut state, &failed).is_none());
+        // A clash once, until it's settled.
+        assert!(tell(&mut state, &Outcome::Clash).is_some());
+        assert!(tell(&mut state, &Outcome::Clash).is_none());
+        // Back in order: nothing to say, and the counters start over.
+        let quiet = Outcome::Synced {
+            apps: vec![],
+            plugins: vec![],
+        };
+        assert!(tell(&mut state, &quiet).is_none());
+        assert!(!state.contains_key("failures") && !state.contains_key("conflict"));
+        assert!(tell(&mut state, &failed).is_none());
+        assert!(tell(&mut state, &Outcome::Clash).is_some());
+        // The same waiting list is one notification; a changed one is another.
+        let waiting = |apps: &[&str], plugins: &[&str]| Outcome::Synced {
+            apps: apps.iter().map(|s| s.to_string()).collect(),
+            plugins: plugins.iter().map(|s| s.to_string()).collect(),
+        };
+        let (title, body) = tell(&mut state, &waiting(&["zed"], &[])).unwrap();
+        assert_eq!(
+            (title.as_str(), body.as_str()),
+            (
+                "Apps are ready to install",
+                "zed. Open Omarchy Sync to add them."
+            )
+        );
+        assert!(tell(&mut state, &waiting(&["zed"], &[])).is_none());
+        let (title, _) = tell(&mut state, &waiting(&["zed"], &["Dock"])).unwrap();
+        assert_eq!(title, "Apps and plugins are ready to add");
+        assert_eq!(
+            tell(&mut state, &waiting(&[], &["Dock"])).unwrap().0,
+            "Plugins are ready to add"
+        );
+        // Once added, a quiet sync says nothing, and the next wait is news again.
+        assert!(tell(&mut state, &quiet).is_none());
+        assert!(tell(&mut state, &waiting(&["zed"], &[])).is_some());
     }
 
     #[test]
