@@ -56,7 +56,9 @@ const catalog: Catalog = {
 
 let data: Data = {
   folders: FOLDERS.filter(([, , on]) => on).map(([path]) => path),
-  apps: ['brave-bin', 'yazi'],
+  apps: ['brave-bin', 'yazi', 'quicknote'],
+  // On Desktop only, from outside the repos: it waits here for its install command.
+  outside: { quicknote: { command: 'curl -fsSL https://example.com/quicknote.sh | bash' } },
   plugins: ['timezones', 'webcam'],
   computers: {
     aaaa11112222: { name: 'Laptop', plugins: ['timezones'] },
@@ -101,6 +103,7 @@ const status = (): Status => ({
   host: 'aaaa11112222',
   sync_space: 'https://github.com/someone/omarchy-sync',
   schedule_error: null,
+  bar_indicator: false,
   data,
   overview: {
     unshared: scenario === 'conflict' ? ['.config/hypr/bindings.lua'] : [],
@@ -111,9 +114,11 @@ const status = (): Status => ({
       ['bbbb33334444', now - 3600],
     ],
     apps: {
-      installed: ['brave-bin', 'yazi'],
-      mine: ['brave-bin', 'yazi', 'spotify'],
-      about: { 'brave-bin': 'Web browser', spotify: 'Music' },
+      installed: ['brave-bin', 'yazi', 'tapecalc'],
+      mine: ['brave-bin', 'yazi', 'spotify', 'tapecalc'],
+      // Installed from its own repository, not Arch's or the AUR.
+      outside: ['tapecalc'],
+      about: { 'brave-bin': 'Web browser', spotify: 'Music', tapecalc: 'Calculation tape' },
     },
     incoming_files: [],
     incoming_from: [],
@@ -227,6 +232,21 @@ mockIPC((cmd, args) => {
       };
       return data;
     }
+    case 'install_with_script':
+    case 'set_bar_indicator':
+      return null;
+    case 'set_app_script':
+      data = {
+        ...data,
+        outside: {
+          ...data.outside,
+          [a.app as string]: { command: a.command as string },
+        },
+      };
+      return data;
+    case 'remove_app_script':
+      data = { ...data, outside: { ...data.outside, [a.app as string]: null } };
+      return data;
     case 'set_app':
       data = place(data, 'apps', 'skip_apps', a.computer as string, a.app as string, !!a.on, [
         'aaaa11112222',

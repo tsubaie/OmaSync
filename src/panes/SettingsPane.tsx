@@ -136,6 +136,30 @@ export function SettingsPane({ s }: { s: SyncState }) {
         />
       </Group>
 
+      <Group
+        title="Omarchy Bar"
+        footer="A small icon on your bar: dim when everything is in step, turning while syncing, and in the alert colour when something waits for you. Click it to open Omarchy Sync."
+      >
+        <Row
+          title="Show in the bar"
+          detail="Adds the Omarchy Sync indicator to your bar; switching it off removes it."
+          end={
+            <Toggle
+              on={s.barIndicator}
+              label="Show in the bar"
+              disabled={!s.idle}
+              onChange={(on) =>
+                s.act(
+                  on ? 'Adding to the bar' : 'Removing from the bar',
+                  () => api.setBarIndicator(on),
+                  () => s.refresh(),
+                )
+              }
+            />
+          }
+        />
+      </Group>
+
       <Group title="Keyboard Shortcuts">
         {(
           [

@@ -28,6 +28,10 @@ fn main() {
             join,
             install_apps,
             install_plugins,
+            set_app_script,
+            set_bar_indicator,
+            remove_app_script,
+            install_with_script,
             choices_changed,
             set_plugin,
             set_app,
@@ -174,6 +178,8 @@ struct Status {
     sync_space: Option<String>,
     /// Set when the background timer couldn't be turned on or off.
     schedule_error: Option<String>,
+    /// Whether the sync indicator is on the Omarchy bar.
+    bar_indicator: bool,
 }
 
 #[tauri::command]
@@ -190,6 +196,7 @@ async fn overview(on_step: Channel<String>, just_synced: bool) -> Result<Status>
             host: ctx.host.clone(),
             sync_space: sync::sync_space(ctx),
             schedule_error,
+            bar_indicator: sync::bar_indicator(ctx),
         })
     })
     .await
@@ -317,6 +324,14 @@ async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> 
     Ok(data)
 }
 
+/// Shows the sync indicator on the Omarchy bar, or takes it off.
+#[tauri::command]
+async fn set_bar_indicator(on: bool) -> Result<()> {
+    blocking(move |ctx| sync::set_bar_indicator(ctx, on))
+        .await
+        .map_err(Problem::from)
+}
+
 #[tauri::command]
 fn choices_changed() -> bool {
     Ctx::load().choices_changed()
@@ -333,13 +348,89 @@ fn edit(change: impl FnOnce(&mut Data, &str)) -> Result<Data> {
 
 #[tauri::command]
 fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
+    let ctx = Ctx::load();
+    // An app from outside the repos syncs only through its install script.
+    if on && ctx.load_data().outside.get(&app) == Some(&None) {
+        return Err(format!(
+            "{app} isn't in Arch's repos or the AUR, so add an install script before syncing it."
+        )
+        .into());
+    }
     let installed_here = sync::installed().contains(&app);
     edit(|d, host| d.place_app(host, installed_here, &computer, &app, on))
 }
 
+/// Saves how to install an app from outside Arch's repos and the AUR: one command, run in an
+/// empty folder in a terminal window.
+#[tauri::command]
+fn set_app_script(app: String, command: String) -> Result<Data> {
+    // One step per line; Windows line ends become plain ones.
+    let command = command.replace("\r\n", "\n").trim().to_string();
+    if !sync::is_package_name(&app) {
+        return Err(format!("not an app: {app}").into());
+    }
+    if command.is_empty()
+        || command.chars().count() > 4000
+        || command.lines().count() > 50
+        || command
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
+    {
+        return Err(
+            "The install steps need 1 to 50 lines, up to 4,000 characters."
+                .to_string()
+                .into(),
+        );
+    }
+    let ctx = Ctx::load();
+    if !ctx.load_data().outside.contains_key(&app) && !sync::installed().contains(&app) {
+        return Err(format!("{app} isn't installed here.").into());
+    }
+    edit(|d, _| {
+        d.outside.insert(
+            app,
+            Some(sync::Script {
+                command,
+                ..Default::default()
+            }),
+        );
+    })
+}
+
+/// Forgets an app's install script; it then stays on the computers that have it.
+#[tauri::command]
+fn remove_app_script(app: String) -> Result<Data> {
+    edit(|d, _| {
+        if let Some(script) = d.outside.get_mut(&app) {
+            *script = None;
+        }
+    })
+}
+
+/// Installs one waiting app with its script, in a terminal window; only an app this computer
+/// is really waiting for, with the script saved for it (nothing the page names itself).
+#[tauri::command]
+async fn install_with_script(app: String, on_step: Channel<String>) -> Result<()> {
+    blocking(move |ctx| {
+        let waiting = sync::missing_scripted(&ctx.load_data(), &ctx.host, &sync::installed());
+        let (_, script) = waiting
+            .iter()
+            .find(|(a, _)| *a == app)
+            .ok_or_else(|| format!("{app} isn't waiting to be installed here"))?;
+        sync::install_with_script(ctx, &app, script, &steps(on_step))
+    })
+    .await
+    .map_err(Problem::from)
+}
+
 #[tauri::command]
 fn add_apps(apps: Vec<String>) -> Result<Data> {
-    edit(|d, _| apps.iter().for_each(|a| sync::toggle(&mut d.apps, a, true)))
+    edit(|d, _| {
+        // Apps from outside the repos without an install script can't reach other computers.
+        for a in apps.iter().filter(|a| d.outside.get(*a) != Some(&None)) {
+            sync::toggle(&mut d.apps, a, true);
+        }
+    })
 }
 
 /// Folders are limited to the known list; the page can't make chezmoi add arbitrary paths.

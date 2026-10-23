@@ -160,9 +160,24 @@ pub struct Data {
     /// Plugins shared between computers; the rest stay on the computer that has them.
     #[serde(default)]
     pub plugins: Vec<String>,
+    /// Apps that aren't in Arch's repos or the AUR, so `yay` can't install them, with the
+    /// script someone added to install them (none yet: they can't sync).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub outside: BTreeMap<String, Option<Script>>,
     /// The layout of this file; older layouts are upgraded when read.
     #[serde(default)]
     pub version: u32,
+}
+
+/// How to install an app from outside Arch's repos and the AUR: a command, run in an empty
+/// folder in a terminal window the person can see (it may download a repository itself).
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+pub struct Script {
+    pub command: String,
+    /// Only read: an earlier version kept a repository to clone apart from the command.
+    /// `Data::upgrade` folds it into the command.
+    #[serde(default, skip_serializing)]
+    pub repo: String,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
@@ -247,6 +262,13 @@ impl Data {
                 }
             }
         }
+        // A script that kept its repository apart becomes one command that clones it first.
+        for (app, script) in self.outside.iter_mut() {
+            if let Some(s) = script.as_mut().filter(|s| !s.repo.is_empty()) {
+                s.command = format!("git clone {} {app} && cd {app} && {}", s.repo, s.command);
+                s.repo.clear();
+            }
+        }
         self.version = 3;
     }
 
@@ -329,6 +351,15 @@ impl Data {
             out.retain(|x| !(b.contains(x) && !m.contains(x)));
             out
         };
+        let mut outside = theirs.outside.clone();
+        for app in base.outside.keys().chain(mine.outside.keys()) {
+            if mine.outside.get(app) != base.outside.get(app) {
+                match mine.outside.get(app) {
+                    Some(s) => outside.insert(app.clone(), s.clone()),
+                    None => outside.remove(app),
+                };
+            }
+        }
         let mut computers = theirs.computers.clone();
         for id in base.computers.keys().chain(mine.computers.keys()) {
             if mine.computers.get(id) != base.computers.get(id) {
@@ -353,6 +384,7 @@ impl Data {
                 theirs.background.clone()
             },
             computers,
+            outside,
             version: theirs.version.max(mine.version),
         }
     }
@@ -1280,6 +1312,18 @@ fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String>, String> 
     if let Some(name) = save_background(ctx) {
         data.background = Some(name);
     }
+    // Apps here that `yay` couldn't install elsewhere; they sync only once given a script.
+    for app in outside_repos(&user_apps_here()) {
+        data.outside.entry(app).or_insert(None);
+    }
+    // Without an install script such an app can't reach other computers, so it isn't synced.
+    let stuck: Vec<String> = data
+        .outside
+        .iter()
+        .filter(|(_, s)| s.is_none())
+        .map(|(a, _)| a.clone())
+        .collect();
+    data.apps.retain(|a| !stuck.contains(a));
     let me = data.computers.entry(ctx.host.clone()).or_default();
     me.plugins = ctx.local_plugins();
     (me.web_apps, me.web_icons) = ctx.local_web_apps();
@@ -1319,7 +1363,103 @@ fn settle_data(ctx: &Ctx) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Syncs, and records how it went for the bar indicator (see `write_status`).
 pub fn sync(
+    ctx: &Ctx,
+    prefer: Prefer,
+    install: bool,
+    step: &dyn Fn(&str),
+) -> Result<Report, SyncError> {
+    write_status(ctx, "syncing", "Syncing…");
+    let result = sync_inner(ctx, prefer, install, step);
+    match &result {
+        Ok(_) => {
+            let data = ctx.load_data();
+            let installed = installed();
+            let waiting = missing_apps(&data, &ctx.host, &installed).len()
+                + missing_scripted(&data, &ctx.host, &installed).len()
+                + data.missing_plugins(&ctx.host).len();
+            if waiting > 0 {
+                let what = plural(waiting, "app or plugin");
+                write_status(ctx, "attention", &format!("{what} waiting for you"));
+            } else {
+                write_status(ctx, "synced", "Everything matches your other computers");
+            }
+        }
+        Err(SyncError::Conflict(_)) => write_status(
+            ctx,
+            "attention",
+            "The same setting changed on two computers: choose which to keep",
+        ),
+        Err(SyncError::Failed(e)) => write_status(ctx, "error", &friendly(e)),
+    }
+    result
+}
+
+/// What the bar indicator shows (packaging/bar-plugin): `state` is synced, syncing, attention
+/// or error, and `text` says it in a sentence. Best effort: a failed write only leaves the
+/// indicator a step behind.
+pub fn write_status(ctx: &Ctx, state: &str, text: &str) {
+    let path = state_file(ctx).with_file_name("status.json");
+    let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
+    let json = serde_json::json!({ "state": state, "text": text });
+    // Written whole and then renamed into place, so the bar never reads half a file.
+    let tmp = path.with_extension("tmp");
+    if std::fs::write(&tmp, json.to_string()).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
+/// The optional bar indicator: a small Omarchy shell plugin, kept with the app.
+pub const BAR_PLUGIN: &str = "io.github.tsubaie.omarchy-sync";
+const BAR_FILES: &[(&str, &str)] = &[
+    (
+        "manifest.json",
+        include_str!("../../packaging/bar-plugin/manifest.json"),
+    ),
+    (
+        "BarWidget.qml",
+        include_str!("../../packaging/bar-plugin/BarWidget.qml"),
+    ),
+];
+
+pub fn bar_indicator(ctx: &Ctx) -> bool {
+    ctx.home
+        .join(PLUGIN_DIR)
+        .join(BAR_PLUGIN)
+        .join("manifest.json")
+        .exists()
+}
+
+/// Puts the indicator on the bar, or takes it off, through Omarchy's own plugin commands.
+pub fn set_bar_indicator(ctx: &Ctx, on: bool) -> Result<(), String> {
+    let dir = ctx.home.join(PLUGIN_DIR).join(BAR_PLUGIN);
+    if on {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        for (name, text) in BAR_FILES {
+            std::fs::write(dir.join(name), text).map_err(|e| e.to_string())?;
+        }
+        run(None, "omarchy-shell", &["shell", "rescanPlugins"])?;
+        // The shell scans in the background, so the new plugin may take a moment to be known.
+        let mut last = String::new();
+        for _ in 0..20 {
+            match run(None, "omarchy", &["plugin", "enable", BAR_PLUGIN]) {
+                Ok(_) => return Ok(()),
+                Err(e) => last = e,
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        Err(last)
+    } else {
+        // Already off (or never on) is fine: the goal is that it's gone.
+        let _ = run(None, "omarchy", &["plugin", "disable", BAR_PLUGIN]);
+        std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        let _ = run(None, "omarchy-shell", &["shell", "rescanPlugins"]);
+        Ok(())
+    }
+}
+
+fn sync_inner(
     ctx: &Ctx,
     prefer: Prefer,
     install: bool,
@@ -1446,12 +1586,145 @@ pub fn sync(
 }
 
 /// Synced apps this computer should have but doesn't.
+/// Synced apps this computer wants and `yay` can install (not ones from outside the repos).
 pub fn missing_apps(data: &Data, host: &str, installed: &BTreeSet<String>) -> Vec<String> {
     data.apps
         .iter()
-        .filter(|a| data.wants_app(host, a) && !installed.contains(*a))
+        .filter(|a| {
+            data.wants_app(host, a) && !installed.contains(*a) && !data.outside.contains_key(*a)
+        })
         .cloned()
         .collect()
+}
+
+/// Synced apps from outside the repos that this computer wants, with their install scripts.
+pub fn missing_scripted(
+    data: &Data,
+    host: &str,
+    installed: &BTreeSet<String>,
+) -> Vec<(String, Script)> {
+    data.apps
+        .iter()
+        .filter(|a| data.wants_app(host, a) && !installed.contains(*a))
+        .filter_map(|a| Some((a.clone(), data.outside.get(a)?.clone()?)))
+        .collect()
+}
+
+/// Which of these locally installed packages came from neither Arch's repos nor the AUR.
+/// Asks the AUR once per name and remembers it; when it can't be reached, it claims none.
+pub fn outside_repos(mine: &[String]) -> Vec<String> {
+    use std::sync::{Mutex, OnceLock};
+    static IN_AUR: OnceLock<Mutex<BTreeMap<String, bool>>> = OnceLock::new();
+    let foreign: BTreeSet<String> = run(None, "pacman", &["-Qqm"])
+        .unwrap_or_default()
+        .lines()
+        .map(String::from)
+        .collect();
+    let candidates: Vec<&String> = mine.iter().filter(|a| foreign.contains(*a)).collect();
+    let known = IN_AUR.get_or_init(Default::default);
+    let unknown: Vec<&String> = {
+        let k = known.lock().unwrap_or_else(|e| e.into_inner());
+        candidates
+            .iter()
+            .copied()
+            .filter(|a| !k.contains_key(*a))
+            .collect()
+    };
+    if !unknown.is_empty() {
+        let query: Vec<String> = unknown
+            .iter()
+            .map(|a| format!("arg[]={}", a.replace('+', "%2B").replace('@', "%40")))
+            .collect();
+        let url = format!("https://aur.archlinux.org/rpc/v5/info?{}", query.join("&"));
+        let Ok(body) = run(None, "curl", &["-fsS", "--max-time", "8", &url]) else {
+            return Vec::new();
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) else {
+            return Vec::new();
+        };
+        let found: BTreeSet<&str> = json["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|r| r["Name"].as_str())
+            .collect();
+        let mut k = known.lock().unwrap_or_else(|e| e.into_inner());
+        for a in unknown {
+            k.insert(a.clone(), found.contains(a.as_str()));
+        }
+    }
+    let k = known.lock().unwrap_or_else(|e| e.into_inner());
+    candidates
+        .into_iter()
+        .filter(|a| k.get(*a) == Some(&false))
+        .cloned()
+        .collect()
+}
+
+/// A pacman package name: lowercase letters, digits and @._+-, not starting with - or a dot.
+pub fn is_package_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with(['-', '.'])
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "@._+-".contains(c))
+}
+
+/// Installs an app with its install command, run in a fresh empty folder in a terminal window,
+/// so the person sees what it does and can type a password if it asks. Waits for the command
+/// to finish, then reports how it ended.
+pub fn install_with_script(
+    ctx: &Ctx,
+    app: &str,
+    script: &Script,
+    step: &dyn Fn(&str),
+) -> Result<(), String> {
+    let dir = ctx.home.join(".cache/omarchy-sync/install").join(app);
+    let done = dir.with_extension("done");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(&done);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    step(&format!("Installing {app} in a terminal window"));
+    let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+    // The steps run as one script that stops at the first failing step, so a failed build
+    // never goes on to install.
+    let file = dir.with_extension("sh");
+    std::fs::write(
+        &file,
+        format!(
+            "set -e -o pipefail\ncd {}\n{}\n",
+            quote(&dir.to_string_lossy()),
+            script.command
+        ),
+    )
+    .map_err(|e| e.to_string())?;
+    let line = format!(
+        "bash {}; echo $? > {}; echo; read -rp 'Press Enter to close this window. ' _",
+        quote(&file.to_string_lossy()),
+        quote(&done.to_string_lossy()),
+    );
+    Command::new("xdg-terminal-exec")
+        .args(["bash", "-c", &line])
+        .stdin(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("xdg-terminal-exec: {e}"))?;
+    // Some terminals hand the window to an already-running copy and return at once, so the
+    // command's own end is the signal: it writes its exit code to `done`.
+    for _ in 0..3600 {
+        if let Ok(code) = std::fs::read_to_string(&done) {
+            let _ = std::fs::remove_file(&done);
+            return match code.trim() {
+                "0" => Ok(()),
+                code => Err(format!(
+                    "the install command for {app} stopped with code {code}"
+                )),
+            };
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    Err(format!(
+        "the install command for {app} didn't finish within an hour"
+    ))
 }
 
 pub fn install_apps(apps: &[String]) -> Result<(), String> {
@@ -1745,10 +2018,16 @@ pub fn background(ctx: &Ctx) {
             let data = ctx.load_data();
             let plugins = data.missing_plugins(&ctx.host);
             let mut names = report.waiting.clone();
+            names.extend(
+                missing_scripted(&data, &ctx.host, &installed())
+                    .into_iter()
+                    .map(|(app, _)| app),
+            );
             names.extend(plugins.iter().map(|id| ctx.plugin(id).name));
             let waiting = names.join(", ");
             if !waiting.is_empty() && state.get("waiting") != Some(&waiting) {
-                let what = match (report.waiting.is_empty(), plugins.is_empty()) {
+                let apps_waiting = names.len() > plugins.len();
+                let what = match (!apps_waiting, plugins.is_empty()) {
                     (false, true) => "Apps are ready to install",
                     (true, false) => "Plugins are ready to add",
                     _ => "Apps and plugins are ready to add",
@@ -1805,6 +2084,8 @@ pub struct Apps {
     pub installed: BTreeSet<String>,
     /// Installed here by the person (not part of Omarchy), synced or not.
     pub mine: Vec<String>,
+    /// Those of `mine` that came from neither Arch's repos nor the AUR.
+    pub outside: Vec<String>,
     pub about: BTreeMap<String, String>,
 }
 
@@ -1942,7 +2223,8 @@ pub fn installed() -> BTreeSet<String> {
         .collect()
 }
 
-fn apps(data: &Data) -> Apps {
+/// The apps installed here by the person: explicitly installed, not part of Omarchy.
+fn user_apps_here() -> Vec<String> {
     let mut base: BTreeSet<String> = BTreeSet::new();
     for f in ["omarchy-base.packages", "omarchy-other.packages"] {
         let text =
@@ -1955,7 +2237,11 @@ fn apps(data: &Data) -> Apps {
         );
     }
     let explicit = run(None, "pacman", &["-Qqe"]).unwrap_or_default();
-    let mine = user_apps(explicit.lines(), &base);
+    user_apps(explicit.lines(), &base)
+}
+
+fn apps(data: &Data) -> Apps {
+    let mine = user_apps_here();
     let installed = installed();
     let mut names: Vec<&str> = mine.iter().map(|s| s.as_str()).collect();
     names.extend(
@@ -1971,9 +2257,11 @@ fn apps(data: &Data) -> Apps {
         args.extend(names);
         parse_info(&run(None, "pacman", &args).unwrap_or_default())
     };
+    let outside = outside_repos(&mine);
     Apps {
         installed,
         mine,
+        outside,
         about,
     }
 }
@@ -2187,6 +2475,58 @@ mod tests {
         assert_eq!(m.apps, vec!["b".to_string(), "c".to_string()]);
         assert_eq!(m.computers["x"].plugins, vec!["clock".to_string()]);
         assert_eq!(m.computers["y"].plugins, vec!["dock".to_string()]);
+    }
+
+    #[test]
+    fn apps_from_outside_the_repos_install_only_by_script() {
+        assert!(is_package_name("numpad") && is_package_name("lib32-gcc+x@1.2"));
+        assert!(!is_package_name("-rf") && !is_package_name("a b") && !is_package_name("A"));
+        let mut d = Data {
+            apps: vec!["numpad".into(), "rustxt".into(), "firefox".into()],
+            ..Default::default()
+        };
+        d.outside.insert("numpad".into(), None);
+        let script = Script {
+            command: "curl -fsSL https://example.com/install.sh | bash".into(),
+            ..Default::default()
+        };
+        d.outside.insert("rustxt".into(), Some(script.clone()));
+        let none = BTreeSet::new();
+        // yay only gets what it can install; rustxt waits for its script; numpad can't come.
+        assert_eq!(missing_apps(&d, "b", &none), vec!["firefox".to_string()]);
+        assert_eq!(
+            missing_scripted(&d, "b", &none),
+            vec![("rustxt".to_string(), script.clone())]
+        );
+        // A script added on one computer and an app found on another both survive a merge.
+        let base = d.clone();
+        let mut mine = d.clone();
+        mine.outside.insert("numpad".into(), Some(script.clone()));
+        let mut theirs = d.clone();
+        theirs.outside.insert("owl".into(), None);
+        let m = Data::merge(&base, &theirs, &mine);
+        assert_eq!(m.outside.get("numpad"), Some(&Some(script)));
+        assert_eq!(m.outside.get("owl"), Some(&None));
+    }
+
+    #[test]
+    fn an_older_script_becomes_one_command() {
+        let mut d = Data {
+            version: 3,
+            ..Default::default()
+        };
+        d.outside.insert(
+            "numpad".into(),
+            Some(Script {
+                command: "./install.sh".into(),
+                repo: "https://example.com/numpad".into(),
+            }),
+        );
+        d.upgrade();
+        assert_eq!(
+            d.outside["numpad"].as_ref().map(|s| s.command.as_str()),
+            Some("git clone https://example.com/numpad numpad && cd numpad && ./install.sh")
+        );
     }
 
     #[test]
@@ -2596,6 +2936,16 @@ mod tests {
         assert_eq!(read(&b, "monitors.lua"), "screen-b");
 
         let on_b = |p: &str| b.home.join(p).exists();
+        // The bar indicator's status: B has a plugin waiting for it.
+        let status = |ctx: &Ctx| {
+            let text = std::fs::read_to_string(state_file(ctx).with_file_name("status.json"))
+                .unwrap_or_default();
+            serde_json::from_str::<serde_json::Value>(&text).unwrap_or_default()["state"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        };
+        assert_eq!(status(&b), "attention");
         assert_eq!(b.load_data().background.as_deref(), Some("hills.jpg"));
         // Only the current theme's folder travels.
         assert!(on_b(".config/omarchy/themes/mine/colors.toml"));
@@ -2621,6 +2971,7 @@ mod tests {
         assert!(b_dock.exists());
         assert!(b.load_data().missing_plugins(&b.host).is_empty());
         ok(sync(&b, Prefer::Ask, false, &quiet));
+        assert_eq!(status(&b), "synced");
 
         // A plugin nobody switched on stays on the computer that has it.
         enter(&a);

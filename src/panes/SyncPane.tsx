@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Button } from 'react-aria-components';
 import {
   Check,
@@ -15,7 +16,7 @@ import {
 import { api } from '../api';
 import { ago, byFolder, plural, shortList } from '../format';
 import type { SyncState } from '../state';
-import { Group, OmarchyLogo, Progress, Push, Row, Tile } from '../ui';
+import { Caution, Group, Link, OmarchyLogo, Progress, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
 
 /** One fixed set of states, each with a headline, a detail line, an icon and its colour. */
@@ -233,6 +234,59 @@ function About() {
   );
 }
 
+/**
+ * Apps from outside the repos, waiting to be installed with their command. Never automatic:
+ * Install first shows the whole command with a warning, and only Run It runs it, in a
+ * terminal window the person can watch.
+ */
+function ScriptedApps({ s }: { s: SyncState }) {
+  const [confirm, setConfirm] = useState<string | null>(null);
+  return (
+    <Group
+      title="Apps to Install with Their Steps"
+      footer="Each runs in a terminal window, so you can see what it does and type your password if it asks."
+    >
+      {s.scripted.map(({ app, script }) => (
+        <Row
+          key={app}
+          lead={<Tile icon={Package} kind="apps" size={24} />}
+          title={app}
+          detail={`Runs ${script.command.split('\n').filter((l) => l.trim()).length === 1 ? 'one step' : `${script.command.split('\n').filter((l) => l.trim()).length} steps`} in a terminal window`}
+          end={
+            confirm === app ? (
+              <div className="actions">
+                <Link onPress={() => setConfirm(null)}>Cancel</Link>
+                <Push
+                  onPress={() => {
+                    setConfirm(null);
+                    s.act(
+                      `Installing ${app}`,
+                      (onStep) => api.installWithScript(app, onStep),
+                      () => s.refresh(),
+                    );
+                  }}
+                >
+                  Run It
+                </Push>
+              </div>
+            ) : (
+              <Push onPress={() => setConfirm(app)}>Install…</Push>
+            )
+          }
+        >
+          {confirm === app && (
+            <Caution>
+              <b>Run this only if you trust where it came from.</b> It was added to your synced
+              settings and runs with your access: it can read, change or delete anything you can.
+              The command is: <code>{script.command}</code>
+            </Caution>
+          )}
+        </Row>
+      ))}
+    </Group>
+  );
+}
+
 export function SyncPane({ s }: { s: SyncState }) {
   const ov = s.overview;
   if (s.conflict) {
@@ -281,6 +335,7 @@ export function SyncPane({ s }: { s: SyncState }) {
               </div>
             </Group>
           )}
+          {s.scripted.length > 0 && s.idle && <ScriptedApps s={s} />}
           {showPlugins && (
             <Group
               title="Plugins Waiting to Add"

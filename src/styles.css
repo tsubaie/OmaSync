@@ -526,6 +526,79 @@ output {
 .field input[data-disabled] {
   opacity: 0.5;
 }
+/* Multi-line fields, like an app's install steps: monospace, one command per line. */
+.field textarea {
+  font:
+    12px/1.5 ui-monospace,
+    'JetBrains Mono',
+    monospace;
+  color: var(--ink);
+  width: 100%;
+  min-height: 96px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  outline: none;
+  resize: vertical;
+  background: var(--bg);
+  border: 0;
+  box-shadow:
+    inset 0 0 0 0.5px var(--line),
+    inset 0 1px 2px rgb(0 0 0 / 0.12);
+}
+.field textarea[data-focused] {
+  box-shadow: var(--focus);
+}
+.caution pre {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* A field with its label above and a hint below, as in the install-script form. */
+.field.labelled {
+  display: grid;
+  gap: 4px;
+}
+.field.labelled label {
+  font-size: 12px;
+  font-weight: 500;
+}
+.field.labelled input {
+  width: 100%;
+}
+.field.labelled [slot='description'] {
+  font-size: 11px;
+  color: var(--quiet);
+}
+/* A warning before something risky: tinted in the warning colour, never hidden. */
+.caution {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--warn) 45%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.caution svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--warn);
+}
+.caution p {
+  margin: 0;
+}
+.script-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+  max-width: 420px;
+}
 .search input {
   width: 100%;
   padding-left: 30px;

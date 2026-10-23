@@ -163,8 +163,8 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
   const rows = page.locator('.matrix:not(.head) .text > div:first-child');
-  await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
-  await expect(page.getByText('Only on this computer')).toBeVisible();
+  await expect(rows).toHaveText(['brave-bin', 'quicknote', 'spotify', 'tapecalc', 'yazi']);
+  await expect(page.getByText('Only on this computer').first()).toBeVisible();
   const desk = page.getByRole('switch', { name: 'spotify synced on Desktop' });
   await expect(desk).not.toBeChecked();
   // Switching Desktop on shares it, and this computer (which has it) comes along.
@@ -172,7 +172,7 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await page.keyboard.press('Space');
   await expect(desk).toBeChecked();
   await expect(page.getByRole('switch', { name: 'spotify synced on This Computer' })).toBeChecked();
-  await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
+  await expect(rows).toHaveText(['brave-bin', 'quicknote', 'spotify', 'tapecalc', 'yazi']);
   const banner = page.getByText('Your other computers get this change the next time you sync.');
   await expect(banner).toBeVisible();
   // Every computer switched off again: nothing is left to share, so the banner goes away.
@@ -209,5 +209,74 @@ test('each plugin is switched on per computer, like apps', async ({ page }) => {
   await expect(desk).not.toBeChecked();
   expect(await calls(page, 'set_plugin')).toEqual([
     { cmd: 'set_plugin', args: { computer: 'bbbb33334444', plugin: 'webcam', on: false } },
+  ]);
+});
+
+test('an app from outside the repos syncs only once it has an install command', async ({
+  page,
+}) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'Installed Apps' }).click();
+  await expect(
+    page.getByText("Not in Arch's repos or the AUR. Add its install steps to sync it."),
+  ).toBeVisible();
+  // Every switch stays locked until it has one, this computer's too.
+  const here = page.getByRole('switch', { name: 'tapecalc synced on This Computer' });
+  const desk = page.getByRole('switch', { name: 'tapecalc synced on Desktop' });
+  await expect(here).toBeDisabled();
+  await expect(desk).toBeDisabled();
+
+  // One field, empty: the person types the command that installs it.
+  await page.getByRole('button', { name: 'Add Install Steps…' }).click();
+  const command = page.getByRole('textbox', { name: 'Install steps' });
+  await expect(command).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Save Install Steps' })).toBeDisabled();
+  await command.fill('git clone https://example.com/tapecalc\ncd tapecalc\n./install.sh');
+  expect(await a11y(page)).toEqual([]);
+  await page.getByRole('button', { name: 'Save Install Steps' }).click();
+  expect(await calls(page, 'set_app_script')).toEqual([
+    {
+      cmd: 'set_app_script',
+      args: {
+        app: 'tapecalc',
+        command: 'git clone https://example.com/tapecalc\ncd tapecalc\n./install.sh',
+      },
+    },
+  ]);
+  await expect(
+    page.getByText(
+      "Not in Arch's repos or the AUR. Installs with 3 steps, starting “git clone https://example.com/tapecalc”.",
+    ),
+  ).toBeVisible();
+  await expect(here).toBeEnabled();
+  await expect(desk).toBeEnabled();
+});
+
+test('an install command runs only after a warning and a second yes', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  const waiting = page.getByRole('region', { name: 'Apps to Install with Their Steps' });
+  await expect(waiting.getByText('quicknote', { exact: true })).toBeVisible();
+  await waiting.getByRole('button', { name: 'Install…' }).click();
+  await expect(waiting.getByText('Run this only if you trust where it came from.')).toBeVisible();
+  await expect(waiting.locator('code')).toHaveText(
+    'curl -fsSL https://example.com/quicknote.sh | bash',
+  );
+  expect(await calls(page, 'install_with_script')).toEqual([]);
+  expect(await a11y(page)).toEqual([]);
+  await waiting.getByRole('button', { name: 'Run It' }).click();
+  expect(await calls(page, 'install_with_script')).toEqual([
+    expect.objectContaining({ args: expect.objectContaining({ app: 'quicknote' }) }),
+  ]);
+});
+
+test('the bar indicator is off until it is switched on in Settings', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.keyboard.press('Control+7');
+  const bar = page.getByRole('switch', { name: 'Show in the bar' });
+  await expect(bar).not.toBeChecked();
+  await bar.focus();
+  await page.keyboard.press('Space');
+  expect(await calls(page, 'set_bar_indicator')).toEqual([
+    { cmd: 'set_bar_indicator', args: { on: true } },
   ]);
 });

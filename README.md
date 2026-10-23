@@ -117,7 +117,9 @@ If another computer already uses this computer's name (Omarchy names every compu
 
 **Automatic syncing.** Omarchy Sync syncs every 15 minutes, even with the window closed. It only notifies you when something needs you: a choice between two versions, apps or plugins waiting to be added, or syncing failing twice in a row. Turn it off per computer in **Settings**.
 
-**Choosing what syncs.** **Configurations** and **App Data** list everything that can sync, each with a switch. **Keep a Separate Version Here** lets one computer keep its own version of something while the others stay in step.
+**On your bar.** Turn on **Settings → Show in the bar** for a small indicator: dim when everything is in step, turning while syncing, and in the alert colour when something waits for you, with the reason in its tooltip. Click it to open Omarchy Sync. Switching it off removes it from your bar.
+
+**Choosing what syncs.** **Configurations** and **App Data** list everything that can sync, each with a switch: off stops syncing it everywhere. **Don't Sync on This Computer** leaves only this computer out: it keeps its own version while the others stay in step.
 
 **Apps and plugins.** In **Installed Apps** and **Plugins**, each computer has its own switch:
 
@@ -125,6 +127,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 - When a synced app or plugin isn't on this computer yet, it waits on the Sync screen with **Install** (or **Add**) and **Not Now**, and you get a notification.
 - To skip the waiting, turn on **Add synced apps and plugins without asking** in Settings.
 - Switching anything off never uninstalls it.
+- Apps that aren't in Arch's repos or the AUR (ones you built from your own repository, say) can't install through `yay`. Their row says so and offers **Add Install Steps…**: the commands that install it, one per line, such as cloning its repository, building it and running its install script. They run in order and stop at the first step that fails. Other computers then offer **Install**, which runs it in an empty folder in a terminal window you can watch. Without one, the app stays on the computers that have it.
 
 **When two computers changed the same thing.** You get two equal choices, **Keep This Computer's Version** or **Keep Desktop's Version**, each saying when it changed. Changes to the choices themselves (which apps, which plugins) never ask: they're merged automatically.
 
@@ -227,7 +230,7 @@ flowchart LR
 
 **Will it uninstall apps or delete files?** No. Switching something off only stops syncing it.
 
-**Why is something on one computer missing on another?** Check its switch on that computer (or **Keep a Separate Version Here**), and whether it's waiting on the Sync screen for your yes.
+**Why is something on one computer missing on another?** Check its switch on that computer (or **Don't Sync on This Computer**), and whether it's waiting on the Sync screen for your yes.
 
 **Is this an official Omarchy project?** No. It's a community app, not affiliated with or endorsed by Omarchy.
 
