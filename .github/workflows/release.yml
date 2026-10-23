@@ -57,7 +57,12 @@ jobs:
       # own cargo home, so it only packages (-R). -d: cargo, node and pnpm come from the actions,
       # not pacman, so the makedepends check is skipped.
       - name: Build
-        run: pnpm install --frozen-lockfile && pnpm build && cargo build --release --locked --manifest-path src-tauri/Cargo.toml
+        run: pnpm install --frozen-lockfile && pnpm build && cargo build --release --locked --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol
+      # Without tauri/custom-protocol the binary opens the Vite dev address instead of the
+      # embedded page and shows a white window (v0.1.0 shipped that way). The page's hashed asset
+      # paths are only in the binary when it's embedded.
+      - name: The page is embedded, not the dev server
+        run: grep -aq '/assets/index-' src-tauri/target/release/omarchy-sync
       - name: Package
         run: |
           useradd -m builder
