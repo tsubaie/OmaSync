@@ -15,7 +15,7 @@ import { HistoryPane } from './panes/HistoryPane';
 import { NoticeLine } from './panes/NoticeLine';
 import { SettingsPane } from './panes/SettingsPane';
 import { Setup } from './panes/Setup';
-import { SyncPane } from './panes/SyncPane';
+import { status, SyncPane } from './panes/SyncPane';
 import { type Tab as TabId, useSync } from './state';
 import { Push, Tile } from './ui';
 
@@ -63,7 +63,8 @@ export function App() {
   // A macOS-style source list: the sidebar is a vertical tab list (arrow keys move between sections).
   return (
     <Tabs
-      className={`window ${s.busy ? 'busy' : ''}`}
+      // The state's colour lights the content layer, which the glass sidebar picks up.
+      className={`window ${status(s)[3]} ${s.busy ? 'busy' : ''}`}
       orientation="vertical"
       selectedKey={s.tab}
       onSelectionChange={(k) => s.setTab(k as TabId)}
