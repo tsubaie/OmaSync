@@ -1,5 +1,6 @@
 #!/bin/bash
 # Only records the call: nothing on the system changes during the tests.
 . "$(dirname "$0")/_record"
-[ "$1" = --version ] && echo "fake (e2e)"
+# Like the real one, which answers --version with its usage and exit code 1.
+[ "$1" = --version ] && { echo "Usage: omarchy-shell <target> <method> [args...]"; exit 1; }
 exit 0
