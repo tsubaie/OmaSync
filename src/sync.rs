@@ -333,6 +333,7 @@ pub enum Prefer {
     OtherComputer,
 }
 
+#[derive(Debug, Clone)]
 pub enum SyncError {
     /// Same lines changed on two computers; holds the affected paths under home.
     Conflict(Vec<String>),
