@@ -1151,3 +1151,29 @@ fn a_choices_file_that_cant_be_read_stops_the_sync_instead_of_resetting_everythi
     assert_eq!(lab.data("b").folders, before.folders);
     assert_eq!(lab.data("b").computers.len(), 2);
 }
+
+#[test]
+#[ignore]
+fn a_switch_flipped_during_a_sync_waits_for_it_instead_of_being_lost() {
+    let mut lab = pair();
+    let ctx = lab.ctx("a").clone();
+    // The background timer is mid-sync (it holds the lock); the person flips a switch.
+    let lock = ctx.src.join(".git/omarchy-sync.lock");
+    let held = std::fs::File::create(&lock).unwrap();
+    held.lock().unwrap();
+    let started = std::time::Instant::now();
+    std::thread::scope(|s| {
+        s.spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            drop(held);
+        });
+        edit(&ctx, |d, host| {
+            d.set_folder_here(host, ".config/alacritty", false)
+        })
+        .unwrap();
+    });
+    assert!(started.elapsed() >= std::time::Duration::from_millis(300));
+    assert!(!lab.data("a").uses_folder("a", ".config/alacritty"));
+    lab.sync_ok("a");
+    assert!(!lab.data("a").uses_folder("a", ".config/alacritty"));
+}

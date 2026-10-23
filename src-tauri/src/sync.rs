@@ -1493,6 +1493,18 @@ pub(crate) fn lock_wait(ctx: &Ctx) -> Result<std::fs::File, String> {
     Ok(file)
 }
 
+/// Loads the shared choices, applies one change and saves them, once any running sync (the
+/// background timer's, say) is done: a switch flipped during a sync would otherwise be saved
+/// over by it, then committed and pushed as the old value.
+pub fn edit(ctx: &Ctx, change: impl FnOnce(&mut Data, &str)) -> Result<Data, String> {
+    let _lock = lock_wait(ctx)?;
+    ctx.data_readable()?;
+    let mut data = ctx.load_data();
+    change(&mut data, &ctx.host);
+    ctx.save_data(&data)?;
+    Ok(data)
+}
+
 /// Commits this computer's current files (and theme) so nothing local is ever overwritten unsaved.
 /// Returns this computer's new name when it had to differ from the hostname, which another
 /// computer already uses.
@@ -3184,6 +3196,7 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
 /// Takes other computers' plugins onto this one: it now counts as having them, so the ignore
 /// rules let them through, and they're written out straight away.
 pub fn install_plugins(ctx: &Ctx, ids: &[String]) -> Result<(), String> {
+    let _lock = lock_wait(ctx)?;
     let mut data = ctx.load_data();
     let me = data.computers.entry(ctx.host.clone()).or_default();
     for id in ids {

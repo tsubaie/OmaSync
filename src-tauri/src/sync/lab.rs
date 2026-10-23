@@ -354,10 +354,7 @@ impl Lab {
 
     /// Changes the shared choices, as the page's commands do.
     pub fn edit(&mut self, name: &str, change: impl FnOnce(&mut Data, &str)) {
-        let ctx = self.ctx(name).clone();
-        let mut data = ctx.load_data();
-        change(&mut data, &ctx.host);
-        ctx.save_data(&data).unwrap();
+        edit(self.ctx(name), change).unwrap();
     }
 
     /// A folder's switch, in the order the `set_folder` command uses.
