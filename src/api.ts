@@ -137,7 +137,6 @@ export type Keep = 'Mine' | 'Theirs';
 export type Problem =
   { kind: 'Failed'; message: string; details: string } | ({ kind: 'Conflict' } & Conflict);
 
-export type Prefer = 'Ask' | 'ThisComputer' | 'OtherComputer';
 type OnStep = (step: string) => void;
 
 const steps = (onStep: OnStep) => new Channel<string>(onStep);
@@ -152,8 +151,7 @@ export const api = {
   /** Settles a clash with the version chosen for each clashing file, then syncs. */
   resolveConflict: (choices: Record<string, Keep>, onStep: OnStep) =>
     invoke<Report>('resolve_conflict', { choices, onStep: steps(onStep) }),
-  syncNow: (prefer: Prefer, onStep: OnStep) =>
-    invoke<Report>('sync_now', { prefer, onStep: steps(onStep) }),
+  syncNow: (onStep: OnStep) => invoke<Report>('sync_now', { onStep: steps(onStep) }),
   undo: (sha: string, onStep: OnStep) => invoke<Report>('undo', { sha, onStep: steps(onStep) }),
   installHelpers: () => invoke<void>('install_helpers'),
   signIn: () => invoke<void>('sign_in'),

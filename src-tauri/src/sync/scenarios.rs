@@ -697,7 +697,7 @@ fn a_sync_waits_for_the_one_already_running() {
             std::thread::sleep(std::time::Duration::from_millis(300));
             drop(held);
         });
-        sync(&ctx, Prefer::Ask, false, &|step| {
+        sync(&ctx, false, &|step| {
             steps.borrow_mut().push(step.to_string())
         })
         .unwrap();

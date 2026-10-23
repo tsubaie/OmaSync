@@ -35,9 +35,7 @@ test('sync pane shows the state and syncs on request', async ({ page }) => {
   await page.getByRole('button', { name: 'Sync Now' }).click();
   // Success is a toast that slides away.
   await expect(page.locator('.toast').getByText('Synced')).toBeVisible();
-  expect(await calls(page, 'sync_now')).toEqual([
-    expect.objectContaining({ args: expect.objectContaining({ prefer: 'Ask' }) }),
-  ]);
+  expect(await calls(page, 'sync_now')).toHaveLength(1);
 });
 
 test('a sync shows its steps once, then clears them', async ({ page }) => {

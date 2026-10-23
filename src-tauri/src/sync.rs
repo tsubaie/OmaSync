@@ -1427,13 +1427,6 @@ fn commit(ctx: &Ctx) -> Result<(), String> {
     .map(|_| ())
 }
 
-#[derive(Clone, Copy, PartialEq, Debug, Deserialize)]
-pub enum Prefer {
-    Ask,
-    ThisComputer,
-    OtherComputer,
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", content = "detail")]
 pub enum SyncError {
@@ -1853,7 +1846,7 @@ pub fn resolve(
         saved_first
     };
     // Joined: the rest is an ordinary sync (apply here, share, apps and plugins).
-    let mut report = sync(ctx, Prefer::Ask, install, step)?;
+    let mut report = sync(ctx, install, step)?;
     report.notes.splice(0..0, saved_first);
     Ok(report)
 }
@@ -2014,14 +2007,9 @@ fn save_newly_synced(ctx: &Ctx, synced_before: &[String]) -> Result<Option<Strin
 }
 
 /// Syncs, and records how it went for the bar indicator (see `write_status`).
-pub fn sync(
-    ctx: &Ctx,
-    prefer: Prefer,
-    install: bool,
-    step: &dyn Fn(&str),
-) -> Result<Report, SyncError> {
+pub fn sync(ctx: &Ctx, install: bool, step: &dyn Fn(&str)) -> Result<Report, SyncError> {
     write_status(ctx, "syncing", "Syncing…");
-    let result = sync_inner(ctx, prefer, install, step);
+    let result = sync_inner(ctx, install, step);
     match &result {
         Ok(_) => {
             let data = ctx.load_data();
@@ -2147,12 +2135,7 @@ pub fn set_bar_indicator(ctx: &Ctx, on: bool) -> Result<(), String> {
     }
 }
 
-fn sync_inner(
-    ctx: &Ctx,
-    prefer: Prefer,
-    install: bool,
-    step: &dyn Fn(&str),
-) -> Result<Report, SyncError> {
+fn sync_inner(ctx: &Ctx, install: bool, step: &dyn Fn(&str)) -> Result<Report, SyncError> {
     let fail = SyncError::Failed;
     // One sync at a time: one already running (the background timer's) finishes first.
     let _lock = match lock(ctx) {
@@ -2203,19 +2186,11 @@ fn sync_inner(
         let caught_up = ctx
             .git(&["merge-base", "--is-ancestor", "@{u}", "HEAD"])
             .is_ok();
-        let mut args = vec!["rebase", "-q"];
-        // During a rebase, "theirs" is this computer's commits and "ours" is what came from GitHub.
-        match prefer {
-            Prefer::ThisComputer => args.extend(["-X", "theirs"]),
-            Prefer::OtherComputer => args.extend(["-X", "ours"]),
-            Prefer::Ask => {}
-        }
-        args.push("@{u}");
         let before = ctx.git(&["rev-parse", "HEAD"]).map_err(fail)?;
         let replayed = if caught_up {
             Ok(String::new())
         } else {
-            ctx.git(&args)
+            ctx.git(&["rebase", "-q", "@{u}"])
         };
         if let Err(e) = replayed {
             if !ctx.rebasing() {
@@ -3044,7 +3019,7 @@ pub fn background(ctx: &Ctx) {
         return;
     }
     let mut state = read_state(ctx);
-    let outcome = match sync(ctx, Prefer::Ask, me.install_without_asking, &|_| {}) {
+    let outcome = match sync(ctx, me.install_without_asking, &|_| {}) {
         Ok(report) => {
             // Apps, and plugins other computers have, that wait for a yes here.
             let data = ctx.load_data();

@@ -249,7 +249,7 @@ function ConflictGroup({ s }: { s: SyncState }) {
         <Push
           prominent
           disabled={left > 0 || !s.idle}
-          onPress={() => s.sync('Ask', undefined, false, choices)}
+          onPress={() => s.sync(undefined, false, choices)}
         >
           {left > 0 ? `Choose ${left} More` : 'Keep Chosen Versions'}
         </Push>

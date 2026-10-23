@@ -59,7 +59,7 @@ export function HistoryPane({ s }: { s: SyncState }) {
                 disabled={!s.idle}
                 onPress={() => {
                   s.setConfirmUndo(null);
-                  s.sync('Ask', e.sha);
+                  s.sync(e.sha);
                 }}
               >
                 Undo on All Computers
