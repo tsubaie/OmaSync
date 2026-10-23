@@ -1302,3 +1302,34 @@ fn a_forgotten_computer_and_a_renamed_one_both_survive_syncing_at_once() {
     // c comes back as soon as it syncs again, as before.
     assert!(computers.contains_key("c"));
 }
+
+#[test]
+#[ignore]
+fn a_plugin_that_is_a_symlink_stops_being_shared_cleanly() {
+    let mut lab = pair();
+    lab.write("a", "Code/link/manifest.json", r#"{"name":"Link"}"#);
+    let home = lab.ctx("a").home.clone();
+    std::os::unix::fs::symlink(
+        home.join("Code/link"),
+        home.join(".config/omarchy/plugins/link"),
+    )
+    .unwrap();
+    lab.edit("a", |d, host| d.place_plugin(host, "link", true));
+    track_plugin(lab.ctx("a"), "link", true).unwrap();
+    lab.sync_ok("a");
+    let source = lab
+        .ctx("a")
+        .src
+        .join("dot_config/omarchy/plugins/symlink_link");
+    assert!(source.exists());
+    assert_eq!(
+        source_to_target("dot_config/omarchy/plugins/symlink_link"),
+        ".config/omarchy/plugins/link"
+    );
+    // Switched off: its symlink entry leaves the sync folder like a folder would.
+    lab.edit("a", |d, host| d.place_plugin(host, "link", false));
+    track_plugin(lab.ctx("a"), "link", false).unwrap();
+    assert!(!source.exists());
+    lab.sync_ok("a");
+    assert!(lab.exists("a", ".config/omarchy/plugins/link/manifest.json"));
+}
