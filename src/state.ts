@@ -122,6 +122,13 @@ export function useSync() {
     }
   }
 
+  /** A small confirmation that fades after a moment, for a success with nothing more to say. */
+  function flash(text: string) {
+    const id = Date.now();
+    setToast({ id, text });
+    setTimeout(() => setToast((t) => (t?.id === id ? null : t)), 3000);
+  }
+
   function endRound() {
     setSteps([]);
     setPlan([]);
@@ -210,9 +217,7 @@ export function useSync() {
       if (report) {
         // Success is a small toast; anything worth reading (apps installed or not) stays on screen.
         if (report.notes.length) setNotice({ good: true, text: report.notes.join(' ') });
-        const id = Date.now();
-        setToast({ id, text: undoSha ? 'Undone' : 'Synced' });
-        setTimeout(() => setToast((t) => (t?.id === id ? null : t)), 3000);
+        flash(undoSha ? 'Undone' : 'Synced');
         setConflict(null);
         setPending(false);
       }
@@ -410,6 +415,7 @@ export function useSync() {
     dismissedPlugins,
     setDismissedPlugins,
     fail,
+    flash,
     probe,
     finishSetup,
     refresh,

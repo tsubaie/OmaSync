@@ -384,6 +384,19 @@ output {
 .detail.warn {
   color: var(--warn);
 }
+/* A state inside a detail line, with its small mark: up to date, or something to fetch. */
+.detail .good,
+.detail .accent {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.detail .good {
+  color: var(--good);
+}
+.detail .accent {
+  color: var(--accent);
+}
 .actions {
   display: flex;
   justify-content: flex-end;

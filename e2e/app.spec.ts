@@ -422,3 +422,15 @@ test('a copy built from source says how it updates instead', async ({ page }) =>
   await expect(updates.getByText('Built from source', { exact: true })).toBeVisible();
   await expect(updates.getByRole('button', { name: 'Check for Updates' })).toHaveCount(0);
 });
+
+test('checking for updates says so when this copy is the latest', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
+  await page.keyboard.press('Control+8');
+  const updates = page.getByRole('region', { name: 'Updates' });
+  await updates.getByRole('button', { name: 'Check for Updates' }).click();
+  await expect(updates.getByText('You have the latest version.')).toBeVisible();
+  await expect(page.locator('.toast')).toHaveText('You have the latest version');
+  await expect(updates.getByRole('button', { name: 'Check Again' })).toBeVisible();
+  expect(await calls(page, 'check_update')).toHaveLength(1);
+});
