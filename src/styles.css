@@ -50,18 +50,26 @@
   --shadow-lg: var(--edge), 0 2px 8px rgb(0 0 0 / 0.16), 0 8px 30px rgb(0 0 0 / 0.28);
   --highlight: inset 0 0.5px 0 rgb(255 255 255 / 0.07);
 
-  --sidebar-alpha: 66%;
+  /* Glass: the window behind the sidebar lets Hyprland's blur of the desktop through, and the
+     sidebar is a translucent layer on top. Sidebars use Apple's more opaque "regular" variant,
+     so the wallpaper only tints them and text stays readable. */
+  --window-alpha: 64%;
+  --glass-alpha: 46%;
+  --rim: rgb(255 255 255 / 0.28);
   --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 :root[style*='color-scheme: light'] {
+  --rim: rgb(255 255 255 / 0.9);
   --edge: 0 0 0 0.5px rgb(0 0 0 / 0.06);
   --shadow-sm: var(--edge), 0 1px 2px rgb(0 0 0 / 0.06);
   --shadow-md: var(--edge), 0 4px 16px rgb(0 0 0 / 0.1);
   --shadow-lg: var(--edge), 0 2px 8px rgb(0 0 0 / 0.08), 0 8px 30px rgb(0 0 0 / 0.14);
   --highlight: inset 0 0.5px 0 rgb(255 255 255 / 0.8);
 }
+/* No blur behind the window (Hyprland blur off): solid surfaces instead of see-through ones. */
 .no-blur {
-  --sidebar-alpha: 100%;
+  --window-alpha: 100%;
+  --glass-alpha: 100%;
 }
 
 * {
@@ -112,26 +120,53 @@ output {
   display: grid;
   grid-template-columns: 232px 1fr;
   height: 100vh;
-  background: var(--bg);
+  /* The window's own material: slightly see-through so the desktop tints the sidebar area. */
+  background: color-mix(in srgb, var(--bg) var(--window-alpha), transparent);
 }
 
 /* A floating, inset sidebar panel, as in macOS 26. See-through so Hyprland's blur shows the
    desktop behind the window, with a saturation boost so colours behind it stay lively. */
+/* Liquid Glass sidebar: a translucent fill with a saturation boost, a light sheen across the top,
+   a specular rim that is brightest at the top-left edge, and a soft shadow lifting it off the
+   window. Refraction itself can't be drawn in a web view; the rim and sheen carry the effect. */
 .sidebar {
+  position: relative;
   margin: 8px 0 8px 8px;
   padding: 10px 8px;
-  border-radius: 16px;
-  background: color-mix(
-    in srgb,
-    color-mix(in srgb, var(--bg), var(--ink) 7%) var(--sidebar-alpha),
-    transparent
-  );
-  backdrop-filter: saturate(180%) blur(20px);
-  box-shadow: var(--shadow-md), var(--highlight);
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.07), transparent 35%),
+    color-mix(in srgb, color-mix(in srgb, var(--bg), var(--ink) 9%) var(--glass-alpha), transparent);
+  backdrop-filter: saturate(180%) blur(30px);
+  box-shadow:
+    var(--shadow-md),
+    inset 0 1px 0 color-mix(in srgb, var(--rim) 60%, transparent);
   display: flex;
   flex-direction: column;
   gap: 2px;
   overflow-y: auto;
+}
+.sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    150deg,
+    var(--rim),
+    color-mix(in srgb, var(--rim) 25%, transparent) 30%,
+    transparent 55%,
+    color-mix(in srgb, var(--rim) 35%, transparent)
+  );
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.no-blur .sidebar {
+  background: color-mix(in srgb, var(--bg), var(--ink) 7%);
 }
 .nav {
   display: flex;
@@ -155,9 +190,11 @@ output {
   box-shadow: var(--focus);
 }
 
+/* Content stays solid: glass belongs to the controls layer only. */
 .pane-wrap {
   min-width: 0;
   outline: none;
+  background: var(--bg);
 }
 .pane {
   height: 100vh;
