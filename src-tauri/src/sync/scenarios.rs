@@ -1128,3 +1128,26 @@ fn undo_never_puts_back_a_file_that_is_switched_off() {
     );
     lab.settle();
 }
+
+#[test]
+#[ignore]
+fn a_choices_file_that_cant_be_read_stops_the_sync_instead_of_resetting_everything() {
+    let mut lab = pair();
+    lab.join("b");
+    let before = lab.data("a");
+    let saves = lab.history("a").len();
+    // A hand edit with a typo (or half a file): the sync refuses, nothing is committed.
+    let path = lab.ctx("a").data_path();
+    let good = std::fs::read_to_string(&path).unwrap();
+    std::fs::write(&path, "folders: [\n  oops").unwrap();
+    let e = lab.sync_fails("a");
+    assert!(e.contains("can't be read"), "{e}");
+    assert!(friendly(&e).contains("sync choices"));
+    assert_eq!(lab.history("a").len(), saves);
+    // Put right, it syncs again with every choice still there, here and on b.
+    std::fs::write(&path, good).unwrap();
+    lab.sync_ok("a");
+    lab.settle();
+    assert_eq!(lab.data("b").folders, before.folders);
+    assert_eq!(lab.data("b").computers.len(), 2);
+}
