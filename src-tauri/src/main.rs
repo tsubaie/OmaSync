@@ -675,11 +675,12 @@ async fn install_update(
         update::install(ctx, &latest.version, &step)?;
         step("Restarting Omarchy Sync");
         // Only once this process is gone: a copy started while this window is still closing
-        // would find it, hand itself over to it and exit, leaving nothing open.
+        // would find it, hand itself over to it and exit, leaving nothing open. After 30
+        // seconds it starts anyway; an old window still open then merely gets focused.
         std::process::Command::new("sh")
             .args([
                 "-c",
-                "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; exec \"$0\"",
+                "i=0; while kill -0 \"$1\" 2>/dev/null && [ $((i += 1)) -lt 150 ]; do sleep 0.2; done; exec \"$0\"",
                 &update::exe_path(),
                 &std::process::id().to_string(),
             ])

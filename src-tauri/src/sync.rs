@@ -3959,6 +3959,15 @@ mod tests {
     }
 
     #[test]
+    fn friendly_picks_the_sentence_by_cause() {
+        let verify = "attestation: gh attestation verify x: To get started with GitHub CLI, please run: gh auth login";
+        assert!(friendly(verify).starts_with("Not signed in to GitHub"));
+        assert!(friendly("checksum: sha256sum -c: x: FAILED").starts_with("The downloaded update"));
+        assert!(friendly("0.1.2 isn't the latest release").starts_with("A newer release appeared"));
+        assert!(friendly("curl: Could not resolve host").starts_with("Couldn't reach GitHub"));
+    }
+
+    #[test]
     fn labels_and_time() {
         assert_eq!(label(".config/hypr/bindings.lua"), "Keyboard shortcuts");
         assert_eq!(label(".config/hyprx/a"), ".config/hyprx/a");
