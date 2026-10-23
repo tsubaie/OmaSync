@@ -47,7 +47,7 @@ export function AppsPane({ s }: { s: SyncState }) {
             <div className="row matrix head" style={columns} aria-hidden="true">
               <span>App</span>
               {computers.map((c) => (
-                <span key={c}>{name(c)}</span>
+                <span key={c}>Synced on {name(c)}</span>
               ))}
             </div>
             {shown.map((app) => {
@@ -66,10 +66,10 @@ export function AppsPane({ s }: { s: SyncState }) {
                   </div>
                   {computers.map((c) => (
                     <div className="cell" key={c}>
-                      <span className="cell-label">{name(c)}</span>
+                      <span className="cell-label">Synced on {name(c)}</span>
                       <Toggle
                         on={s.wants(c, app)}
-                        label={`${app} on ${name(c)}`}
+                        label={`${app} synced on ${name(c)}`}
                         disabled={!s.idle}
                         onChange={(on) => s.edit(() => api.setApp(c, app, on))}
                       />

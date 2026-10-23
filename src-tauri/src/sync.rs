@@ -28,7 +28,7 @@ pub const FOLDERS: &[(&str, &str, bool)] = &[
     ),
     (
         ".local/share/applications",
-        "Web apps and app shortcuts",
+        "Web apps and their icons",
         true,
     ),
     (".config/alacritty", "Alacritty terminal", true),
@@ -63,20 +63,41 @@ const IGNORE: &str = r#"**/.git
 {{- end }}
 {{- end }}
 {{- $c := get .computers (env "OMARCHY_SYNC_HOST" | default (include "/etc/machine-id" | trim | trunc 12)) | default dict }}
-{{- range get $c "skip_files" | default list }}
+{{- $skipFiles := get $c "skip_files" | default list }}
+{{- range $skipFiles }}
 {{ . }}
 {{- end }}
 {{- $mine := get $c "plugins" | default list }}
 {{- $skip := get $c "skip_plugins" | default list }}
 .config/omarchy/plugins/*
 .config/omarchy/plugins/*/**
+{{- /* Exceptions win over every other rule, so they're only made while the folder syncs here. */}}
+{{- if and (has ".config/omarchy/plugins" .folders) (not (has ".config/omarchy" $skipFiles)) (not (has ".config/omarchy/plugins" $skipFiles)) }}
 {{- range .plugins | default list }}
 {{- if and (has . $mine) (not (has . $skip)) }}
 !.config/omarchy/plugins/{{ . }}
 !.config/omarchy/plugins/{{ . }}/**
 {{- end }}
 {{- end }}
+{{- end }}
+.local/share/applications/*
+.local/share/icons/hicolor/256x256/apps/*
+{{- if and (has ".local/share/applications" .folders) (not (has ".local/share/applications" $skipFiles)) }}
+{{- range $id, $other := .computers }}
+{{- range get $other "web_apps" | default list }}
+!.local/share/applications/{{ . }}
+{{- end }}
+{{- range get $other "web_icons" | default list }}
+!.local/share/icons/hicolor/256x256/apps/{{ . }}
+{{- end }}
+{{- end }}
+{{- end }}
 "#;
+
+/// Web app shortcuts, and where omarchy-webapp-install keeps the icons it downloads for them.
+/// Only web apps and their icons sync from these: not other shortcuts or caches.
+const APPS_DIR: &str = ".local/share/applications";
+const ICON_DIR: &str = ".local/share/icons/hicolor/256x256/apps";
 
 /// Where Omarchy shell plugins live; each one is a folder named by its ID.
 pub const PLUGIN_DIR: &str = ".config/omarchy/plugins";
@@ -131,6 +152,11 @@ pub struct Computer {
     /// Synced plugins this computer doesn't want.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skip_plugins: Vec<String>,
+    /// The web app shortcuts on this computer, and their icon files; every computer gets them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub web_apps: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub web_icons: Vec<String>,
     /// Turns off the background timer for this computer.
     #[serde(default, skip_serializing_if = "is_false")]
     pub manual: bool,
@@ -444,6 +470,14 @@ impl Data {
     }
 }
 
+/// A plain file name, safe to write into the ignore rules: no folders, wildcards or rule syntax.
+fn is_file_name(n: &str) -> bool {
+    !n.is_empty()
+        && !n.starts_with(['.', '!', '#'])
+        && !n.contains(['/', '\\', '*', '?', '[', ']', '{', '}'])
+        && !n.chars().any(char::is_control)
+}
+
 pub fn is_plugin_id(id: &str) -> bool {
     !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\'])
 }
@@ -513,6 +547,51 @@ impl Ctx {
     }
 
     /// Plugin folders on this computer.
+    /// Web app shortcuts here (they open omarchy-launch-webapp) and the icon files they use.
+    pub fn local_web_apps(&self) -> (Vec<String>, Vec<String>) {
+        let names = |dir: &str| -> Vec<String> {
+            std::fs::read_dir(self.home.join(dir))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .filter(|n| is_file_name(n))
+                .collect()
+        };
+        let icon_files = names(ICON_DIR);
+        let (mut apps, mut icons) = (Vec::new(), Vec::new());
+        for name in names(APPS_DIR)
+            .into_iter()
+            .filter(|n| n.ends_with(".desktop"))
+        {
+            let text =
+                std::fs::read_to_string(self.home.join(APPS_DIR).join(&name)).unwrap_or_default();
+            let web = text.lines().any(|l| {
+                l.starts_with("Exec=")
+                    && (l.contains("omarchy-launch-webapp") || l.contains("--app="))
+            });
+            if !web {
+                continue;
+            }
+            if let Some(icon) = text.lines().find_map(|l| l.strip_prefix("Icon=")) {
+                icons.extend(
+                    icon_files
+                        .iter()
+                        .filter(|f| {
+                            f.rsplit_once('.')
+                                .is_some_and(|(stem, _)| stem == icon.trim())
+                        })
+                        .cloned(),
+                );
+            }
+            apps.push(name);
+        }
+        apps.sort();
+        icons.sort();
+        icons.dedup();
+        (apps, icons)
+    }
+
     pub fn local_plugins(&self) -> Vec<String> {
         let mut ids: Vec<String> = std::fs::read_dir(self.home.join(PLUGIN_DIR))
             .into_iter()
@@ -632,8 +711,6 @@ pub fn friendly(err: &str) -> String {
         "Couldn't reach GitHub. Check your internet connection, then try again.".into()
     } else if e.contains("pkexec") && (e.contains("dismissed") || e.contains("not authorized")) {
         "The password window was closed, so nothing was installed.".into()
-    } else if e.contains("another sync") {
-        "Another sync is already running. Try again in a moment.".into()
     } else if e.contains("can't undo") {
         "This change can't be undone on its own, because later changes build on it.".into()
     } else if e.contains("rejected") || e.contains("non-fast-forward") {
@@ -804,9 +881,45 @@ fn backup(ctx: &Ctx, folders: &[String]) -> Result<PathBuf, String> {
 // ---------- Syncing ----------
 
 /// Copies this computer's current files into the sync folder (not yet shared).
+/// Takes out of the sync folder whatever in the web app folders isn't a web app or its icon
+/// (other shortcuts, caches, and ones older versions synced).
+fn prune_web_apps(ctx: &Ctx, data: &Data) {
+    let keep = |pick: fn(&Computer) -> &Vec<String>| -> BTreeSet<String> {
+        data.computers
+            .values()
+            .flat_map(|c| pick(c).iter().cloned())
+            .collect()
+    };
+    for (dir, keep) in [
+        (APPS_DIR, keep(|c| &c.web_apps)),
+        (ICON_DIR, keep(|c| &c.web_icons)),
+    ] {
+        let source = ctx
+            .src
+            .join(dir.replace("/.", "/dot_").replacen('.', "dot_", 1));
+        for e in std::fs::read_dir(&source).into_iter().flatten().flatten() {
+            let mut name = e.file_name().to_string_lossy().into_owned();
+            // chezmoi marks file attributes with prefixes on the source name.
+            while let Some(rest) = ["private_", "readonly_", "empty_", "executable_", "literal_"]
+                .iter()
+                .find_map(|p| name.strip_prefix(p))
+            {
+                name = rest.to_string();
+            }
+            if e.path().is_file() && !keep.contains(&name) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+}
+
 fn stage(ctx: &Ctx, data: &Data) -> Result<(), String> {
-    let paths: Vec<String> = data
-        .active_folders(&ctx.host)
+    let mut folders = data.active_folders(&ctx.host);
+    // The icons travel with the web apps.
+    if folders.iter().any(|f| f == APPS_DIR) {
+        folders.push(ICON_DIR.into());
+    }
+    let paths: Vec<String> = folders
         .iter()
         .map(|f| ctx.home.join(f))
         .filter(|p| p.exists())
@@ -877,7 +990,6 @@ fn lock(ctx: &Ctx) -> Result<std::fs::File, String> {
 }
 
 /// Waits for any running sync (window or background timer) to finish, then holds the lock.
-/// Used by the read-mostly overview, which also writes to the sync folder while staging.
 fn lock_wait(ctx: &Ctx) -> Result<std::fs::File, String> {
     let file =
         std::fs::File::create(ctx.src.join(".git/omarchy-sync.lock")).map_err(|e| e.to_string())?;
@@ -904,7 +1016,10 @@ fn save_local(ctx: &Ctx) -> Result<(), String> {
     if let Some(t) = ctx.current_theme() {
         data.theme = Some(t);
     }
-    data.computers.entry(ctx.host.clone()).or_default().plugins = ctx.local_plugins();
+    let me = data.computers.entry(ctx.host.clone()).or_default();
+    me.plugins = ctx.local_plugins();
+    (me.web_apps, me.web_icons) = ctx.local_web_apps();
+    prune_web_apps(ctx, &data);
     ctx.save_data(&data)?;
     stage(ctx, &data)?;
     commit(ctx)
@@ -946,7 +1061,14 @@ pub fn sync(
     step: &dyn Fn(&str),
 ) -> Result<Report, SyncError> {
     let fail = SyncError::Failed;
-    let _lock = lock(ctx).map_err(fail)?;
+    // One sync at a time: one already running (the background timer's) finishes first.
+    let _lock = match lock(ctx) {
+        Ok(l) => l,
+        Err(_) => {
+            step("Waiting for the sync already running");
+            lock_wait(ctx).map_err(fail)?
+        }
+    };
     let mut notes = Vec::new();
 
     step("Saving this computer's changes");
@@ -1138,7 +1260,7 @@ pub fn source_to_target(path: &str) -> String {
 
 /// Reverses one earlier change. The caller then syncs, which applies it here and shares it.
 pub fn undo(ctx: &Ctx, sha: &str) -> Result<(), String> {
-    let _lock = lock(ctx)?;
+    let _lock = lock_wait(ctx)?;
     save_local(ctx)?;
     if ctx.git(&["revert", "--no-commit", sha]).is_err() {
         let _ = ctx.git(&["revert", "--abort"]);
@@ -1289,7 +1411,6 @@ pub fn background(ctx: &Ctx) {
                 );
             }
         }
-        Err(SyncError::Failed(e)) if e.contains("another sync") => {}
         Err(SyncError::Failed(e)) => {
             let failures = state
                 .get("failures")
@@ -1615,7 +1736,7 @@ pub fn sync_space(ctx: &Ctx) -> Option<String> {
 /// Stops syncing here: the timer goes off and the local sync folder is moved aside.
 /// Settings on this computer stay exactly as they are. Returns where the folder went.
 pub fn disconnect(ctx: &Ctx) -> Result<PathBuf, String> {
-    let _lock = lock(ctx)?;
+    let _lock = lock_wait(ctx)?;
     schedule(ctx, false)?;
     let dir = ctx.home.join(".local/share/omarchy-sync");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -1626,13 +1747,20 @@ pub fn disconnect(ctx: &Ctx) -> Result<PathBuf, String> {
 
 /// Starts or stops syncing one folder from FOLDERS.
 pub fn track(ctx: &Ctx, folder: &str, on: bool) -> Result<(), String> {
-    let path = ctx.home.join(folder).to_string_lossy().into_owned();
-    let args = if on {
-        vec!["add", path.as_str()]
-    } else {
-        vec!["forget", "--force", path.as_str()]
-    };
-    run(None, "chezmoi", &args).map(|_| ())
+    let mut folders = vec![folder];
+    if folder == APPS_DIR && ctx.home.join(ICON_DIR).exists() {
+        folders.push(ICON_DIR);
+    }
+    for f in folders {
+        let path = ctx.home.join(f).to_string_lossy().into_owned();
+        let args = if on {
+            vec!["add", path.as_str()]
+        } else {
+            vec!["forget", "--force", path.as_str()]
+        };
+        run(None, "chezmoi", &args)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1961,6 +2089,18 @@ mod tests {
         let dock = a.home.join(PLUGIN_DIR).join("dock");
         std::fs::create_dir_all(&dock).unwrap();
         std::fs::write(dock.join("manifest.json"), r#"{"name":"Dock"}"#).unwrap();
+        let (apps, icons) = (a.home.join(APPS_DIR), a.home.join(ICON_DIR));
+        std::fs::create_dir_all(&apps).unwrap();
+        std::fs::create_dir_all(&icons).unwrap();
+        std::fs::write(
+            apps.join("Chat App.desktop"),
+            "[Desktop Entry]\nExec=omarchy-launch-webapp https://chat.example\nIcon=chat\n",
+        )
+        .unwrap();
+        std::fs::write(apps.join("mpv.desktop"), "[Desktop Entry]\nExec=mpv\n").unwrap();
+        std::fs::write(apps.join("mimeinfo.cache"), "cache").unwrap();
+        std::fs::write(icons.join("chat.png"), "png").unwrap();
+        std::fs::write(icons.join("other.png"), "png").unwrap();
         enter(&a);
         seed(&a).unwrap();
         a.git(&["remote", "add", "origin", &remote]).unwrap();
@@ -1972,6 +2112,14 @@ mod tests {
         ok(sync(&b, Prefer::Ask, false, &quiet));
         assert_eq!(read(&b, "bindings.lua"), "a1");
         assert_eq!(read(&b, "monitors.lua"), "screen-b");
+
+        // Only the web app and its icon travel; other shortcuts, caches and icons don't.
+        let on_b = |p: &str| b.home.join(p).exists();
+        assert!(on_b(".local/share/applications/Chat App.desktop"));
+        assert!(on_b(".local/share/icons/hicolor/256x256/apps/chat.png"));
+        assert!(!on_b(".local/share/applications/mpv.desktop"));
+        assert!(!on_b(".local/share/applications/mimeinfo.cache"));
+        assert!(!on_b(".local/share/icons/hicolor/256x256/apps/other.png"));
 
         // A's plugin waits on B until B takes it.
         let b_dock = b.home.join(PLUGIN_DIR).join("dock/manifest.json");

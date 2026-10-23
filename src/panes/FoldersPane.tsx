@@ -103,7 +103,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
               <div className="row matrix head" style={columns} aria-hidden="true">
                 <span>Plugin</span>
                 {computers.map((c) => (
-                  <span key={c}>{name(c)}</span>
+                  <span key={c}>Synced on {name(c)}</span>
                 ))}
               </div>
               {plugins.map((p) => {
@@ -121,10 +121,10 @@ export function PluginsPane({ s }: { s: SyncState }) {
                     </div>
                     {computers.map((c) => (
                       <div className="cell" key={c}>
-                        <span className="cell-label">{name(c)}</span>
+                        <span className="cell-label">Synced on {name(c)}</span>
                         <Toggle
                           on={s.wantsPlugin(c, p.id)}
-                          label={`${p.name} on ${name(c)}`}
+                          label={`${p.name} synced on ${name(c)}`}
                           disabled={!s.idle}
                           onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
                         />

@@ -67,7 +67,7 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
 test('switching an app off for a computer saves the choice', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
-  const yazi = page.getByRole('switch', { name: 'yazi on This Computer' });
+  const yazi = page.getByRole('switch', { name: 'yazi synced on This Computer' });
   await expect(yazi).toBeChecked();
   // Toggle it the way a keyboard user does; it works the same in WebKit and Chromium.
   await yazi.focus();
@@ -142,18 +142,18 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   const rows = page.locator('.matrix:not(.head) .text > div:first-child');
   await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
   await expect(page.getByText('Only on this computer')).toBeVisible();
-  const desk = page.getByRole('switch', { name: 'spotify on Desktop' });
+  const desk = page.getByRole('switch', { name: 'spotify synced on Desktop' });
   await expect(desk).not.toBeChecked();
   // Switching Desktop on shares it, and this computer (which has it) comes along.
   await desk.focus();
   await page.keyboard.press('Space');
   await expect(desk).toBeChecked();
-  await expect(page.getByRole('switch', { name: 'spotify on This Computer' })).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'spotify synced on This Computer' })).toBeChecked();
   await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
   const banner = page.getByText('Your other computers get this change the next time you sync.');
   await expect(banner).toBeVisible();
   // Every computer switched off again: nothing is left to share, so the banner goes away.
-  const here = page.getByRole('switch', { name: 'spotify on This Computer' });
+  const here = page.getByRole('switch', { name: 'spotify synced on This Computer' });
   await page.keyboard.press('Space');
   await here.focus();
   await page.keyboard.press('Space');
@@ -179,7 +179,7 @@ test('only Sync opens until the first check finishes', async ({ page }) => {
 test('each plugin is switched on per computer, like apps', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Plugins' }).click();
-  const desk = page.getByRole('switch', { name: 'Webcam Controls on Desktop' });
+  const desk = page.getByRole('switch', { name: 'Webcam Controls synced on Desktop' });
   await expect(desk).toBeChecked();
   await desk.focus();
   await page.keyboard.press('Space');
