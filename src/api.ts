@@ -3,7 +3,7 @@
 
 import { Channel, invoke } from '@tauri-apps/api/core';
 
-export type Look = { colors_toml: string; motion: boolean; blur: boolean };
+export type Look = { colors_toml: string; motion: boolean };
 export type Folder = { path: string; name: string; default: boolean; exists: boolean };
 export type Catalog = { folders: Folder[]; data_label: string };
 

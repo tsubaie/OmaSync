@@ -116,7 +116,7 @@ mockIPC((cmd, args) => {
   const a = (args ?? {}) as Record<string, never>;
   switch (cmd) {
     case 'look':
-      return { colors_toml: theme === 'light' ? LATTE : '', motion: false, blur: false };
+      return { colors_toml: theme === 'light' ? LATTE : '', motion: false };
     case 'folders':
       return catalog;
     case 'probe':

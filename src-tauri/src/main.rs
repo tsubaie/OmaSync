@@ -85,15 +85,13 @@ fn steps(channel: Channel<String>) -> impl Fn(&str) {
 }
 
 /// What the page needs to dress itself like the desktop: the active Omarchy theme's colours
-/// (the page derives contrast-checked roles from them) and the desktop's motion and blur settings.
+/// (the page derives contrast-checked roles from them) and whether desktop animations are on.
 #[derive(Serialize)]
 struct Look {
     /// The raw `colors.toml` of the active Omarchy theme, empty if there is none.
     colors_toml: String,
     /// Desktop animations are on (Hyprland and GNOME both allow them).
     motion: bool,
-    /// Hyprland blurs behind windows, so see-through surfaces stay legible.
-    blur: bool,
 }
 
 fn output(prog: &str, args: &[&str]) -> Option<String> {
@@ -121,8 +119,6 @@ fn look() -> Look {
         colors_toml: std::fs::read_to_string(state.join("omarchy/current/theme/colors.toml"))
             .unwrap_or_default(),
         motion: !(hypr_off || gnome_off),
-        blur: output("hyprctl", &["getoption", "decoration:blur:enabled", "-j"])
-            .is_some_and(|s| s.contains("\"bool\":true")),
     }
 }
 

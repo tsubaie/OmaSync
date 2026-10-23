@@ -15,9 +15,9 @@ import { HistoryPane } from './panes/HistoryPane';
 import { NoticeLine } from './panes/NoticeLine';
 import { SettingsPane } from './panes/SettingsPane';
 import { Setup } from './panes/Setup';
-import { status, SyncPane } from './panes/SyncPane';
+import { SyncPane } from './panes/SyncPane';
 import { type Tab as TabId, useSync } from './state';
-import { Push, Tile } from './ui';
+import { Push } from './ui';
 
 const SECTIONS: { id: TabId; name: string; icon: LucideIcon }[] = [
   { id: 'sync', name: 'Sync', icon: RefreshCw },
@@ -63,8 +63,7 @@ export function App() {
   // A macOS-style source list: the sidebar is a vertical tab list (arrow keys move between sections).
   return (
     <Tabs
-      // The state's colour lights the content layer, which the glass sidebar picks up.
-      className={`window ${status(s)[3]} ${s.busy ? 'busy' : ''}`}
+      className={`window ${s.busy ? 'busy' : ''}`}
       orientation="vertical"
       selectedKey={s.tab}
       onSelectionChange={(k) => s.setTab(k as TabId)}
@@ -72,7 +71,8 @@ export function App() {
       <TabList className="sidebar" aria-label="Sections">
         {SECTIONS.map((sec) => (
           <Tab key={sec.id} id={sec.id} className="nav" aria-label={sec.name}>
-            <Tile icon={sec.icon} kind={sec.id} />
+            {/* Plain line icons in the text colour, as macOS sidebars draw them. */}
+            <sec.icon size={16} strokeWidth={1.75} aria-hidden="true" />
             <span className="label">{sec.name}</span>
           </Tab>
         ))}

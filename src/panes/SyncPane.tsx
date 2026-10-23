@@ -19,7 +19,7 @@ import { Group, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
 
 /** One fixed set of states, each with a headline, a detail line, an icon and its colour. */
-export function status(s: SyncState): [string, string, LucideIcon, string] {
+function status(s: SyncState): [string, string, LucideIcon, string] {
   const { busy, conflict, overview: ov, host } = s;
   if (busy) return [`${busy}…`, 'You can keep working while this runs.', RefreshCw, 'sync'];
   if (conflict) {
