@@ -96,17 +96,39 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
   ).toBeVisible();
 });
 
-test('a conflict offers two equal choices naming the other computer', async ({ page }) => {
+test('a conflict shows both versions and keeps the one chosen for each setting', async ({
+  page,
+}) => {
   await page.goto('/?scenario=conflict');
   await page.getByRole('button', { name: 'Sync Now' }).click();
   await expect(page.getByText('The same setting was changed on two computers.')).toBeVisible();
-  await expect(page.getByRole('button', { name: "Keep This Computer's Version" })).toBeVisible();
-  await page.getByRole('button', { name: "Keep Desktop's Version" }).click();
-  expect((await calls(page, 'sync_now')).map((c) => c.args.prefer)).toEqual([
-    'Ask',
-    'OtherComputer',
-  ]);
+  // Both versions side by side, with the differing lines marked.
+  const keys = page.getByRole('table', { name: 'Both versions of .config/hypr/bindings.lua' });
+  await expect(keys.getByRole('columnheader', { name: 'This Computer' })).toBeVisible();
+  await expect(keys.getByRole('columnheader', { name: 'Desktop' })).toBeVisible();
+  await expect(keys.locator('tr.changed')).toHaveCount(2);
   expect(await a11y(page)).toEqual([]);
+
+  // One choice per setting; keeping waits until every setting has one.
+  const keep = page.getByRole('button', { name: 'Keep Chosen Versions' });
+  await expect(keep).toBeDisabled();
+  await page
+    .getByRole('radiogroup', { name: 'Which version of .config/hypr/bindings.lua to keep' })
+    .getByText("Keep Desktop's")
+    .click();
+  await expect(keep).toBeDisabled();
+  await page
+    .getByRole('radiogroup', { name: 'Which version of .config/ghostty/config to keep' })
+    .getByText("Keep This Computer's")
+    .click();
+  await keep.click();
+  expect(await calls(page, 'resolve_conflict')).toEqual([
+    expect.objectContaining({
+      args: expect.objectContaining({
+        choices: { 'dot_config/hypr/bindings.lua': 'Theirs', 'dot_config/ghostty/config': 'Mine' },
+      }),
+    }),
+  ]);
 });
 
 test('undo asks before changing every computer', async ({ page }) => {

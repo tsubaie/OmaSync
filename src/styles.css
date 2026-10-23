@@ -573,6 +573,73 @@ output {
   font-size: 11px;
   color: var(--quiet);
 }
+/* A clashing file, both versions side by side; the lines that differ are tinted. */
+.row.clash {
+  display: grid;
+  gap: 10px;
+}
+.compare {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 11.5px;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.compare th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--ink);
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.compare td {
+  padding: 2px 10px;
+  vertical-align: top;
+  border-left: 0.5px solid var(--line);
+}
+.compare td:first-child {
+  border-left: 0;
+}
+.compare code {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.compare tr.changed td {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+.compare tr.changed td.gap {
+  background: color-mix(in srgb, var(--warn) 6%, transparent);
+}
+/* Which version to keep: two equal choices, neither marked as recommended. */
+.keep {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.choice-radio {
+  padding: 5px 12px;
+  border-radius: 980px;
+  font-size: 12.5px;
+  cursor: default;
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  outline: none;
+}
+.choice-radio[data-hovered] {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.choice-radio[data-selected] {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+.choice-radio[data-focus-visible] {
+  box-shadow: var(--focus);
+}
+
 /* A warning before something risky: tinted in the warning colour, never hidden. */
 .caution {
   display: flex;

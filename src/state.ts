@@ -9,6 +9,7 @@ import {
   type Catalog,
   type Conflict,
   type Data,
+  type Keep,
   type Prefer,
   type Problem,
   type Report,
@@ -58,7 +59,7 @@ export function useSync() {
 
   function fail(e: unknown) {
     const p = e as Problem;
-    if (p?.kind === 'Conflict') setConflict({ files: p.files, by: p.by });
+    if (p?.kind === 'Conflict') setConflict({ files: p.files, by: p.by, versions: p.versions });
     else if (p?.kind === 'Failed') setNotice({ good: false, text: p.message, details: p.details });
     else
       setNotice({
@@ -169,7 +170,16 @@ export function useSync() {
 
   /** Syncs (or undoes a change, then syncs), then shows the fresh state. */
   /** `continues`: carry on the progress of setup, which ends by syncing. */
-  async function sync(prefer: Prefer = 'Ask', undoSha?: string, continues = false) {
+  /**
+   * Syncs; or undoes a change, then syncs; or, with `choices`, settles a clash by keeping the
+   * chosen version of each clashing file, then syncs.
+   */
+  async function sync(
+    prefer: Prefer = 'Ask',
+    undoSha?: string,
+    continues = false,
+    choices?: Record<string, Keep>,
+  ) {
     if (working.current) return;
     setNotice(null);
     setTab('sync');
@@ -178,7 +188,12 @@ export function useSync() {
     try {
       report = await run(
         undoSha ? 'Undoing' : 'Starting',
-        (onStep) => (undoSha ? api.undo(undoSha, onStep) : api.syncNow(prefer, onStep)),
+        (onStep) =>
+          choices
+            ? api.resolveConflict(choices, onStep)
+            : undoSha
+              ? api.undo(undoSha, onStep)
+              : api.syncNow(prefer, onStep),
         continues ? 'middle' : 'first',
       );
       if (report) {

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from 'react-aria-components';
+import { Button, Radio, RadioGroup } from 'react-aria-components';
 import {
   Check,
   Cloud,
@@ -13,8 +13,8 @@ import {
   WifiOff,
   type LucideIcon,
 } from 'lucide-react';
-import { api } from '../api';
-import { ago, byFolder, plural, shortList } from '../format';
+import { api, type Keep, type Versions } from '../api';
+import { ago, byFolder, diffLines, plural, shortList } from '../format';
 import type { SyncState } from '../state';
 import { Caution, Group, Link, OmarchyLogo, Progress, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
@@ -160,28 +160,84 @@ function Hero({ s }: { s: SyncState }) {
   );
 }
 
-function ConflictGroup({ s }: { s: SyncState }) {
-  const [id, when] = s.conflict!.by ?? [];
-  const name = id && s.nameOf(id);
-  // Two equal choices: neither is styled as the recommended one.
+/** One clashing file: both versions side by side, the lines that differ marked. */
+function Compare({ v, other }: { v: Versions; other: string }) {
+  if (v.binary)
+    return <p className="detail">This file can't be shown, but you can still choose.</p>;
+  const rows = diffLines(v.mine ?? '', v.theirs ?? '');
   return (
-    <Group title="Changed on Both Computers">
-      {byFolder(s.conflict!.files, s.catalog).map(([label, files]) => (
-        <Row key={label} title={label} detail={files.join(', ')} />
+    <table className="compare" aria-label={`Both versions of ${v.path}`}>
+      <thead>
+        <tr>
+          <th scope="col">This Computer{v.mine === null ? ' (removed it)' : ''}</th>
+          <th scope="col">
+            {other}
+            {v.theirs === null ? ' (removed it)' : ''}
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i} className={r.changed ? 'changed' : ''}>
+            <td className={r.mine === null ? 'gap' : ''}>
+              <code>{r.mine ?? ''}</code>
+            </td>
+            <td className={r.theirs === null ? 'gap' : ''}>
+              <code>{r.theirs ?? ''}</code>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Settings changed on both computers: each shown both ways, with a choice of which to keep.
+ * Nothing is lost either way: the version not kept stays in History.
+ */
+function ConflictGroup({ s }: { s: SyncState }) {
+  const [choices, setChoices] = useState<Record<string, Keep>>({});
+  const [id, when] = s.conflict!.by ?? [];
+  const other = id ? s.nameOf(id) : 'The other computer';
+  const versions = s.conflict!.versions;
+  const ready = versions.every((v) => choices[v.source]);
+  return (
+    <Group
+      title="Changed on Both Computers"
+      footer={`${other} changed ${when ? ago(when, s.now) : 'these too'}. Highlighted lines are the ones that differ. The version you don't keep stays in History.`}
+    >
+      {versions.map((v) => (
+        <div className="row clash" key={v.source}>
+          <div className="text">
+            <div>{byFolder([v.path], s.catalog)[0][0]}</div>
+            <div className="detail">~/{v.path}</div>
+          </div>
+          <Compare v={v} other={other} />
+          <RadioGroup
+            className="keep"
+            aria-label={`Which version of ${v.path} to keep`}
+            orientation="horizontal"
+            value={choices[v.source] ?? null}
+            onChange={(keep) => setChoices((c) => ({ ...c, [v.source]: keep as Keep }))}
+          >
+            <Radio className="choice-radio" value="Mine">
+              Keep This Computer's
+            </Radio>
+            <Radio className="choice-radio" value="Theirs">
+              Keep {other}'s
+            </Radio>
+          </RadioGroup>
+        </div>
       ))}
-      <div className="row choices">
-        <div className="choice">
-          <Push onPress={() => s.sync('ThisComputer')}>Keep This Computer's Version</Push>
-          <span className="sub">What you have here now</span>
-        </div>
-        <div className="choice">
-          <Push onPress={() => s.sync('OtherComputer')}>
-            {name ? `Keep ${name}'s Version` : "Keep the Other Computer's Version"}
-          </Push>
-          <span className="sub">
-            {when ? `Changed there ${ago(when, s.now)}` : 'Changed on another computer'}
-          </span>
-        </div>
+      <div className="row actions">
+        <Push
+          prominent
+          disabled={!ready || !s.idle}
+          onPress={() => s.sync('Ask', undefined, false, choices)}
+        >
+          Keep Chosen Versions
+        </Push>
       </div>
     </Group>
   );

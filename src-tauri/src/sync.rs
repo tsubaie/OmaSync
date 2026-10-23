@@ -752,6 +752,10 @@ impl Ctx {
         run(Some(&self.src), "git", args)
     }
 
+    fn merging(&self) -> bool {
+        self.src.join(".git/MERGE_HEAD").exists()
+    }
+
     fn rebasing(&self) -> bool {
         let git_dir = self.src.join(".git");
         git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists()
@@ -1262,6 +1266,28 @@ pub struct Conflict {
     pub files: Vec<String>,
     /// The other computer that changed them, and when (unix time).
     pub by: Option<(String, i64)>,
+    /// Each clashing file as it is here and on the other computer, to compare and choose.
+    pub versions: Vec<Versions>,
+}
+
+/// One clashing file's two versions. `None` when that computer removed it; `binary` when its
+/// contents can't be shown (not text, or too big).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Versions {
+    /// Under home, for people.
+    pub path: String,
+    /// In the sync folder, for choosing (what `resolve` takes).
+    pub source: String,
+    pub mine: Option<String>,
+    pub theirs: Option<String>,
+    pub binary: bool,
+}
+
+/// Which version of a clashing file to keep.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub enum Keep {
+    Mine,
+    Theirs,
 }
 
 /// What a finished sync has to say: notes for the person, and apps waiting for their approval.
@@ -1366,6 +1392,121 @@ fn settle_data(ctx: &Ctx) -> Result<bool, String> {
         }
     }
     Ok(true)
+}
+
+/// A clashing file as this computer has it and as GitHub has it, for showing side by side.
+fn versions(ctx: &Ctx, source: &str) -> Versions {
+    const LIMIT: usize = 256 * 1024;
+    let read = |rev: &str| ctx.git(&["show", &format!("{rev}:{source}")]).ok();
+    let (mine, theirs) = (read("HEAD"), read("@{u}"));
+    let binary = [&mine, &theirs]
+        .into_iter()
+        .flatten()
+        .any(|t| t.len() > LIMIT || t.contains('\0'));
+    Versions {
+        path: source_to_target(source),
+        source: source.to_string(),
+        mine: if binary { None } else { mine },
+        theirs: if binary { None } else { theirs },
+        binary,
+    }
+}
+
+/// Settles a clash with the person's choice for each clashing file, then syncs as usual.
+/// Both computers' changes are joined (a merge), so each side's own version stays in the
+/// history; every clashing file then becomes exactly the version chosen for it.
+pub fn resolve(
+    ctx: &Ctx,
+    choices: &BTreeMap<String, Keep>,
+    install: bool,
+    step: &dyn Fn(&str),
+) -> Result<Report, SyncError> {
+    let fail = SyncError::Failed;
+    {
+        let _lock = lock_wait(ctx).map_err(fail)?;
+        plan(
+            step,
+            &[
+                "Saving this computer's changes",
+                "Getting changes from your other computers",
+                "Keeping the versions you chose",
+            ],
+        );
+        step("Saving this computer's changes");
+        save_local(ctx, &|_| {}).map_err(fail)?;
+        step("Getting changes from your other computers");
+        git_progress(ctx, &["fetch", "--progress"], step).map_err(fail)?;
+        step("Keeping the versions you chose");
+        if ctx.git(&["merge", "--no-ff", "--no-edit", "@{u}"]).is_err() {
+            if !ctx.merging() {
+                return Err(fail("couldn't join the two computers' changes".into()));
+            }
+            let mut kept = Vec::new();
+            for source in ctx.conflicted() {
+                let settled = if source == ".chezmoidata.yaml" {
+                    settle_data_merge(ctx)
+                } else {
+                    match choices.get(&source) {
+                        Some(keep) => keep_version(ctx, &source, *keep).map(|()| {
+                            let whose = if *keep == Keep::Mine {
+                                "this computer's"
+                            } else {
+                                "the other computer's"
+                            };
+                            kept.push(format!(
+                                "{}: kept {whose} version",
+                                label(&source_to_target(&source))
+                            ));
+                        }),
+                        None => Err(format!("no choice for {}", source_to_target(&source))),
+                    }
+                };
+                if let Err(e) = settled {
+                    let _ = ctx.git(&["merge", "--abort"]);
+                    return Err(fail(e));
+                }
+            }
+            let message = format!(
+                "Sync from {}\n\nSettled changes made on two computers.\n{}",
+                ctx.host,
+                kept.join("\n")
+            );
+            ctx.git(&["commit", "-q", "--no-edit", "-m", &message])
+                .map_err(fail)?;
+        }
+        // Put the chosen versions in place now; the sync below starts by saving this computer's
+        // files, which would otherwise save the clashing ones back over the choice.
+        run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
+    }
+    // Joined: the rest is an ordinary sync (apply here, share, apps and plugins).
+    sync(ctx, Prefer::Ask, install, step)
+}
+
+/// Makes a clashing file exactly one side's version; if that side removed it, it's removed.
+fn keep_version(ctx: &Ctx, source: &str, keep: Keep) -> Result<(), String> {
+    let side = if keep == Keep::Mine {
+        "--ours"
+    } else {
+        "--theirs"
+    };
+    if ctx.git(&["checkout", side, "--", source]).is_ok() {
+        ctx.git(&["add", "--", source]).map(|_| ())
+    } else {
+        ctx.git(&["rm", "-q", "--", source]).map(|_| ())
+    }
+}
+
+/// The shared choices file during a merge: stage 2 is this computer's, stage 3 the other's.
+fn settle_data_merge(ctx: &Ctx) -> Result<(), String> {
+    const FILE: &str = ".chezmoidata.yaml";
+    let side = |n: u8| -> Data {
+        ctx.git(&["show", &format!(":{n}:{FILE}")])
+            .ok()
+            .and_then(|t| serde_yaml::from_str(&t).ok())
+            .unwrap_or_default()
+    };
+    ctx.save_data(&Data::merge(&side(1), &side(3), &side(2)))?;
+    ctx.git(&["add", FILE]).map(|_| ())
 }
 
 /// Syncs, and records how it went for the bar indicator (see `write_status`).
@@ -1536,14 +1677,26 @@ fn sync_inner(
     step("Getting changes from your other computers");
     let tracked = ctx.git(&["rev-parse", "--abbrev-ref", "@{u}"]).is_ok();
     if tracked {
-        let mut args = vec!["pull", "--rebase", "--progress"];
+        git_progress(ctx, &["fetch", "--progress"], step).map_err(fail)?;
+        // Already holding everything from GitHub (say, just after settling a clash, which joins
+        // both computers' changes): nothing to replay, and replaying would bring the clash back.
+        let caught_up = ctx
+            .git(&["merge-base", "--is-ancestor", "@{u}", "HEAD"])
+            .is_ok();
+        let mut args = vec!["rebase", "-q"];
         // During a rebase, "theirs" is this computer's commits and "ours" is what came from GitHub.
         match prefer {
             Prefer::ThisComputer => args.extend(["-X", "theirs"]),
             Prefer::OtherComputer => args.extend(["-X", "ours"]),
             Prefer::Ask => {}
         }
-        if let Err(e) = git_progress(ctx, &args, step) {
+        args.push("@{u}");
+        let replayed = if caught_up {
+            Ok(String::new())
+        } else {
+            ctx.git(&args)
+        };
+        if let Err(e) = replayed {
             if !ctx.rebasing() {
                 return Err(fail(e));
             }
@@ -1559,9 +1712,11 @@ fn sync_inner(
                     .ok()
                     .and_then(|l| parse_log(&l).into_iter().next())
                     .map(|(author, t)| (data.resolve(&author), t));
+                let versions = files.iter().map(|f| versions(ctx, f)).collect();
                 return Err(SyncError::Conflict(Conflict {
                     files: to_targets(ctx, files),
                     by,
+                    versions,
                 }));
             }
         }
@@ -1809,6 +1964,8 @@ pub struct Entry {
     /// Plain names of what changed, e.g. "Keyboard shortcuts".
     pub labels: Vec<String>,
     pub is_undo: bool,
+    /// Where two computers' changes were joined after a clash; it can't be undone on its own.
+    pub is_merge: bool,
     /// The very first save, which has nothing before it to go back to.
     pub first: bool,
     /// Every file it changed: what Undo would put back.
@@ -1905,6 +2062,7 @@ pub fn parse_history(log: &str) -> Vec<Entry> {
                 when: when.parse().ok()?,
                 labels,
                 is_undo: subject.starts_with(UNDO_PREFIX),
+                is_merge: parents.contains(' '),
                 first: parents.is_empty(),
                 files,
             })
@@ -3133,6 +3291,33 @@ mod tests {
         ok(sync(&b, Prefer::Ask, false, &quiet));
         assert_eq!(read(&b, "bindings.lua"), "b2");
         assert!(history(&b).last().unwrap().first);
+
+        // A second clash, settled by looking at both versions: B keeps A's, and B's own
+        // version stays in the history.
+        enter(&a);
+        write(&a, "bindings.lua", "a4");
+        ok(sync(&a, Prefer::Ask, false, &quiet));
+        enter(&b);
+        write(&b, "bindings.lua", "b4");
+        let clash = match sync(&b, Prefer::Ask, false, &quiet) {
+            Err(SyncError::Conflict(c)) => c,
+            _ => panic!("expected a conflict"),
+        };
+        let v = &clash.versions[0];
+        assert_eq!(
+            (v.mine.as_deref(), v.theirs.as_deref(), v.binary),
+            (Some("b4"), Some("a4"), false)
+        );
+        let choices = BTreeMap::from([(v.source.clone(), Keep::Theirs)]);
+        ok(resolve(&b, &choices, false, &quiet));
+        assert_eq!(read(&b, "bindings.lua"), "a4");
+        // The whole history, as History shows it (a single file's log hides the side that lost).
+        let kept = b.git(&["log", "-p"]).unwrap_or_default();
+        assert!(kept.contains("+b4"), "B's own version is in the history");
+        assert!(history(&b).iter().any(|e| e.is_merge));
+        enter(&a);
+        ok(sync(&a, Prefer::Ask, false, &quiet));
+        assert_eq!(read(&a, "bindings.lua"), "a4");
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

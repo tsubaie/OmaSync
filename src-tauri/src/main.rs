@@ -31,6 +31,7 @@ fn main() {
             probe,
             overview,
             sync_now,
+            resolve_conflict,
             undo,
             install_helpers,
             sign_in,
@@ -224,6 +225,18 @@ fn install_without_asking(ctx: &Ctx) -> bool {
 #[tauri::command]
 async fn sync_now(prefer: Prefer, on_step: Channel<String>) -> Result<Report> {
     blocking(move |ctx| sync::sync(ctx, prefer, install_without_asking(ctx), &steps(on_step)))
+        .await
+        .map_err(Problem::from)
+}
+
+/// Settles a clash with the version chosen for each clashing file (by its sync-folder path),
+/// then syncs. Files that aren't clashing are simply not looked up.
+#[tauri::command]
+async fn resolve_conflict(
+    choices: std::collections::BTreeMap<String, sync::Keep>,
+    on_step: Channel<String>,
+) -> Result<Report> {
+    blocking(move |ctx| sync::resolve(ctx, &choices, install_without_asking(ctx), &steps(on_step)))
         .await
         .map_err(Problem::from)
 }

@@ -49,6 +49,8 @@ export type Entry = {
   when: number;
   labels: string[];
   is_undo: boolean;
+  /** Where two computers' changes were joined after a clash; it can't be undone on its own. */
+  is_merge: boolean;
   first: boolean;
   /** Every file it changed: what Undo puts back. `path` is under home, or the data label. */
   files: { path: string; how: 'Added' | 'Changed' | 'Removed' }[];
@@ -88,7 +90,17 @@ export type Status = {
 };
 
 export type Report = { notes: string[]; waiting: string[] };
-export type Conflict = { files: string[]; by: [string, number] | null };
+/** A clashing file as it is here (`mine`) and on the other computer (`theirs`); null when that
+ * side removed it. `source` is its path in the sync folder, which choices are keyed by. */
+export type Versions = {
+  path: string;
+  source: string;
+  mine: string | null;
+  theirs: string | null;
+  binary: boolean;
+};
+export type Conflict = { files: string[]; by: [string, number] | null; versions: Versions[] };
+export type Keep = 'Mine' | 'Theirs';
 /** What a failed command throws. */
 export type Problem =
   { kind: 'Failed'; message: string; details: string } | ({ kind: 'Conflict' } & Conflict);
@@ -105,6 +117,9 @@ export const api = {
   /** `justSynced`: right after a sync, which already saved and fetched. */
   overview: (onStep: OnStep, justSynced = false) =>
     invoke<Status>('overview', { onStep: steps(onStep), justSynced }),
+  /** Settles a clash with the version chosen for each clashing file, then syncs. */
+  resolveConflict: (choices: Record<string, Keep>, onStep: OnStep) =>
+    invoke<Report>('resolve_conflict', { choices, onStep: steps(onStep) }),
   syncNow: (prefer: Prefer, onStep: OnStep) =>
     invoke<Report>('sync_now', { prefer, onStep: steps(onStep) }),
   undo: (sha: string, onStep: OnStep) => invoke<Report>('undo', { sha, onStep: steps(onStep) }),

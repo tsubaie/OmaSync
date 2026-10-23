@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ago, byFolder, plural, progress, shortList } from './format';
+import { ago, byFolder, diffLines, plural, progress, shortList } from './format';
 
 describe('format', () => {
   it('says time and counts in plain words', () => {
@@ -38,5 +38,22 @@ describe('progress', () => {
       share: 2.5 / 4,
     });
     expect(progress([], plan, null).share).toBe(0);
+  });
+});
+
+describe('diffLines', () => {
+  it('lines up what both versions share and pairs what differs', () => {
+    const mine = 'a\nb\nmine\nc';
+    const theirs = 'a\nb\ntheirs\nextra\nc';
+    expect(diffLines(mine, theirs)).toEqual([
+      { mine: 'a', theirs: 'a', changed: false },
+      { mine: 'b', theirs: 'b', changed: false },
+      { mine: 'mine', theirs: 'theirs', changed: true },
+      { mine: null, theirs: 'extra', changed: true },
+      { mine: 'c', theirs: 'c', changed: false },
+    ]);
+  });
+  it('shows a whole file as changed when the other side has none of it', () => {
+    expect(diffLines('', 'x')).toEqual([{ mine: '', theirs: 'x', changed: true }]);
   });
 });

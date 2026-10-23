@@ -143,6 +143,7 @@ const status = (): Status => ({
         when: now - 3600,
         labels: ['Keyboard shortcuts', 'Keyboard, mouse and touchpad'],
         is_undo: false,
+        is_merge: false,
         first: false,
         files: [
           { path: '.config/hypr/bindings.lua', how: 'Changed' },
@@ -155,6 +156,7 @@ const status = (): Status => ({
         when: now - 7200,
         labels: [],
         is_undo: false,
+        is_merge: false,
         first: true,
         files: [],
       },
@@ -167,10 +169,37 @@ const setup: SetupState =
     ? { missing: ['chezmoi'], signed_in: false, login: null, found: false, ready: false }
     : { missing: [], signed_in: true, login: 'someone', found: false, ready: true };
 
+// Two settings changed on both computers: keyboard shortcuts and the terminal.
 const conflict: Problem = {
   kind: 'Conflict',
-  files: ['.config/hypr/bindings.lua'],
+  files: ['.config/hypr/bindings.lua', '.config/ghostty/config'],
   by: ['bbbb33334444', now - 300],
+  versions: [
+    {
+      path: '.config/hypr/bindings.lua',
+      source: 'dot_config/hypr/bindings.lua',
+      mine: [
+        'o.bind("SUPER + RETURN", "Terminal", "uwsm-app -- ghostty")',
+        'o.bind("SUPER + B", "Browser", "omarchy-launch-browser")',
+        'o.bind("SUPER + E", "Files", "uwsm-app -- nautilus")',
+        'o.bind("SUPER + M", "Music", "uwsm-app -- spotify")',
+      ].join('\n'),
+      theirs: [
+        'o.bind("SUPER + RETURN", "Terminal", "uwsm-app -- ghostty")',
+        'o.bind("SUPER + B", "Browser", "omarchy-launch-browser --private")',
+        'o.bind("SUPER + E", "Files", "uwsm-app -- nautilus")',
+        'o.bind("SUPER + N", "Notes", "uwsm-app -- obsidian")',
+      ].join('\n'),
+      binary: false,
+    },
+    {
+      path: '.config/ghostty/config',
+      source: 'dot_config/ghostty/config',
+      mine: 'font-size = 12\nwindow-padding-x = 14',
+      theirs: 'font-size = 14\nwindow-padding-x = 14',
+      binary: false,
+    },
+  ],
 };
 
 window.e2eCalls = [];
@@ -242,6 +271,8 @@ mockIPC((cmd, args) => {
       };
       return data;
     }
+    case 'resolve_conflict':
+      return { notes: [], waiting: [] };
     case 'set_bar_indicator':
       barIndicator = !!a.on;
       return null;

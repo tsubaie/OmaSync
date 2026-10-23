@@ -40,9 +40,11 @@ export function HistoryPane({ s }: { s: SyncState }) {
           ? `${s.nameOf(e.computer)} started syncing`
           : e.is_undo
             ? `${s.nameOf(e.computer)} undid an earlier change`
-            : e.labels.length === 0
-              ? `${s.nameOf(e.computer)} synced`
-              : `${s.nameOf(e.computer)} changed ${e.labels.join(', ').toLowerCase()}`;
+            : e.is_merge
+              ? `${s.nameOf(e.computer)} settled changes made on two computers`
+              : e.labels.length === 0
+                ? `${s.nameOf(e.computer)} synced`
+                : `${s.nameOf(e.computer)} changed ${e.labels.join(', ').toLowerCase()}`;
         // Every entry in Omarchy's colour; the icon tells undo, this computer and others apart.
         const [icon, kind] = e.is_undo
           ? [Undo2, 'accent']
@@ -50,7 +52,7 @@ export function HistoryPane({ s }: { s: SyncState }) {
             ? [Upload, 'accent']
             : [Monitor, 'accent'];
         const end =
-          e.first || e.is_undo ? null : s.confirmUndo === e.sha ? (
+          e.first || e.is_undo || e.is_merge ? null : s.confirmUndo === e.sha ? (
             <div className="actions">
               <Link onPress={() => s.setConfirmUndo(null)}>Cancel</Link>
               <Push
