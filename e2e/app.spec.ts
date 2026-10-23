@@ -40,6 +40,21 @@ test('sync pane shows the state and syncs on request', async ({ page }) => {
   ]);
 });
 
+test('a sync shows its steps once, then clears them', async ({ page }) => {
+  await page.goto('/?scenario=syncing');
+  await page.getByRole('button', { name: 'Sync Now' }).click();
+  // While it runs: the steps so far, the upload's percentage, and no second sync.
+  await expect(page.getByText('Sharing with your other computers 62%')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Syncing…' })).toBeDisabled();
+
+  // A finished round (sync, then the look afterwards) leaves nothing behind.
+  await page.goto('/?scenario=synced');
+  await page.getByRole('button', { name: 'Sync Now' }).click();
+  await expect(page.locator('.toast').getByText('Synced')).toBeVisible();
+  await expect(page.locator('.progress')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Sync Now' })).toBeEnabled();
+});
+
 test('every pane is reachable from the keyboard and passes axe', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await expect(page.getByRole('tab', { name: 'Sync', exact: true })).toHaveAttribute(

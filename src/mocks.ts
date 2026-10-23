@@ -1,5 +1,5 @@
 // Stands in for the Rust side when the page runs in a plain browser for the end-to-end tests
-// (`vite --mode e2e`). Pick a scenario with ?scenario=setup|synced|conflict. Every call is
+// (`vite --mode e2e`). Pick a scenario with ?scenario=setup|synced|conflict|syncing|checking. Every call is
 // recorded on window.e2eCalls so tests can check what the page asked for.
 
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
@@ -159,6 +159,28 @@ const conflict: Problem = {
 };
 
 window.e2eCalls = [];
+const SYNC_STEPS = [
+  "Saving this computer's changes",
+  'Saving changed settings',
+  'Looking for new files',
+  'Getting changes from your other computers',
+  'Updating this computer',
+  'Sharing with your other computers',
+  'Checking your apps and plugins',
+];
+
+/** Sends progress lines to a page Channel, as the Rust side does. */
+function emit(channel: unknown, lines: string[]) {
+  const id = (channel as { id: number } | undefined)?.id;
+  if (id === undefined) return;
+  // Tauri's mock IPC delivers a message to a Channel by its id.
+  const internals: { runCallback: (id: number, data: unknown) => void } = Reflect.get(
+    window,
+    '__TAURI_INTERNALS__',
+  );
+  lines.forEach((message, index) => internals.runCallback(id, { index, message }));
+}
+
 mockWindows('main');
 mockIPC((cmd, args) => {
   window.e2eCalls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
@@ -171,12 +193,23 @@ mockIPC((cmd, args) => {
     case 'probe':
       return setup;
     case 'overview':
+      // After a sync, its last step carries on the sync's progress.
+      if (a.justSynced) emit(a.onStep, [SYNC_STEPS.at(-1)!]);
       // "checking" never finishes its first check, to show the app before there's anything to see.
       return scenario === 'checking' ? new Promise(() => {}) : status();
-    case 'sync_now':
+    case 'sync_now': {
+      // Reports its steps like sync.rs. "syncing" stops partway, sharing at 62%, to show (and
+      // photograph) the progress.
+      emit(a.onStep, [
+        `\u0001plan\t${SYNC_STEPS.join('\t')}`,
+        ...SYNC_STEPS.slice(0, -1),
+        ...(scenario === 'syncing' ? ['\u0001percent\t62'] : []),
+      ]);
+      if (scenario === 'syncing') return new Promise(() => {});
       return scenario === 'conflict' && a.prefer === 'Ask'
         ? Promise.reject(conflict)
         : { notes: [], waiting: [] };
+    }
     case 'add_apps':
       data = { ...data, apps: [...new Set([...data.apps, ...(a.apps as string[])])] };
       return data;

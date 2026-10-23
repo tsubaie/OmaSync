@@ -26,12 +26,12 @@ function action(s: SyncState, st: SetupState): [string, () => void] {
   if (st.found) {
     return [
       'Use My Synced Settings',
-      () => s.act('Getting ready', (onStep) => api.join(onStep), s.finishSetup, 'starts'),
+      () => s.act('Getting ready', (onStep) => api.join(onStep), s.finishSetup, 'first'),
     ];
   }
   return [
     'Start Syncing',
-    () => s.act('Getting ready', (onStep) => api.start(onStep), s.finishSetup, 'starts'),
+    () => s.act('Getting ready', (onStep) => api.start(onStep), s.finishSetup, 'first'),
   ];
 }
 

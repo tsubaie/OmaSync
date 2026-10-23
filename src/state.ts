@@ -21,6 +21,9 @@ export const TABS: Tab[] = ['sync', 'history', 'omarchy', 'plugins', 'apps', 'da
 
 export type Notice = { good: boolean; text: string; details?: string };
 
+/** Where a job sits in a round of progress (see run). */
+type Round = 'whole' | 'first' | 'middle' | 'last';
+
 export function useSync() {
   const [catalog, setCatalog] = useState<Catalog>({ folders: [], data_label: '' });
   const [setup, setSetup] = useState<SetupState | null>(null);
@@ -68,14 +71,20 @@ export function useSync() {
   async function run<T>(
     first: string,
     work: (onStep: (s: string) => void) => Promise<T>,
-    // A sync and the look afterwards are one round: the first keeps its steps on screen,
-    // the second carries on from them.
-    round: 'whole' | 'starts' | 'continues' = 'whole',
+    // Setup, a sync and the look afterwards show as one round of progress: its first part
+    // starts the step list, a middle part carries it on, and its last part clears it, as a
+    // job on its own does. The list must never outlive the round, or it looks frozen.
+    round: Round = 'whole',
   ): Promise<T | undefined> {
-    if (working.current) return undefined;
+    const starts = round === 'whole' || round === 'first';
+    const ends = round === 'whole' || round === 'last';
+    if (working.current) {
+      if (ends && !starts) endRound();
+      return undefined;
+    }
     working.current = true;
     setBusy(first);
-    if (round !== 'continues') {
+    if (starts) {
       setSteps([]);
       setPlan([]);
     }
@@ -95,14 +104,15 @@ export function useSync() {
     } finally {
       working.current = false;
       setBusy(null);
-      // A round that something carries on from keeps its steps on screen.
-      if (round === 'whole') {
-        setSteps([]);
-        setPlan([]);
-      }
       setPercent(null);
-      setSyncing(false);
+      if (ends) endRound();
     }
+  }
+
+  function endRound() {
+    setSteps([]);
+    setPlan([]);
+    setSyncing(false);
   }
 
   async function refresh(afterSync = false) {
@@ -110,7 +120,7 @@ export function useSync() {
       const st = await run(
         'Checking for changes',
         (onStep) => api.overview(onStep, afterSync),
-        afterSync ? 'continues' : 'whole',
+        afterSync ? 'last' : 'whole',
       );
       if (!st) return;
       setStatus(st);
@@ -135,7 +145,9 @@ export function useSync() {
       const st = await api.probe();
       setSetup(st);
       if (st.ready) await sync('Ask', undefined, true);
+      else endRound();
     } catch (e) {
+      endRound();
       fail(e);
     }
   }
@@ -166,7 +178,7 @@ export function useSync() {
       report = await run(
         undoSha ? 'Undoing' : 'Starting',
         (onStep) => (undoSha ? api.undo(undoSha, onStep) : api.syncNow(prefer, onStep)),
-        continues ? 'continues' : 'starts',
+        continues ? 'middle' : 'first',
       );
       if (report) {
         // Success is a small toast; anything worth reading (apps installed or not) stays on screen.
@@ -188,7 +200,7 @@ export function useSync() {
     label: string,
     work: (onStep: (s: string) => void) => Promise<T>,
     after?: (result: T) => Promise<void> | void,
-    round: 'whole' | 'starts' = 'whole',
+    round: 'whole' | 'first' = 'whole',
   ) {
     try {
       const result = await run(label, work, round);
