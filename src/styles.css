@@ -53,7 +53,10 @@
   /* Glass: the window behind the sidebar lets Hyprland's blur of the desktop through, and the
      sidebar is a translucent layer on top. Sidebars use Apple's more opaque "regular" variant,
      so the wallpaper only tints them and text stays readable. */
-  --glass-alpha: 58%;
+  --glass-alpha: 38%;
+  /* The see-through strip behind the sidebar dims the desktop by 35%, Apple's figure for glass
+     over busy backgrounds, so text stays readable on any wallpaper. */
+  --zone-alpha: 35%;
   /* Glass tint: a step lighter than the window in dark themes, near-white in light ones. */
   --glass-base: color-mix(in srgb, var(--bg), var(--ink) 10%);
   --rim: rgb(255 255 255 / 0.28);
@@ -71,6 +74,7 @@
 /* No blur behind the window (Hyprland blur off): solid surfaces instead of see-through ones. */
 .no-blur {
   --glass-alpha: 100%;
+  --zone-alpha: 100%;
 }
 
 * {
@@ -126,7 +130,9 @@ output {
   --state: var(--good);
   position: relative;
   height: 100vh;
-  background: var(--bg);
+  /* Transparent so Hyprland's blur of the desktop shows behind the sidebar; the content area
+     below paints itself solid. */
+  background: color-mix(in srgb, var(--bg) var(--zone-alpha), transparent);
   overflow: hidden;
 }
 .window.warn {
@@ -143,20 +149,27 @@ output {
   position: absolute;
   inset: 0;
   pointer-events: none;
+  /* Light under the glass: pools of the accent and state colours sit beneath the sidebar, so
+     its glass visibly carries colour, plus a softer wash across the content area. */
   background:
     radial-gradient(
+      180px 160px at 60px 70px,
+      color-mix(in srgb, var(--accent) 55%, transparent),
+      transparent
+    ),
+    radial-gradient(
+      220px 200px at 200px 330px,
+      color-mix(in srgb, var(--state) 45%, transparent),
+      transparent
+    ),
+    radial-gradient(
+      200px 220px at 40px 620px,
+      color-mix(in srgb, var(--tile-history) 40%, transparent),
+      transparent
+    ),
+    radial-gradient(
       55% 50% at 62% 8%,
-      color-mix(in srgb, var(--state) 16%, transparent),
-      transparent
-    ),
-    radial-gradient(
-      45% 70% at 4% 35%,
-      color-mix(in srgb, var(--accent) 14%, transparent),
-      transparent
-    ),
-    radial-gradient(
-      40% 50% at 10% 95%,
-      color-mix(in srgb, var(--tile-history) 9%, transparent),
+      color-mix(in srgb, var(--state) 14%, transparent),
       transparent
     );
   transition: background var(--normal) var(--ease-out);
@@ -180,7 +193,7 @@ output {
   background:
     linear-gradient(180deg, rgb(255 255 255 / 0.08), transparent 30%),
     color-mix(in srgb, var(--glass-base) var(--glass-alpha), transparent);
-  backdrop-filter: blur(26px) saturate(190%) brightness(1.06);
+  backdrop-filter: blur(18px) saturate(200%) brightness(1.08);
   box-shadow:
     0 0 0 0.5px rgb(0 0 0 / 0.18),
     0 10px 30px rgb(0 0 0 / 0.28),
@@ -257,8 +270,15 @@ output {
 .pane {
   height: 100vh;
   overflow-y: auto;
-  /* Room for the floating sidebar; the content layer itself runs edge to edge beneath it. */
+  /* Room for the floating sidebar. The content area is solid from just past the sidebar, with a
+     soft edge, so the glass floats over the real desktop. */
   padding-left: 244px;
+  background: linear-gradient(
+    90deg,
+    transparent 230px,
+    color-mix(in srgb, var(--bg) 70%, transparent) 250px,
+    var(--bg) 320px
+  );
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--ink) 25%, transparent) transparent;
 }
