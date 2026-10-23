@@ -150,7 +150,11 @@ test('an app syncs or stops with one switch that stays in its row', async ({ pag
   await expect(spotify).toBeChecked();
   await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
   await expect(page.getByRole('switch', { name: 'spotify on This Computer' })).toBeChecked();
+  const banner = page.getByText('Your other computers get this change the next time you sync.');
+  await expect(banner).toBeVisible();
+  // Flipped back, nothing is left to share, so the banner goes away.
   await page.keyboard.press('Space');
   await expect(spotify).not.toBeChecked();
+  await expect(banner).toBeHidden();
   expect((await calls(page, 'add_apps')).length + (await calls(page, 'stop_app')).length).toBe(2);
 });

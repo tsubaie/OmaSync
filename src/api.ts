@@ -92,6 +92,8 @@ export const api = {
   /** Returns where this computer's previous settings were backed up. */
   join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
   installApps: () => invoke<void>('install_apps'),
+  /** Whether the sync choices differ from what was last shared. */
+  choicesChanged: () => invoke<boolean>('choices_changed'),
   /** Takes other computers' plugins: all of them, or only the one named. */
   installPlugins: (only?: string) => invoke<Data>('install_plugins', { only: only ?? null }),
   setApp: (computer: string, app: string, on: boolean) =>

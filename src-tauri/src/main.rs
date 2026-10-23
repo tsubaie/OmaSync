@@ -28,6 +28,7 @@ fn main() {
             join,
             install_apps,
             install_plugins,
+            choices_changed,
             set_app,
             stop_app,
             add_apps,
@@ -288,6 +289,11 @@ async fn install_plugins(only: Option<String>) -> Result<Data> {
     })
     .await
     .map_err(Problem::from)
+}
+
+#[tauri::command]
+fn choices_changed() -> bool {
+    Ctx::load().choices_changed()
 }
 
 /// Loads the shared data, applies one change, saves it, and hands the result back to the page.

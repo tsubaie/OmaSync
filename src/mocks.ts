@@ -69,6 +69,10 @@ let data: Data = {
   },
 };
 
+const shared = data;
+const same = (d: Data) =>
+  JSON.stringify(d, (_, v) => (Array.isArray(v) ? (v.length ? v.toSorted() : undefined) : v));
+
 const status = (): Status => ({
   host: 'aaaa11112222',
   sync_space: 'https://github.com/someone/omarchy-sync',
@@ -146,6 +150,9 @@ mockIPC((cmd, args) => {
     case 'add_apps':
       data = { ...data, apps: [...new Set([...data.apps, ...(a.apps as string[])])] };
       return data;
+    case 'choices_changed':
+      // Like the Rust side: order and empty lists don't count.
+      return same(data) !== same(shared);
     case 'stop_app':
       data = { ...data, apps: data.apps.filter((x) => x !== a.app) };
       return data;

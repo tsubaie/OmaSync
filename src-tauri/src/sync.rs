@@ -229,6 +229,25 @@ impl Data {
         );
     }
 
+    /// The same choices with every list in order, for comparing.
+    pub fn sorted(mut self) -> Self {
+        self.folders.sort();
+        self.apps.sort();
+        for c in self.computers.values_mut() {
+            for list in [
+                &mut c.aka,
+                &mut c.skip_apps,
+                &mut c.skip_files,
+                &mut c.plugins,
+            ] {
+                list.sort();
+            }
+        }
+        // An entry left empty by switching something off and on again says nothing.
+        self.computers.retain(|_, c| *c != Computer::default());
+        self
+    }
+
     /// Plugins other computers have and this one doesn't, while plugins sync at all.
     pub fn missing_plugins(&self, host: &str) -> Vec<String> {
         if !self.folders.iter().any(|f| f == PLUGIN_DIR) {
@@ -315,6 +334,20 @@ impl Ctx {
 
     fn data_path(&self) -> PathBuf {
         self.src.join(".chezmoidata.yaml")
+    }
+
+    /// Whether the sync choices differ from the last saved sync. Order doesn't count, so a
+    /// switch flipped and flipped back is no change.
+    pub fn choices_changed(&self) -> bool {
+        let read = |text: &str| {
+            serde_yaml::from_str::<Data>(text).ok().map(|mut d| {
+                d.upgrade();
+                d.sorted()
+            })
+        };
+        let saved = self.git(&["show", "HEAD:.chezmoidata.yaml"]).ok();
+        let now = std::fs::read_to_string(self.data_path()).ok();
+        saved.as_deref().and_then(read) != now.as_deref().and_then(read)
     }
 
     /// Plugin folders on this computer.
@@ -1384,6 +1417,21 @@ pub fn track(ctx: &Ctx, folder: &str, on: bool) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flipping_back_is_no_change() {
+        let mut d = Data {
+            apps: vec!["b".into(), "a".into()],
+            ..Default::default()
+        };
+        let before = d.clone().sorted();
+        toggle(&mut d.apps, "b", false);
+        d.set_app("x", "a", false);
+        toggle(&mut d.apps, "b", true);
+        d.set_app("x", "a", true);
+        assert_ne!(d.apps, vec!["b".to_string(), "a".to_string()]);
+        assert_eq!(d.sorted(), before);
+    }
 
     #[test]
     fn plugins_from_other_computers_wait_here() {
