@@ -160,9 +160,21 @@ pub struct Data {
     /// Plugins shared between computers; the rest stay on the computer that has them.
     #[serde(default)]
     pub plugins: Vec<String>,
+    /// Apps that aren't in Arch's repos or the AUR, so `yay` can't install them, with the
+    /// script someone added to install them (none yet: they can't sync).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub outside: BTreeMap<String, Option<Script>>,
     /// The layout of this file; older layouts are upgraded when read.
     #[serde(default)]
     pub version: u32,
+}
+
+/// How to install an app from outside Arch's repos and the AUR: clone `repo`, then run
+/// `command` in it, in a terminal window the person can see.
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+pub struct Script {
+    pub repo: String,
+    pub command: String,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
@@ -329,6 +341,15 @@ impl Data {
             out.retain(|x| !(b.contains(x) && !m.contains(x)));
             out
         };
+        let mut outside = theirs.outside.clone();
+        for app in base.outside.keys().chain(mine.outside.keys()) {
+            if mine.outside.get(app) != base.outside.get(app) {
+                match mine.outside.get(app) {
+                    Some(s) => outside.insert(app.clone(), s.clone()),
+                    None => outside.remove(app),
+                };
+            }
+        }
         let mut computers = theirs.computers.clone();
         for id in base.computers.keys().chain(mine.computers.keys()) {
             if mine.computers.get(id) != base.computers.get(id) {
@@ -353,6 +374,7 @@ impl Data {
                 theirs.background.clone()
             },
             computers,
+            outside,
             version: theirs.version.max(mine.version),
         }
     }
@@ -1280,6 +1302,10 @@ fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String>, String> 
     if let Some(name) = save_background(ctx) {
         data.background = Some(name);
     }
+    // Apps here that `yay` couldn't install elsewhere; they sync only once given a script.
+    for app in outside_repos(&user_apps_here()) {
+        data.outside.entry(app).or_insert(None);
+    }
     let me = data.computers.entry(ctx.host.clone()).or_default();
     me.plugins = ctx.local_plugins();
     (me.web_apps, me.web_icons) = ctx.local_web_apps();
@@ -1446,12 +1472,141 @@ pub fn sync(
 }
 
 /// Synced apps this computer should have but doesn't.
+/// Synced apps this computer wants and `yay` can install (not ones from outside the repos).
 pub fn missing_apps(data: &Data, host: &str, installed: &BTreeSet<String>) -> Vec<String> {
     data.apps
         .iter()
-        .filter(|a| data.wants_app(host, a) && !installed.contains(*a))
+        .filter(|a| {
+            data.wants_app(host, a) && !installed.contains(*a) && !data.outside.contains_key(*a)
+        })
         .cloned()
         .collect()
+}
+
+/// Synced apps from outside the repos that this computer wants, with their install scripts.
+pub fn missing_scripted(
+    data: &Data,
+    host: &str,
+    installed: &BTreeSet<String>,
+) -> Vec<(String, Script)> {
+    data.apps
+        .iter()
+        .filter(|a| data.wants_app(host, a) && !installed.contains(*a))
+        .filter_map(|a| Some((a.clone(), data.outside.get(a)?.clone()?)))
+        .collect()
+}
+
+/// Which of these locally installed packages came from neither Arch's repos nor the AUR.
+/// Asks the AUR once per name and remembers it; when it can't be reached, it claims none.
+pub fn outside_repos(mine: &[String]) -> Vec<String> {
+    use std::sync::{Mutex, OnceLock};
+    static IN_AUR: OnceLock<Mutex<BTreeMap<String, bool>>> = OnceLock::new();
+    let foreign: BTreeSet<String> = run(None, "pacman", &["-Qqm"])
+        .unwrap_or_default()
+        .lines()
+        .map(String::from)
+        .collect();
+    let candidates: Vec<&String> = mine.iter().filter(|a| foreign.contains(*a)).collect();
+    let known = IN_AUR.get_or_init(Default::default);
+    let unknown: Vec<&String> = {
+        let k = known.lock().unwrap_or_else(|e| e.into_inner());
+        candidates
+            .iter()
+            .copied()
+            .filter(|a| !k.contains_key(*a))
+            .collect()
+    };
+    if !unknown.is_empty() {
+        let query: Vec<String> = unknown
+            .iter()
+            .map(|a| format!("arg[]={}", a.replace('+', "%2B").replace('@', "%40")))
+            .collect();
+        let url = format!("https://aur.archlinux.org/rpc/v5/info?{}", query.join("&"));
+        let Ok(body) = run(None, "curl", &["-fsS", "--max-time", "8", &url]) else {
+            return Vec::new();
+        };
+        let Ok(json) = serde_json::from_str::<serde_json::Value>(&body) else {
+            return Vec::new();
+        };
+        let found: BTreeSet<&str> = json["results"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|r| r["Name"].as_str())
+            .collect();
+        let mut k = known.lock().unwrap_or_else(|e| e.into_inner());
+        for a in unknown {
+            k.insert(a.clone(), found.contains(a.as_str()));
+        }
+    }
+    let k = known.lock().unwrap_or_else(|e| e.into_inner());
+    candidates
+        .into_iter()
+        .filter(|a| k.get(*a) == Some(&false))
+        .cloned()
+        .collect()
+}
+
+/// A pacman package name: lowercase letters, digits and @._+-, not starting with - or a dot.
+pub fn is_package_name(name: &str) -> bool {
+    !name.is_empty()
+        && !name.starts_with(['-', '.'])
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "@._+-".contains(c))
+}
+
+/// Installs an app with its script: downloads `repo` fresh, then runs `command` in it in a
+/// terminal window, so the person sees what it does and can type a password if it asks.
+/// Waits until that window is closed, then reports how the script ended.
+pub fn install_with_script(
+    ctx: &Ctx,
+    app: &str,
+    script: &Script,
+    step: &dyn Fn(&str),
+) -> Result<(), String> {
+    let dir = ctx.home.join(".cache/omarchy-sync/sources").join(app);
+    let done = dir.with_extension("done");
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_file(&done);
+    std::fs::create_dir_all(dir.parent().unwrap_or(&dir)).map_err(|e| e.to_string())?;
+    step(&format!("Downloading {app}"));
+    let target = dir.to_string_lossy().into_owned();
+    run(
+        None,
+        "git",
+        &["clone", "--depth", "1", "--", &script.repo, &target],
+    )?;
+    step(&format!("Installing {app} in a terminal window"));
+    let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+    let line = format!(
+        "cd {} && {}; echo $? > {}; echo; read -rp 'Press Enter to close this window. ' _",
+        quote(&target),
+        script.command,
+        quote(&done.to_string_lossy()),
+    );
+    Command::new("xdg-terminal-exec")
+        .args(["bash", "-c", &line])
+        .stdin(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("xdg-terminal-exec: {e}"))?;
+    // Some terminals hand the window to an already-running copy and return at once, so the
+    // script's own end is the signal: it writes its exit code to `done`.
+    for _ in 0..3600 {
+        if let Ok(code) = std::fs::read_to_string(&done) {
+            let _ = std::fs::remove_file(&done);
+            return match code.trim() {
+                "0" => Ok(()),
+                code => Err(format!(
+                    "the install script for {app} stopped with code {code}"
+                )),
+            };
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    Err(format!(
+        "the install script for {app} didn't finish within an hour"
+    ))
 }
 
 pub fn install_apps(apps: &[String]) -> Result<(), String> {
@@ -1745,10 +1900,16 @@ pub fn background(ctx: &Ctx) {
             let data = ctx.load_data();
             let plugins = data.missing_plugins(&ctx.host);
             let mut names = report.waiting.clone();
+            names.extend(
+                missing_scripted(&data, &ctx.host, &installed())
+                    .into_iter()
+                    .map(|(app, _)| app),
+            );
             names.extend(plugins.iter().map(|id| ctx.plugin(id).name));
             let waiting = names.join(", ");
             if !waiting.is_empty() && state.get("waiting") != Some(&waiting) {
-                let what = match (report.waiting.is_empty(), plugins.is_empty()) {
+                let apps_waiting = names.len() > plugins.len();
+                let what = match (!apps_waiting, plugins.is_empty()) {
                     (false, true) => "Apps are ready to install",
                     (true, false) => "Plugins are ready to add",
                     _ => "Apps and plugins are ready to add",
@@ -1805,6 +1966,8 @@ pub struct Apps {
     pub installed: BTreeSet<String>,
     /// Installed here by the person (not part of Omarchy), synced or not.
     pub mine: Vec<String>,
+    /// Those of `mine` that came from neither Arch's repos nor the AUR.
+    pub outside: Vec<String>,
     pub about: BTreeMap<String, String>,
 }
 
@@ -1942,7 +2105,8 @@ pub fn installed() -> BTreeSet<String> {
         .collect()
 }
 
-fn apps(data: &Data) -> Apps {
+/// The apps installed here by the person: explicitly installed, not part of Omarchy.
+fn user_apps_here() -> Vec<String> {
     let mut base: BTreeSet<String> = BTreeSet::new();
     for f in ["omarchy-base.packages", "omarchy-other.packages"] {
         let text =
@@ -1955,7 +2119,11 @@ fn apps(data: &Data) -> Apps {
         );
     }
     let explicit = run(None, "pacman", &["-Qqe"]).unwrap_or_default();
-    let mine = user_apps(explicit.lines(), &base);
+    user_apps(explicit.lines(), &base)
+}
+
+fn apps(data: &Data) -> Apps {
+    let mine = user_apps_here();
     let installed = installed();
     let mut names: Vec<&str> = mine.iter().map(|s| s.as_str()).collect();
     names.extend(
@@ -1971,9 +2139,11 @@ fn apps(data: &Data) -> Apps {
         args.extend(names);
         parse_info(&run(None, "pacman", &args).unwrap_or_default())
     };
+    let outside = outside_repos(&mine);
     Apps {
         installed,
         mine,
+        outside,
         about,
     }
 }
@@ -2187,6 +2357,38 @@ mod tests {
         assert_eq!(m.apps, vec!["b".to_string(), "c".to_string()]);
         assert_eq!(m.computers["x"].plugins, vec!["clock".to_string()]);
         assert_eq!(m.computers["y"].plugins, vec!["dock".to_string()]);
+    }
+
+    #[test]
+    fn apps_from_outside_the_repos_install_only_by_script() {
+        assert!(is_package_name("numpad") && is_package_name("lib32-gcc+x@1.2"));
+        assert!(!is_package_name("-rf") && !is_package_name("a b") && !is_package_name("A"));
+        let mut d = Data {
+            apps: vec!["numpad".into(), "rustxt".into(), "firefox".into()],
+            ..Default::default()
+        };
+        d.outside.insert("numpad".into(), None);
+        let script = Script {
+            repo: "https://example.com/rustxt".into(),
+            command: "./install.sh".into(),
+        };
+        d.outside.insert("rustxt".into(), Some(script.clone()));
+        let none = BTreeSet::new();
+        // yay only gets what it can install; rustxt waits for its script; numpad can't come.
+        assert_eq!(missing_apps(&d, "b", &none), vec!["firefox".to_string()]);
+        assert_eq!(
+            missing_scripted(&d, "b", &none),
+            vec![("rustxt".to_string(), script.clone())]
+        );
+        // A script added on one computer and an app found on another both survive a merge.
+        let base = d.clone();
+        let mut mine = d.clone();
+        mine.outside.insert("numpad".into(), Some(script.clone()));
+        let mut theirs = d.clone();
+        theirs.outside.insert("owl".into(), None);
+        let m = Data::merge(&base, &theirs, &mine);
+        assert_eq!(m.outside.get("numpad"), Some(&Some(script)));
+        assert_eq!(m.outside.get("owl"), Some(&None));
     }
 
     #[test]

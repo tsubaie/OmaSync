@@ -281,6 +281,36 @@ export function SyncPane({ s }: { s: SyncState }) {
               </div>
             </Group>
           )}
+          {s.scripted.length > 0 && s.idle && (
+            // Never automatic: it runs code from the internet, so it always waits for a yes and
+            // runs in a terminal window the person can watch.
+            <Group
+              title="Apps to Install with Their Script"
+              footer="Each opens a terminal window, so you can see what it does and type your password if it asks."
+            >
+              {s.scripted.map(({ app, script }) => (
+                <Row
+                  key={app}
+                  lead={<Tile icon={Package} kind="apps" size={24} />}
+                  title={app}
+                  detail={`Downloads ${script.repo} and runs “${script.command}”`}
+                  end={
+                    <Push
+                      onPress={() =>
+                        s.act(
+                          `Installing ${app}`,
+                          (onStep) => api.installWithScript(app, onStep),
+                          () => s.refresh(),
+                        )
+                      }
+                    >
+                      Install
+                    </Push>
+                  }
+                />
+              ))}
+            </Group>
+          )}
           {showPlugins && (
             <Group
               title="Plugins Waiting to Add"

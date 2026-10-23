@@ -7,6 +7,8 @@ export type Look = { colors_toml: string; motion: boolean };
 export type Folder = { path: string; name: string; default: boolean; exists: boolean };
 export type Catalog = { folders: Folder[]; data_label: string };
 export type Plugin = { id: string; name: string; description: string };
+/** How to install an app from outside the repos: clone `repo`, run `command` in it. */
+export type Script = { repo: string; command: string };
 
 export type SetupState = {
   missing: string[];
@@ -33,6 +35,8 @@ export type Computer = {
 export type Data = {
   folders: string[];
   apps: string[];
+  /** Apps from outside Arch's repos and the AUR, with their install script (null: none yet). */
+  outside?: Record<string, Script | null>;
   /** Plugin IDs shared between computers. */
   plugins?: string[];
   theme?: string;
@@ -56,7 +60,13 @@ export type Overview = {
   online: boolean;
   /** [computer name, last sync as unix time], this computer first. */
   computers: [string, number | null][];
-  apps: { installed: string[]; mine: string[]; about: Record<string, string> };
+  apps: {
+    installed: string[];
+    mine: string[];
+    /** Those of `mine` from neither Arch's repos nor the AUR. */
+    outside: string[];
+    about: Record<string, string>;
+  };
   incoming_files: string[];
   incoming_from: string[];
   history: Entry[];
@@ -100,6 +110,12 @@ export const api = {
   /** Returns where this computer's previous settings were backed up. */
   join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
   installApps: () => invoke<void>('install_apps'),
+  setAppScript: (app: string, repo: string, command: string) =>
+    invoke<Data>('set_app_script', { app, repo, command }),
+  removeAppScript: (app: string) => invoke<Data>('remove_app_script', { app }),
+  /** Installs one waiting app with its script, in a terminal window the person can see. */
+  installWithScript: (app: string, onStep: OnStep) =>
+    invoke<void>('install_with_script', { app, onStep: steps(onStep) }),
   /** Whether the sync choices differ from what was last shared. */
   choicesChanged: () => invoke<boolean>('choices_changed'),
   setPlugin: (computer: string, plugin: string, on: boolean) =>

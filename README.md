@@ -125,6 +125,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 - When a synced app or plugin isn't on this computer yet, it waits on the Sync screen with **Install** (or **Add**) and **Not Now**, and you get a notification.
 - To skip the waiting, turn on **Add synced apps and plugins without asking** in Settings.
 - Switching anything off never uninstalls it.
+- Apps that aren't in Arch's repos or the AUR (ones you built from your own repository, say) can't install through `yay`. Their row says so and offers **Add an Install Script…**: the Git repository to download and a command to run in it. Other computers then offer **Install**, which downloads it and runs the command in a terminal window you can watch. Without a script, the app stays on the computers that have it.
 
 **When two computers changed the same thing.** You get two equal choices, **Keep This Computer's Version** or **Keep Desktop's Version**, each saying when it changed. Changes to the choices themselves (which apps, which plugins) never ask: they're merged automatically.
 

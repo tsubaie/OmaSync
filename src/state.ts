@@ -281,10 +281,17 @@ export function useSync() {
   const nameOf = (id: string) => data?.computers?.[id]?.name || id;
   const wants = (computer: string, app: string) =>
     !!data?.apps.includes(app) && !(data.computers?.[computer]?.skip_apps ?? []).includes(app);
-  const waiting =
+  // Mirrors missing_apps and missing_scripted in sync.rs: yay installs the first kind; apps
+  // from outside the repos come only by their script.
+  const missing =
     overview && data
       ? data.apps.filter((a) => wants(host, a) && !overview.apps.installed.includes(a))
       : [];
+  const waiting = missing.filter((a) => !(a in (data?.outside ?? {})));
+  const scripted = missing.flatMap((a) => {
+    const script = data?.outside?.[a];
+    return script ? [{ app: a, script }] : [];
+  });
   const wantsPlugin = (computer: string, plugin: string) =>
     !!data?.plugins?.includes(plugin) &&
     !(data.computers?.[computer]?.skip_plugins ?? []).includes(plugin);
@@ -338,6 +345,7 @@ export function useSync() {
     me,
     wants,
     waiting,
+    scripted,
     pluginsWaiting,
     whoHas,
     wantsPlugin,

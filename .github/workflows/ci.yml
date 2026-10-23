@@ -13,6 +13,8 @@ jobs:
   static:
     name: Lint, types, format, unused code, layering, unit tests
     runs-on: ubuntu-latest
+    # A hung download (an apt mirror, say) fails the run instead of holding it for 6 hours.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -27,12 +29,16 @@ jobs:
   rust:
     name: Rust format, Clippy, tests
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - name: Tauri's Linux build dependencies
+        timeout-minutes: 5
+        # A mirror that stops answering is retried instead of waited on.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libgtk-3-dev librsvg2-dev
+          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20"
+          sudo apt-get $APT update
+          sudo apt-get $APT install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libgtk-3-dev librsvg2-dev
       - name: chezmoi, for the two-computer sync test
         run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
       - uses: dtolnay/rust-toolchain@master
@@ -54,6 +60,7 @@ jobs:
   e2e:
     name: The page in WebKit, with accessibility checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4

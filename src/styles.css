@@ -526,6 +526,28 @@ output {
 .field input[data-disabled] {
   opacity: 0.5;
 }
+/* A field with its label above and a hint below, as in the install-script form. */
+.field.labelled {
+  display: grid;
+  gap: 4px;
+}
+.field.labelled label {
+  font-size: 12px;
+  font-weight: 500;
+}
+.field.labelled input {
+  width: 100%;
+}
+.field.labelled [slot='description'] {
+  font-size: 11px;
+  color: var(--quiet);
+}
+.script-form {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+  max-width: 420px;
+}
 .search input {
   width: 100%;
   padding-left: 30px;

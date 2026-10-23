@@ -163,8 +163,8 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
   const rows = page.locator('.matrix:not(.head) .text > div:first-child');
-  await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
-  await expect(page.getByText('Only on this computer')).toBeVisible();
+  await expect(rows).toHaveText(['brave-bin', 'spotify', 'tapecalc', 'yazi']);
+  await expect(page.getByText('Only on this computer').first()).toBeVisible();
   const desk = page.getByRole('switch', { name: 'spotify synced on Desktop' });
   await expect(desk).not.toBeChecked();
   // Switching Desktop on shares it, and this computer (which has it) comes along.
@@ -172,7 +172,7 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await page.keyboard.press('Space');
   await expect(desk).toBeChecked();
   await expect(page.getByRole('switch', { name: 'spotify synced on This Computer' })).toBeChecked();
-  await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
+  await expect(rows).toHaveText(['brave-bin', 'spotify', 'tapecalc', 'yazi']);
   const banner = page.getByText('Your other computers get this change the next time you sync.');
   await expect(banner).toBeVisible();
   // Every computer switched off again: nothing is left to share, so the banner goes away.
@@ -210,4 +210,35 @@ test('each plugin is switched on per computer, like apps', async ({ page }) => {
   expect(await calls(page, 'set_plugin')).toEqual([
     { cmd: 'set_plugin', args: { computer: 'bbbb33334444', plugin: 'webcam', on: false } },
   ]);
+});
+
+test('an app from outside the repos syncs only once it has an install script', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'Installed Apps' }).click();
+  await expect(
+    page.getByText("Not in Arch's repos or the AUR, so other computers need"),
+  ).toBeVisible();
+  const desk = page.getByRole('switch', { name: 'tapecalc synced on Desktop' });
+  await expect(desk).toBeDisabled();
+
+  // The form starts empty; the person types where it comes from and what to run.
+  await page.getByRole('button', { name: 'Add an Install Script…' }).click();
+  const repo = page.getByRole('textbox', { name: 'Git repository' });
+  const command = page.getByRole('textbox', { name: 'Command to run in it' });
+  await expect(repo).toHaveValue('');
+  await expect(command).toHaveValue('');
+  await repo.fill('https://example.com/tapecalc');
+  await command.fill('./install.sh');
+  expect(await a11y(page)).toEqual([]);
+  await page.getByRole('button', { name: 'Save Install Script' }).click();
+  expect(await calls(page, 'set_app_script')).toEqual([
+    {
+      cmd: 'set_app_script',
+      args: { app: 'tapecalc', repo: 'https://example.com/tapecalc', command: './install.sh' },
+    },
+  ]);
+  await expect(
+    page.getByText('Installs with “./install.sh” from https://example.com/tapecalc'),
+  ).toBeVisible();
+  await expect(desk).toBeEnabled();
 });
