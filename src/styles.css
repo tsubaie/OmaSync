@@ -616,9 +616,11 @@ output {
 }
 /* Which version to keep: two equal choices, neither marked as recommended. */
 .keep {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.keep .choice-radio {
+  justify-self: start;
 }
 .choice-radio {
   padding: 5px 12px;

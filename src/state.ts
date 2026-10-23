@@ -365,6 +365,7 @@ export function useSync() {
     syncing,
     notice,
     conflict,
+    setConflict,
     confirmUndo,
     setConfirmUndo,
     dismissed,

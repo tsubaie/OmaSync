@@ -201,7 +201,7 @@ function ConflictGroup({ s }: { s: SyncState }) {
   const [id, when] = s.conflict!.by ?? [];
   const other = id ? s.nameOf(id) : 'The other computer';
   const versions = s.conflict!.versions;
-  const ready = versions.every((v) => choices[v.source]);
+  const left = versions.filter((v) => !choices[v.source]).length;
   return (
     <Group
       title="Changed on Both Computers"
@@ -221,22 +221,25 @@ function ConflictGroup({ s }: { s: SyncState }) {
             value={choices[v.source] ?? null}
             onChange={(keep) => setChoices((c) => ({ ...c, [v.source]: keep as Keep }))}
           >
+            {/* Each choice sits under the version it keeps. */}
             <Radio className="choice-radio" value="Mine">
-              Keep This Computer's
+              Keep This Computer's Version
             </Radio>
             <Radio className="choice-radio" value="Theirs">
-              Keep {other}'s
+              Keep {other}'s Version
             </Radio>
           </RadioGroup>
         </div>
       ))}
       <div className="row actions">
+        {/* Leaves everything as it is; the next sync asks again. */}
+        <Link onPress={() => s.setConflict(null)}>Cancel</Link>
         <Push
           prominent
-          disabled={!ready || !s.idle}
+          disabled={left > 0 || !s.idle}
           onPress={() => s.sync('Ask', undefined, false, choices)}
         >
-          Keep Chosen Versions
+          {left > 0 ? `Choose ${left} More` : 'Keep Chosen Versions'}
         </Push>
       </div>
     </Group>

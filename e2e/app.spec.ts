@@ -110,18 +110,18 @@ test('a conflict shows both versions and keeps the one chosen for each setting',
   expect(await a11y(page)).toEqual([]);
 
   // One choice per setting; keeping waits until every setting has one.
-  const keep = page.getByRole('button', { name: 'Keep Chosen Versions' });
-  await expect(keep).toBeDisabled();
+  // The button says how many settings still need a choice.
+  await expect(page.getByRole('button', { name: 'Choose 2 More' })).toBeDisabled();
   await page
     .getByRole('radiogroup', { name: 'Which version of .config/hypr/bindings.lua to keep' })
-    .getByText("Keep Desktop's")
+    .getByText("Keep Desktop's Version")
     .click();
-  await expect(keep).toBeDisabled();
+  await expect(page.getByRole('button', { name: 'Choose 1 More' })).toBeDisabled();
   await page
     .getByRole('radiogroup', { name: 'Which version of .config/ghostty/config to keep' })
-    .getByText("Keep This Computer's")
+    .getByText("Keep This Computer's Version")
     .click();
-  await keep.click();
+  await page.getByRole('button', { name: 'Keep Chosen Versions' }).click();
   expect(await calls(page, 'resolve_conflict')).toEqual([
     expect.objectContaining({
       args: expect.objectContaining({
@@ -129,6 +129,15 @@ test('a conflict shows both versions and keeps the one chosen for each setting',
       }),
     }),
   ]);
+});
+
+test('cancelling a clash changes nothing and leaves it for the next sync', async ({ page }) => {
+  await page.goto('/?scenario=conflict');
+  await page.getByRole('button', { name: 'Sync Now' }).click();
+  await expect(page.getByText('Changed on Both Computers')).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('Changed on Both Computers')).toBeHidden();
+  expect(await calls(page, 'resolve_conflict')).toEqual([]);
 });
 
 test('undo asks before changing every computer', async ({ page }) => {
