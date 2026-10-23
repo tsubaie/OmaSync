@@ -88,7 +88,9 @@ export const api = {
   look: () => invoke<Look>('look'),
   folders: () => invoke<Catalog>('folders'),
   probe: () => invoke<SetupState>('probe'),
-  overview: (onStep: OnStep) => invoke<Status>('overview', { onStep: steps(onStep) }),
+  /** `justSynced`: right after a sync, which already saved and fetched. */
+  overview: (onStep: OnStep, justSynced = false) =>
+    invoke<Status>('overview', { onStep: steps(onStep), justSynced }),
   syncNow: (prefer: Prefer, onStep: OnStep) =>
     invoke<Report>('sync_now', { prefer, onStep: steps(onStep) }),
   undo: (sha: string, onStep: OnStep) => invoke<Report>('undo', { sha, onStep: steps(onStep) }),

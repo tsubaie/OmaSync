@@ -288,7 +288,15 @@ export function SyncPane({ s }: { s: SyncState }) {
               ))}
               <div className="row actions">
                 <Push onPress={() => s.setDismissed(s.waiting.join())}>Not Now</Push>
-                <Push onPress={() => s.act('Installing apps', () => api.installApps(), s.refresh)}>
+                <Push
+                  onPress={() =>
+                    s.act(
+                      'Installing apps',
+                      () => api.installApps(),
+                      () => s.refresh(),
+                    )
+                  }
+                >
                   Install
                 </Push>
               </div>

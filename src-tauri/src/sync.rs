@@ -1312,6 +1312,8 @@ pub fn sync(
             "Getting changes from your other computers",
             "Updating this computer",
             "Sharing with your other computers",
+            // The page's look afterwards (overview with just_synced).
+            "Checking your apps and plugins",
         ],
     );
     step("Saving this computer's changes");
@@ -1761,22 +1763,28 @@ pub struct Apps {
     pub about: BTreeMap<String, String>,
 }
 
-pub fn overview(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Overview, String> {
+/// `just_synced`: a sync has just saved and fetched, so only the rest is looked at again (its
+/// progress continues the sync's own list).
+pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Overview, String> {
     // Staging and git status would collide with a background sync mid-commit.
     let _lock = lock_wait(ctx)?;
-    plan(
-        step,
-        &[
-            "Saving changed settings",
-            "Looking for new files",
-            "Checking GitHub for your other computers",
-            "Checking your apps and plugins",
-        ],
-    );
+    if !just_synced {
+        plan(
+            step,
+            &[
+                "Saving changed settings",
+                "Looking for new files",
+                "Checking GitHub for your other computers",
+                "Checking your apps and plugins",
+            ],
+        );
+    }
     let data = ctx.load_data();
-    stage(ctx, &data, step)?;
-    step("Checking GitHub for your other computers");
-    let online = git_progress(ctx, &["fetch", "--progress"], step).is_ok();
+    let online = just_synced || {
+        stage(ctx, &data, step)?;
+        step("Checking GitHub for your other computers");
+        git_progress(ctx, &["fetch", "--progress"], step).is_ok()
+    };
     let incoming = ctx
         .git(&["rev-list", "--count", "HEAD..@{u}"])
         .ok()
@@ -2577,7 +2585,7 @@ mod tests {
         ok(sync(&a, Prefer::Ask, false, &quiet));
         enter(&b);
         write(&b, "bindings.lua", "b2");
-        let ov = overview(&b, &|_| {}).unwrap();
+        let ov = overview(&b, &|_| {}, false).unwrap();
         assert_eq!(
             (ov.incoming, ov.unshared.clone()),
             (1, vec![".config/hypr/bindings.lua".to_string()])
@@ -2596,7 +2604,7 @@ mod tests {
         ok(sync(&a, Prefer::Ask, false, &quiet));
         assert_eq!(read(&a, "bindings.lua"), "b2");
         assert_eq!(read(&a, "monitors.lua"), "screen-a");
-        let ov = overview(&a, &|_| {}).unwrap();
+        let ov = overview(&a, &|_| {}, false).unwrap();
         assert_eq!(
             (ov.incoming, ov.unshared.len()),
             (0, 0),

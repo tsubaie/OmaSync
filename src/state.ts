@@ -10,6 +10,7 @@ import {
   type Data,
   type Prefer,
   type Problem,
+  type Report,
   type SetupState,
   type Status,
 } from './api';
@@ -67,12 +68,17 @@ export function useSync() {
   async function run<T>(
     first: string,
     work: (onStep: (s: string) => void) => Promise<T>,
+    // A sync and the look afterwards are one round: the first keeps its steps on screen,
+    // the second carries on from them.
+    round: 'whole' | 'starts' | 'continues' = 'whole',
   ): Promise<T | undefined> {
     if (working.current) return undefined;
     working.current = true;
     setBusy(first);
-    setSteps([]);
-    setPlan([]);
+    if (round !== 'continues') {
+      setSteps([]);
+      setPlan([]);
+    }
     setPercent(null);
     try {
       return await work((line) => {
@@ -89,16 +95,22 @@ export function useSync() {
     } finally {
       working.current = false;
       setBusy(null);
-      setSteps([]);
-      setPlan([]);
+      if (round !== 'starts') {
+        setSteps([]);
+        setPlan([]);
+      }
       setPercent(null);
       setSyncing(false);
     }
   }
 
-  async function refresh() {
+  async function refresh(afterSync = false) {
     try {
-      const st = await run('Checking for changes', (onStep) => api.overview(onStep));
+      const st = await run(
+        'Checking for changes',
+        (onStep) => api.overview(onStep, afterSync),
+        afterSync ? 'continues' : 'whole',
+      );
       if (!st) return;
       setStatus(st);
       lastRefresh.current = Date.now();
@@ -136,9 +148,12 @@ export function useSync() {
     setNotice(null);
     setTab('sync');
     setSyncing(true);
+    let report: Report | undefined;
     try {
-      const report = await run(undoSha ? 'Undoing' : 'Starting', (onStep) =>
-        undoSha ? api.undo(undoSha, onStep) : api.syncNow(prefer, onStep),
+      report = await run(
+        undoSha ? 'Undoing' : 'Starting',
+        (onStep) => (undoSha ? api.undo(undoSha, onStep) : api.syncNow(prefer, onStep)),
+        'starts',
       );
       if (report) {
         // Success is a small toast; anything worth reading (apps installed or not) stays on screen.
@@ -152,7 +167,8 @@ export function useSync() {
     } catch (e) {
       fail(e);
     }
-    await refresh();
+    // After a sync, a quick look continues its progress; after a failure, a full check.
+    await refresh(!!report);
   }
 
   async function act<T>(

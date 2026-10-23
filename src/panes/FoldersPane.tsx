@@ -51,7 +51,11 @@ function FolderGroup({
         const synced = data.folders.includes(f.path);
         const here = !separate.includes(f.path);
         const toggle = (on: boolean) =>
-          s.act(on ? 'Adding' : 'Removing', () => api.setFolder(f.path, on), s.refresh);
+          s.act(
+            on ? 'Adding' : 'Removing',
+            () => api.setFolder(f.path, on),
+            () => s.refresh(),
+          );
         return (
           <Row
             key={f.path}
