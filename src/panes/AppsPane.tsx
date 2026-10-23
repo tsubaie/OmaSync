@@ -3,40 +3,39 @@ import { Search } from 'lucide-react';
 import { Input, Label, SearchField, Text, TextField } from 'react-aria-components';
 import { api } from '../api';
 import type { SyncState } from '../state';
-import { Group, Link, Push, Row, Toggle } from '../ui';
+import { Caution, Group, Link, Push, Row, Toggle } from '../ui';
 
 /**
- * How to install an app that isn't in Arch's repos or the AUR: a Git repository and a command
- * to run in it. Both start empty; the person fills them in.
+ * How to install an app that isn't in Arch's repos or the AUR: one command, run in an empty
+ * folder in a terminal window. It starts empty; the person types it in.
  */
 function ScriptForm({ s, app, onDone }: { s: SyncState; app: string; onDone: () => void }) {
-  const current = s.data?.outside?.[app];
-  const [repo, setRepo] = useState(current?.repo ?? '');
-  const [command, setCommand] = useState(current?.command ?? '');
+  const [command, setCommand] = useState(s.data?.outside?.[app]?.command ?? '');
   const save = () =>
     s.edit(async () => {
-      const data = await api.setAppScript(app, repo, command);
+      const data = await api.setAppScript(app, command);
       onDone();
       return data;
     });
   return (
     <div className="script-form">
-      <TextField className="field labelled" value={repo} onChange={setRepo} isRequired>
-        <Label>Git repository</Label>
-        <Input />
-        <Text slot="description">The web address of the app's source, starting with https://.</Text>
-      </TextField>
+      <Caution>
+        <b>Only enter a command from a source you fully trust.</b> It runs on every computer that
+        installs {app}, with your access: it can read, change or delete anything you can. Never
+        paste a command from someone you don't know.
+      </Caution>
       <TextField className="field labelled" value={command} onChange={setCommand} isRequired>
-        <Label>Command to run in it</Label>
+        <Label>Install command</Label>
         <Input />
         <Text slot="description">
-          Runs inside the downloaded repository, in a terminal window you can see.
+          Runs in an empty folder, in a terminal window you can see. It can download the app itself,
+          for example with git clone or an installer from the app's website.
         </Text>
       </TextField>
       <div className="actions">
         <Link onPress={onDone}>Cancel</Link>
-        <Push disabled={!s.idle || !repo.trim() || !command.trim()} onPress={save}>
-          Save Install Script
+        <Push disabled={!s.idle || !command.trim()} onPress={save}>
+          Save Install Command
         </Push>
       </div>
     </div>
@@ -55,7 +54,7 @@ export function AppsPane({ s }: { s: SyncState }) {
   const column = (c: string) => (c === host ? 'Sync' : s.nameOf(c));
   const columns = { '--n': computers.length } as React.CSSProperties;
   const apps = [...new Set([...data.apps, ...ov.apps.mine])].toSorted();
-  // Sync All leaves out apps that can't reach other computers yet (no install script).
+  // Sync All leaves out apps that can't sync yet (no install command).
   const needsScript = (a: string) =>
     (ov.apps.outside.includes(a) || a in (data.outside ?? {})) && !data.outside?.[a];
   const unsynced = apps.filter((a) => !data.apps.includes(a) && !needsScript(a));
@@ -100,7 +99,7 @@ export function AppsPane({ s }: { s: SyncState }) {
               const synced = data.apps.includes(app);
               const about = ov.apps.about[app];
               const missingHere = synced && s.wants(host, app) && !ov.apps.installed.includes(app);
-              // Not in Arch's repos or the AUR: it reaches other computers only by its script.
+              // Not in Arch's repos or the AUR: it syncs only with its install command.
               const outside = ov.apps.outside.includes(app) || app in (data.outside ?? {});
               const script = data.outside?.[app] ?? null;
               return (
@@ -110,7 +109,7 @@ export function AppsPane({ s }: { s: SyncState }) {
                     {missingHere ? (
                       <div className="detail warn">
                         {script
-                          ? 'Installs here with its script'
+                          ? 'Installs here with its install command'
                           : 'Installs here after you approve it'}
                       </div>
                     ) : (
@@ -119,21 +118,21 @@ export function AppsPane({ s }: { s: SyncState }) {
                     {outside && (
                       <div className="detail">
                         {script
-                          ? `Not in Arch's repos or the AUR. Installs with “${script.command}” from ${script.repo}.`
-                          : "Not in Arch's repos or the AUR, so other computers need an install script."}
+                          ? `Not in Arch's repos or the AUR. Installs with “${script.command}”.`
+                          : "Not in Arch's repos or the AUR. Add its install command to sync it."}
                       </div>
                     )}
                     {outside && editing !== app && (
                       <div className="inline">
                         <Link disabled={!s.idle} onPress={() => setEditing(app)}>
-                          {script ? 'Edit Install Script…' : 'Add an Install Script…'}
+                          {script ? 'Edit Install Command…' : 'Add an Install Command…'}
                         </Link>
                         {script && (
                           <Link
                             disabled={!s.idle}
                             onPress={() => s.edit(() => api.removeAppScript(app))}
                           >
-                            Remove Script
+                            Remove Install Command
                           </Link>
                         )}
                       </div>
@@ -148,7 +147,7 @@ export function AppsPane({ s }: { s: SyncState }) {
                       <Toggle
                         on={s.wants(c, app)}
                         label={`${app} synced on ${name(c)}`}
-                        disabled={!s.idle || (outside && !script && c !== host)}
+                        disabled={!s.idle || (outside && !script)}
                         onChange={(on) => s.edit(() => api.setApp(c, app, on))}
                       />
                     </div>

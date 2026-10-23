@@ -337,8 +337,8 @@ fn edit(change: impl FnOnce(&mut Data, &str)) -> Result<Data> {
 #[tauri::command]
 fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
     let ctx = Ctx::load();
-    // Another computer can only get an app from outside the repos through its install script.
-    if on && computer != ctx.host && ctx.load_data().outside.get(&app) == Some(&None) {
+    // An app from outside the repos syncs only through its install script.
+    if on && ctx.load_data().outside.get(&app) == Some(&None) {
         return Err(format!(
             "{app} isn't in Arch's repos or the AUR, so add an install script before syncing it."
         )
@@ -348,34 +348,34 @@ fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
     edit(|d, host| d.place_app(host, installed_here, &computer, &app, on))
 }
 
-/// Saves how to install an app from outside Arch's repos and the AUR: a Git repository to
-/// download, and a command to run in it.
+/// Saves how to install an app from outside Arch's repos and the AUR: one command, run in an
+/// empty folder in a terminal window.
 #[tauri::command]
-fn set_app_script(app: String, repo: String, command: String) -> Result<Data> {
-    let (repo, command) = (repo.trim().to_string(), command.trim().to_string());
+fn set_app_script(app: String, command: String) -> Result<Data> {
+    let command = command.trim().to_string();
     if !sync::is_package_name(&app) {
         return Err(format!("not an app: {app}").into());
     }
-    if !repo.starts_with("https://")
-        || repo.len() > 300
-        || repo.chars().any(|c| c.is_whitespace() || c.is_control())
+    if command.is_empty() || command.chars().count() > 500 || command.chars().any(char::is_control)
     {
-        return Err("The repository needs a web address starting with https://."
-            .to_string()
-            .into());
-    }
-    if command.is_empty() || command.chars().count() > 300 || command.chars().any(char::is_control)
-    {
-        return Err("The command needs 1 to 300 characters, on one line."
-            .to_string()
-            .into());
+        return Err(
+            "The install command needs 1 to 500 characters, on one line."
+                .to_string()
+                .into(),
+        );
     }
     let ctx = Ctx::load();
     if !ctx.load_data().outside.contains_key(&app) && !sync::installed().contains(&app) {
         return Err(format!("{app} isn't installed here.").into());
     }
     edit(|d, _| {
-        d.outside.insert(app, Some(sync::Script { repo, command }));
+        d.outside.insert(
+            app,
+            Some(sync::Script {
+                command,
+                ..Default::default()
+            }),
+        );
     })
 }
 

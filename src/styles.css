@@ -542,6 +542,26 @@ output {
   font-size: 11px;
   color: var(--quiet);
 }
+/* A warning before something risky: tinted in the warning colour, never hidden. */
+.caution {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--warn) 45%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.caution svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--warn);
+}
+.caution p {
+  margin: 0;
+}
 .script-form {
   display: grid;
   gap: 12px;

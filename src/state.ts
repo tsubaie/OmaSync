@@ -279,8 +279,11 @@ export function useSync() {
   const me = data?.computers?.[host] ?? {};
   /** A computer's name for people; falls back to its ID for computers that never named themselves. */
   const nameOf = (id: string) => data?.computers?.[id]?.name || id;
+  // An app from outside the repos without an install script isn't synced, whatever the list says.
   const wants = (computer: string, app: string) =>
-    !!data?.apps.includes(app) && !(data.computers?.[computer]?.skip_apps ?? []).includes(app);
+    !!data?.apps.includes(app) &&
+    data.outside?.[app] !== null &&
+    !(data.computers?.[computer]?.skip_apps ?? []).includes(app);
   // Mirrors missing_apps and missing_scripted in sync.rs: yay installs the first kind; apps
   // from outside the repos come only by their script.
   const missing =

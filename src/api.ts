@@ -7,8 +7,8 @@ export type Look = { colors_toml: string; motion: boolean };
 export type Folder = { path: string; name: string; default: boolean; exists: boolean };
 export type Catalog = { folders: Folder[]; data_label: string };
 export type Plugin = { id: string; name: string; description: string };
-/** How to install an app from outside the repos: clone `repo`, run `command` in it. */
-export type Script = { repo: string; command: string };
+/** How to install an app from outside the repos: a command, run in an empty folder. */
+export type Script = { command: string };
 
 export type SetupState = {
   missing: string[];
@@ -110,8 +110,7 @@ export const api = {
   /** Returns where this computer's previous settings were backed up. */
   join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
   installApps: () => invoke<void>('install_apps'),
-  setAppScript: (app: string, repo: string, command: string) =>
-    invoke<Data>('set_app_script', { app, repo, command }),
+  setAppScript: (app: string, command: string) => invoke<Data>('set_app_script', { app, command }),
   removeAppScript: (app: string) => invoke<Data>('remove_app_script', { app }),
   /** Installs one waiting app with its script, in a terminal window the person can see. */
   installWithScript: (app: string, onStep: OnStep) =>

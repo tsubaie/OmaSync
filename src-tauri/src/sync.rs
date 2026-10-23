@@ -169,12 +169,15 @@ pub struct Data {
     pub version: u32,
 }
 
-/// How to install an app from outside Arch's repos and the AUR: clone `repo`, then run
-/// `command` in it, in a terminal window the person can see.
+/// How to install an app from outside Arch's repos and the AUR: a command, run in an empty
+/// folder in a terminal window the person can see (it may download a repository itself).
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
 pub struct Script {
-    pub repo: String,
     pub command: String,
+    /// Only read: an earlier version kept a repository to clone apart from the command.
+    /// `Data::upgrade` folds it into the command.
+    #[serde(default, skip_serializing)]
+    pub repo: String,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
@@ -257,6 +260,13 @@ impl Data {
                 if self.folders.iter().any(|x| x == parent) {
                     toggle(&mut self.folders, f, true);
                 }
+            }
+        }
+        // A script that kept its repository apart becomes one command that clones it first.
+        for (app, script) in self.outside.iter_mut() {
+            if let Some(s) = script.as_mut().filter(|s| !s.repo.is_empty()) {
+                s.command = format!("git clone {} {app} && cd {app} && {}", s.repo, s.command);
+                s.repo.clear();
             }
         }
         self.version = 3;
@@ -1306,6 +1316,14 @@ fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String>, String> 
     for app in outside_repos(&user_apps_here()) {
         data.outside.entry(app).or_insert(None);
     }
+    // Without an install script such an app can't reach other computers, so it isn't synced.
+    let stuck: Vec<String> = data
+        .outside
+        .iter()
+        .filter(|(_, s)| s.is_none())
+        .map(|(a, _)| a.clone())
+        .collect();
+    data.apps.retain(|a| !stuck.contains(a));
     let me = data.computers.entry(ctx.host.clone()).or_default();
     me.plugins = ctx.local_plugins();
     (me.web_apps, me.web_icons) = ctx.local_web_apps();
@@ -1556,32 +1574,25 @@ pub fn is_package_name(name: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || "@._+-".contains(c))
 }
 
-/// Installs an app with its script: downloads `repo` fresh, then runs `command` in it in a
-/// terminal window, so the person sees what it does and can type a password if it asks.
-/// Waits until that window is closed, then reports how the script ended.
+/// Installs an app with its install command, run in a fresh empty folder in a terminal window,
+/// so the person sees what it does and can type a password if it asks. Waits for the command
+/// to finish, then reports how it ended.
 pub fn install_with_script(
     ctx: &Ctx,
     app: &str,
     script: &Script,
     step: &dyn Fn(&str),
 ) -> Result<(), String> {
-    let dir = ctx.home.join(".cache/omarchy-sync/sources").join(app);
+    let dir = ctx.home.join(".cache/omarchy-sync/install").join(app);
     let done = dir.with_extension("done");
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_file(&done);
-    std::fs::create_dir_all(dir.parent().unwrap_or(&dir)).map_err(|e| e.to_string())?;
-    step(&format!("Downloading {app}"));
-    let target = dir.to_string_lossy().into_owned();
-    run(
-        None,
-        "git",
-        &["clone", "--depth", "1", "--", &script.repo, &target],
-    )?;
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     step(&format!("Installing {app} in a terminal window"));
     let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
     let line = format!(
         "cd {} && {}; echo $? > {}; echo; read -rp 'Press Enter to close this window. ' _",
-        quote(&target),
+        quote(&dir.to_string_lossy()),
         script.command,
         quote(&done.to_string_lossy()),
     );
@@ -1591,21 +1602,21 @@ pub fn install_with_script(
         .spawn()
         .map_err(|e| format!("xdg-terminal-exec: {e}"))?;
     // Some terminals hand the window to an already-running copy and return at once, so the
-    // script's own end is the signal: it writes its exit code to `done`.
+    // command's own end is the signal: it writes its exit code to `done`.
     for _ in 0..3600 {
         if let Ok(code) = std::fs::read_to_string(&done) {
             let _ = std::fs::remove_file(&done);
             return match code.trim() {
                 "0" => Ok(()),
                 code => Err(format!(
-                    "the install script for {app} stopped with code {code}"
+                    "the install command for {app} stopped with code {code}"
                 )),
             };
         }
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
     Err(format!(
-        "the install script for {app} didn't finish within an hour"
+        "the install command for {app} didn't finish within an hour"
     ))
 }
 
@@ -2369,8 +2380,8 @@ mod tests {
         };
         d.outside.insert("numpad".into(), None);
         let script = Script {
-            repo: "https://example.com/rustxt".into(),
-            command: "./install.sh".into(),
+            command: "curl -fsSL https://example.com/install.sh | bash".into(),
+            ..Default::default()
         };
         d.outside.insert("rustxt".into(), Some(script.clone()));
         let none = BTreeSet::new();
@@ -2389,6 +2400,26 @@ mod tests {
         let m = Data::merge(&base, &theirs, &mine);
         assert_eq!(m.outside.get("numpad"), Some(&Some(script)));
         assert_eq!(m.outside.get("owl"), Some(&None));
+    }
+
+    #[test]
+    fn an_older_script_becomes_one_command() {
+        let mut d = Data {
+            version: 3,
+            ..Default::default()
+        };
+        d.outside.insert(
+            "numpad".into(),
+            Some(Script {
+                command: "./install.sh".into(),
+                repo: "https://example.com/numpad".into(),
+            }),
+        );
+        d.upgrade();
+        assert_eq!(
+            d.outside["numpad"].as_ref().map(|s| s.command.as_str()),
+            Some("git clone https://example.com/numpad numpad && cd numpad && ./install.sh")
+        );
     }
 
     #[test]

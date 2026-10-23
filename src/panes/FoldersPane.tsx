@@ -45,7 +45,15 @@ function FolderGroup({
     )
     .toSorted((a, b) => order(a) - order(b));
   return (
-    <Group title={title} footer={footer}>
+    <Group
+      title={title}
+      footer={
+        <>
+          {footer && <>{footer} </>}A switch syncs an item on all your computers, or stops it
+          everywhere. Don't Sync on This Computer leaves only this computer out.
+        </>
+      }
+    >
       {folders.length === 0 && <Row title="None of these apps are on this computer." />}
       {folders.map((f) => {
         const synced = data.folders.includes(f.path);
@@ -67,12 +75,17 @@ function FolderGroup({
           >
             {synced && (
               <div className="inline">
-                {!here && <span className="detail warn">This computer keeps its own version.</span>}
+                {!here && (
+                  <span className="detail warn">
+                    Not synced on this computer: it keeps its own version while your other computers
+                    stay in step.
+                  </span>
+                )}
                 <Link
                   disabled={!s.idle}
                   onPress={() => s.edit(() => api.folderHere(f.path, !here))}
                 >
-                  {here ? 'Keep a Separate Version Here' : 'Use the Synced Version'}
+                  {here ? "Don't Sync on This Computer" : 'Sync on This Computer Again'}
                 </Link>
               </div>
             )}

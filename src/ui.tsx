@@ -2,7 +2,7 @@
 // (keyboard, focus and screen-reader behaviour come from React Aria; the look is styles.css).
 
 import type { ReactNode } from 'react';
-import { Check, Circle, RefreshCw, type LucideIcon } from 'lucide-react';
+import { Check, Circle, RefreshCw, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { Button, Switch, Tooltip, TooltipTrigger } from 'react-aria-components';
 import { progress } from './format';
 
@@ -207,6 +207,16 @@ export function Progress({
           );
         })}
       </ol>
+    </div>
+  );
+}
+
+/** A warning to read before doing something risky, with its icon. */
+export function Caution({ children }: { children: ReactNode }) {
+  return (
+    <div className="caution" role="note">
+      <TriangleAlert size={16} aria-hidden="true" />
+      <p>{children}</p>
     </div>
   );
 }

@@ -56,7 +56,9 @@ const catalog: Catalog = {
 
 let data: Data = {
   folders: FOLDERS.filter(([, , on]) => on).map(([path]) => path),
-  apps: ['brave-bin', 'yazi'],
+  apps: ['brave-bin', 'yazi', 'quicknote'],
+  // On Desktop only, from outside the repos: it waits here for its install command.
+  outside: { quicknote: { command: 'curl -fsSL https://example.com/quicknote.sh | bash' } },
   plugins: ['timezones', 'webcam'],
   computers: {
     aaaa11112222: { name: 'Laptop', plugins: ['timezones'] },
@@ -229,12 +231,14 @@ mockIPC((cmd, args) => {
       };
       return data;
     }
+    case 'install_with_script':
+      return null;
     case 'set_app_script':
       data = {
         ...data,
         outside: {
           ...data.outside,
-          [a.app as string]: { repo: a.repo as string, command: a.command as string },
+          [a.app as string]: { command: a.command as string },
         },
       };
       return data;
