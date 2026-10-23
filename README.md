@@ -22,8 +22,8 @@ Not synced: deleting a file or uninstalling an app on one computer (do that on e
 Omarchy Sync is built from source for now. You need [mise](https://mise.jdx.dev), which Omarchy already includes, and Tauri's system libraries (`webkit2gtk-4.1`, already installed on Omarchy).
 
 ```bash
-git clone https://github.com/tsubaie/omarchy-sync-app.git
-cd omarchy-sync-app
+git clone https://github.com/tsubaie/OmaSame.git
+cd OmaSame
 mise install                      # the Node, pnpm and Rust versions in .mise.toml
 mise x -- pnpm install
 mise x -- pnpm tauri build --no-bundle
