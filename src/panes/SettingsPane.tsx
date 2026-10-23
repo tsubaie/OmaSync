@@ -58,11 +58,16 @@ function Updates({ s }: { s: SyncState }) {
       : found === null
         ? 'You have the latest version.'
         : `${found.version} is available.`;
+  const checking = s.busy === 'Checking for updates';
   const check = () =>
     s.act(
       'Checking for updates',
       () => api.checkUpdate(),
-      (update) => setFound(update),
+      (update) => {
+        setFound(update);
+        // The row's detail says it too, but a check that finds nothing needs an unmistakable answer.
+        if (!update) s.flash('You have the latest version');
+      },
     );
   return (
     <Group
@@ -104,9 +109,9 @@ function Updates({ s }: { s: SyncState }) {
               </div>
             )
           ) : (
-            <Link disabled={!s.idle} onPress={check}>
-              Check for Updates
-            </Link>
+            <Push disabled={!s.idle} onPress={check}>
+              {checking ? 'Checking…' : found === null ? 'Check Again' : 'Check for Updates'}
+            </Push>
           )
         }
       >
