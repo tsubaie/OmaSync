@@ -335,9 +335,17 @@ pub enum Prefer {
 
 #[derive(Debug, Clone)]
 pub enum SyncError {
-    /// Same lines changed on two computers; holds the affected paths under home.
-    Conflict(Vec<String>),
+    Conflict(Conflict),
     Failed(String),
+}
+
+/// The same lines changed on two computers.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Conflict {
+    /// Affected paths under home.
+    pub files: Vec<String>,
+    /// The other computer that changed them, and when (unix time).
+    pub by: Option<(String, i64)>,
 }
 
 pub fn sync(ctx: &Ctx, prefer: Prefer, step: &dyn Fn(&str)) -> Result<Vec<String>, SyncError> {
@@ -367,9 +375,13 @@ pub fn sync(ctx: &Ctx, prefer: Prefer, step: &dyn Fn(&str)) -> Result<Vec<String
         if let Err(e) = ctx.git(&args) {
             let git_dir = ctx.src.join(".git");
             if git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists() {
-                let files = ctx.git(&["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default();
+                let files: Vec<String> = ctx.git(&["diff", "--name-only", "--diff-filter=U"]).unwrap_or_default().lines().map(String::from).collect();
                 let _ = ctx.git(&["rebase", "--abort"]);
-                return Err(SyncError::Conflict(to_targets(ctx, files.lines().map(String::from).collect())));
+                // The newest change to these files on GitHub names the other computer.
+                let mut args = vec!["log", "-1", "--format=%an%x09%ct", "@{u}", "--"];
+                args.extend(files.iter().map(|f| f.as_str()));
+                let by = ctx.git(&args).ok().and_then(|l| parse_log(&l).into_iter().next());
+                return Err(SyncError::Conflict(Conflict { files: to_targets(ctx, files), by }));
             }
             return Err(fail(e));
         }
@@ -695,7 +707,10 @@ mod tests {
         let ov = overview(&b).unwrap();
         assert_eq!((ov.incoming, ov.unshared.clone()), (1, vec![".config/hypr/bindings.lua".to_string()]));
         match sync(&b, Prefer::Ask, &quiet) {
-            Err(SyncError::Conflict(files)) => assert_eq!(files, vec![".config/hypr/bindings.lua"]),
+            Err(SyncError::Conflict(c)) => {
+                assert_eq!(c.files, vec![".config/hypr/bindings.lua"]);
+                assert_eq!(c.by.map(|(name, _)| name), Some("a".to_string()));
+            }
             _ => panic!("expected a conflict"),
         }
         assert_eq!(read(&b, "bindings.lua"), "b2");

@@ -22,6 +22,10 @@ Then open **Omarchy Sync** from the app launcher. The first run installs `chezmo
 
 Not synced: deleting a file or uninstalling an app on one computer (do that on each), and git history inside plugin folders (plugin files sync, their `.git` does not).
 
+## Keyboard and accessibility
+
+iced 0.14 can't move keyboard focus between buttons and has no screen-reader support, so the app offers shortcuts instead: **1 / 2 / 3** (or Ctrl+1/2/3) switch tabs, **Enter**, **Ctrl+R** or **F5** syncs, **T / O** pick a version when two computers changed the same setting, and **Ctrl+Q** quits. Colours come from the active Omarchy theme and are adjusted to meet WCAG contrast; animations stop when Hyprland or GNOME animations are turned off.
+
 ## Tests
 
 `cargo test -- --include-ignored` also runs a two-computer sync against a local repo (needs `chezmoi` and `git`).
