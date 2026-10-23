@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Omarchy Sync
+Comment=Keep settings, themes, plugins and apps the same on all your computers
+Exec=omarchy-sync
+Icon=emblem-synchronizing
+Terminal=false
+Categories=Settings;Utility;
+StartupWMClass=omarchy-sync

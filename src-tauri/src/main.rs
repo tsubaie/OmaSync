@@ -1,0 +1,391 @@
+//! Omarchy Sync: a Tauri window over the sync engine in `sync.rs`.
+//! The page in `ui/` calls the commands below; everything it sends is checked here,
+//! because the commands install packages and change files.
+
+mod sync;
+
+use serde::Serialize;
+use sync::{Ctx, Data, Overview, Prefer, Report, SetupState, SyncError};
+use tauri::ipc::Channel;
+
+fn main() {
+    // The systemd timer runs the same binary headless.
+    if std::env::args().any(|a| a == "--background") {
+        sync::background(&Ctx::load());
+        return;
+    }
+    tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![
+            look,
+            folders,
+            probe,
+            overview,
+            sync_now,
+            undo,
+            install_helpers,
+            sign_in,
+            start,
+            join,
+            install_apps,
+            set_app,
+            stop_app,
+            add_apps,
+            set_folder,
+            folder_here,
+            set_auto,
+            set_install_auto,
+            rename_computer,
+            forget_computer,
+            open_sync_space,
+            disconnect,
+        ])
+        .run(tauri::generate_context!())
+        .expect("Omarchy Sync couldn't start");
+}
+
+/// What the page shows when something fails: a sentence for people, and the raw error for whoever helps.
+#[derive(Serialize)]
+#[serde(tag = "kind")]
+enum Problem {
+    Failed { message: String, details: String },
+    Conflict(sync::Conflict),
+}
+
+impl From<String> for Problem {
+    fn from(e: String) -> Problem {
+        Problem::Failed {
+            message: sync::friendly(&e),
+            details: e,
+        }
+    }
+}
+
+impl From<SyncError> for Problem {
+    fn from(e: SyncError) -> Problem {
+        match e {
+            SyncError::Conflict(c) => Problem::Conflict(c),
+            SyncError::Failed(e) => e.into(),
+        }
+    }
+}
+
+type Result<T> = std::result::Result<T, Problem>;
+
+/// Git, chezmoi and pacman calls block, so they run off the UI thread.
+async fn blocking<T: Send + 'static>(work: impl FnOnce(&Ctx) -> T + Send + 'static) -> T {
+    tauri::async_runtime::spawn_blocking(move || work(&Ctx::load()))
+        .await
+        .expect("worker thread panicked")
+}
+
+fn steps(channel: Channel<String>) -> impl Fn(&str) {
+    move |s: &str| {
+        let _ = channel.send(s.to_string());
+    }
+}
+
+/// What the page needs to dress itself like the desktop: the active Omarchy theme's colours
+/// (the page derives contrast-checked roles from them) and the desktop's motion and blur settings.
+#[derive(Serialize)]
+struct Look {
+    /// The raw `colors.toml` of the active Omarchy theme, empty if there is none.
+    colors_toml: String,
+    /// Desktop animations are on (Hyprland and GNOME both allow them).
+    motion: bool,
+    /// Hyprland blurs behind windows, so see-through surfaces stay legible.
+    blur: bool,
+}
+
+fn output(prog: &str, args: &[&str]) -> Option<String> {
+    std::process::Command::new(prog)
+        .args(args)
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).replace(' ', ""))
+}
+
+#[tauri::command]
+fn look() -> Look {
+    let ctx = Ctx::load();
+    let state = std::env::var("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or(ctx.home.join(".local/state"));
+    let hypr_off = output("hyprctl", &["getoption", "animations:enabled", "-j"])
+        .is_some_and(|s| s.contains("\"bool\":false") || s.contains("\"int\":0"));
+    let gnome_off = output(
+        "gsettings",
+        &["get", "org.gnome.desktop.interface", "enable-animations"],
+    )
+    .is_some_and(|s| s.trim() == "false");
+    Look {
+        colors_toml: std::fs::read_to_string(state.join("omarchy/current/theme/colors.toml"))
+            .unwrap_or_default(),
+        motion: !(hypr_off || gnome_off),
+        blur: output("hyprctl", &["getoption", "decoration:blur:enabled", "-j"])
+            .is_some_and(|s| s.contains("\"bool\":true")),
+    }
+}
+
+#[derive(Serialize)]
+struct Folder {
+    path: &'static str,
+    name: &'static str,
+    /// Synced by default when setting up the first computer.
+    default: bool,
+    exists: bool,
+}
+
+#[derive(Serialize)]
+struct Catalog {
+    folders: Vec<Folder>,
+    /// How a change to the app list and sync choices is named.
+    data_label: &'static str,
+}
+
+/// The folders the app knows how to sync, with plain names for showing paths.
+#[tauri::command]
+fn folders() -> Catalog {
+    let home = Ctx::load().home;
+    let folders = sync::FOLDERS
+        .iter()
+        .map(|&(path, name, default)| Folder {
+            path,
+            name,
+            default,
+            exists: home.join(path).exists(),
+        })
+        .collect();
+    Catalog {
+        folders,
+        data_label: sync::DATA_LABEL,
+    }
+}
+
+#[tauri::command]
+async fn probe() -> SetupState {
+    blocking(sync::probe).await
+}
+
+#[derive(Serialize)]
+struct Status {
+    overview: Overview,
+    data: Data,
+    /// This computer's ID; names live in `data.computers`.
+    host: String,
+    /// The private GitHub repo everything syncs through, as a web address.
+    sync_space: Option<String>,
+    /// Set when the background timer couldn't be turned on or off.
+    schedule_error: Option<String>,
+}
+
+#[tauri::command]
+async fn overview() -> Result<Status> {
+    blocking(|ctx| {
+        let data = ctx.load_data();
+        let manual = data.computers.get(&ctx.host).is_some_and(|c| c.manual);
+        // Keeps the background timer matching this computer's choice (cheap when it already does).
+        let schedule_error = sync::schedule(ctx, !manual).err();
+        let overview = sync::overview(ctx)?;
+        Ok(Status {
+            overview,
+            data: ctx.load_data(),
+            host: ctx.host.clone(),
+            sync_space: sync::sync_space(ctx),
+            schedule_error,
+        })
+    })
+    .await
+}
+
+fn install_without_asking(ctx: &Ctx) -> bool {
+    ctx.load_data()
+        .computers
+        .get(&ctx.host)
+        .is_some_and(|c| c.install_without_asking)
+}
+
+#[tauri::command]
+async fn sync_now(prefer: Prefer, on_step: Channel<String>) -> Result<Report> {
+    blocking(move |ctx| sync::sync(ctx, prefer, install_without_asking(ctx), &steps(on_step)))
+        .await
+        .map_err(Problem::from)
+}
+
+#[tauri::command]
+async fn undo(sha: String, on_step: Channel<String>) -> Result<Report> {
+    if sha.len() != 40 || !sha.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("not a history entry".to_string().into());
+    }
+    blocking(move |ctx| {
+        let step = steps(on_step);
+        step("Undoing");
+        sync::undo(ctx, &sha).map_err(SyncError::Failed)?;
+        sync::sync(ctx, Prefer::Ask, install_without_asking(ctx), &step)
+    })
+    .await
+    .map_err(Problem::from)
+}
+
+/// Only the three tools setup needs; the page can't ask pacman for anything else.
+#[tauri::command]
+async fn install_helpers() -> Result<()> {
+    blocking(|ctx| {
+        let missing = sync::probe(ctx).missing;
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            sync::install_helpers(&missing)
+        }
+    })
+    .await
+    .map_err(Problem::from)
+}
+
+#[tauri::command]
+fn sign_in() -> Result<()> {
+    sync::sign_in().map_err(Problem::from)
+}
+
+#[tauri::command]
+async fn start(on_step: Channel<String>) -> Result<()> {
+    blocking(move |ctx| sync::start(ctx, &steps(on_step)))
+        .await
+        .map_err(Problem::from)
+}
+
+/// Returns where this computer's previous settings were backed up.
+#[tauri::command]
+async fn join(on_step: Channel<String>) -> Result<String> {
+    blocking(move |ctx| {
+        let login = sync::run(None, "gh", &["api", "user", "--jq", ".login"])?;
+        sync::join(ctx, &login, &steps(on_step)).map(|p| p.display().to_string())
+    })
+    .await
+    .map_err(Problem::from)
+}
+
+/// Installs exactly the synced apps this computer is missing, nothing the page names itself.
+#[tauri::command]
+async fn install_apps() -> Result<()> {
+    blocking(|ctx| {
+        let missing = sync::missing_apps(&ctx.load_data(), &ctx.host, &sync::installed());
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            sync::install_apps(&missing)
+        }
+    })
+    .await
+    .map_err(Problem::from)
+}
+
+/// Loads the shared data, applies one change, saves it, and hands the result back to the page.
+fn edit(change: impl FnOnce(&mut Data, &str)) -> Result<Data> {
+    let ctx = Ctx::load();
+    let mut data = ctx.load_data();
+    change(&mut data, &ctx.host);
+    ctx.save_data(&data)?;
+    Ok(data)
+}
+
+#[tauri::command]
+fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
+    edit(|d, _| d.set_app(&computer, &app, on))
+}
+
+#[tauri::command]
+fn stop_app(app: String) -> Result<Data> {
+    edit(|d, _| sync::toggle(&mut d.apps, &app, false))
+}
+
+#[tauri::command]
+fn add_apps(apps: Vec<String>) -> Result<Data> {
+    edit(|d, _| apps.iter().for_each(|a| sync::toggle(&mut d.apps, a, true)))
+}
+
+/// Folders are limited to the known list; the page can't make chezmoi add arbitrary paths.
+fn known_folder(path: &str) -> Result<&'static str> {
+    sync::FOLDERS
+        .iter()
+        .map(|f| f.0)
+        .find(|f| *f == path)
+        .ok_or_else(|| format!("unknown folder {path}").into())
+}
+
+#[tauri::command]
+async fn set_folder(path: String, on: bool) -> Result<Data> {
+    let path = known_folder(&path)?;
+    let data = edit(|d, _| sync::toggle(&mut d.folders, path, on))?;
+    blocking(move |ctx| sync::track(ctx, path, on)).await?;
+    Ok(data)
+}
+
+#[tauri::command]
+fn folder_here(path: String, on: bool) -> Result<Data> {
+    let path = known_folder(&path)?;
+    edit(|d, host| d.set_folder_here(host, path, on))
+}
+
+#[tauri::command]
+async fn set_auto(on: bool) -> Result<Data> {
+    let data = edit(|d, host| d.computers.entry(host.into()).or_default().manual = !on)?;
+    blocking(move |ctx| sync::schedule(ctx, on)).await?;
+    Ok(data)
+}
+
+#[tauri::command]
+fn set_install_auto(on: bool) -> Result<Data> {
+    edit(|d, host| {
+        d.computers
+            .entry(host.into())
+            .or_default()
+            .install_without_asking = on
+    })
+}
+
+/// Each computer names itself; the name is shared with the others on the next sync.
+#[tauri::command]
+fn rename_computer(name: String) -> Result<Data> {
+    let name = name.trim().to_string();
+    if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
+        return Err("A computer name needs 1 to 40 characters."
+            .to_string()
+            .into());
+    }
+    edit(|d, host| d.computers.entry(host.into()).or_default().name = name)
+}
+
+/// Takes a retired computer off the list. If it ever syncs again it simply reappears.
+#[tauri::command]
+fn forget_computer(id: String) -> Result<Data> {
+    let ctx = Ctx::load();
+    if id == ctx.host || !ctx.load_data().computers.contains_key(&id) {
+        return Err(format!("not another known computer: {id}").into());
+    }
+    edit(|d, _| {
+        d.computers.remove(&id);
+    })
+}
+
+/// Opens this computer's sync space on GitHub. The address comes from the repo, not the page.
+#[tauri::command]
+async fn open_sync_space() -> Result<()> {
+    blocking(|ctx| {
+        let url = sync::sync_space(ctx).ok_or("This computer isn't connected to GitHub.")?;
+        std::process::Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(Problem::from)
+}
+
+/// Stops syncing this computer. Returns where the local sync folder was moved.
+#[tauri::command]
+async fn disconnect() -> Result<String> {
+    blocking(|ctx| sync::disconnect(ctx).map(|p| p.display().to_string()))
+        .await
+        .map_err(Problem::from)
+}

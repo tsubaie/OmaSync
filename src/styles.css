@@ -1,0 +1,629 @@
+/* Styled after macOS System Settings (Apple HIG): translucent sidebar with icon tiles,
+   inset grouped forms, 13 px body text, push buttons, small switches.
+   Colours are set at startup from the active Omarchy theme (src/theme.ts), already
+   contrast-checked; the values below are the Catppuccin fallback.
+   Interactive states come from React Aria's data attributes ([data-hovered], [data-pressed],
+   [data-selected], [data-disabled], [data-focus-visible]). */
+
+:root {
+  --bg: #1e1e2e;
+  --card: #26263a;
+  --line: #34344a;
+  --raised: #313244;
+  --ink: #cdd6f4;
+  --quiet: #9399b2;
+  --accent: #89b4fa;
+  --accent-mark: #89b4fa;
+  --on-accent: #1e1e2e;
+  --on-knob: #1e1e2e;
+  --good: #a6e3a1;
+  --warn: #f9e2af;
+  --bad: #f38ba8;
+  --off-edge: #6c7086;
+  --off-knob: #9399b2;
+  --tile-sync: #94e2d5;
+  --on-tile-sync: #1e1e2e;
+  --tile-apps: #fab387;
+  --on-tile-apps: #1e1e2e;
+  --tile-folders: #a6e3a1;
+  --on-tile-folders: #1e1e2e;
+  --tile-history: #f5c2e7;
+  --on-tile-history: #1e1e2e;
+
+  /* SF Pro where it exists (it may only be used on Apple platforms), Inter everywhere else. */
+  --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
+  --sidebar-alpha: 72%;
+  --hairline: 0.5px solid var(--line);
+  --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+.no-blur {
+  --sidebar-alpha: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+}
+body {
+  color: var(--ink);
+  font: 13px/1.38 var(--font);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: 'cv05', 'ss03';
+  user-select: none;
+  cursor: default;
+  overflow: hidden;
+}
+h1,
+h2,
+p,
+pre {
+  margin: 0;
+}
+svg {
+  display: block;
+  flex: none;
+}
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---------- Window ---------- */
+
+.window {
+  display: grid;
+  grid-template-columns: 216px 1fr;
+  height: 100vh;
+}
+.sidebar {
+  /* See-through so Hyprland's blur shows the desktop behind it, like macOS vibrancy. */
+  background: color-mix(
+    in srgb,
+    color-mix(in srgb, var(--bg), var(--ink) 4%) var(--sidebar-alpha),
+    transparent
+  );
+  border-right: var(--hairline);
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  outline: none;
+  transition: background-color 0.15s var(--ease);
+}
+.nav[data-hovered] {
+  background: color-mix(in srgb, var(--raised) 60%, transparent);
+}
+.nav[data-selected] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.nav[data-focus-visible] {
+  box-shadow: var(--focus);
+}
+
+.pane-wrap {
+  min-width: 0;
+  outline: none;
+}
+.pane {
+  height: 100vh;
+  overflow-y: auto;
+  background: var(--bg);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--ink) 30%, transparent) transparent;
+}
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  /* Content scrolls under a frosted bar, as in macOS. */
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(1.4);
+  border-bottom: 0.5px solid transparent;
+  transition: border-color 0.2s var(--ease);
+}
+.pane.scrolled .toolbar {
+  border-bottom-color: var(--line);
+}
+.toolbar h1,
+.content {
+  max-width: 676px;
+  margin: 0 auto;
+  padding: 0 28px;
+}
+.toolbar h1 {
+  font-size: 15px;
+  font-weight: 700;
+  padding-top: 16px;
+  padding-bottom: 14px;
+}
+.content {
+  padding-bottom: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* ---------- Building blocks ---------- */
+
+.tile {
+  --c: var(--accent);
+  --on: var(--on-accent);
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: var(--s, 22px);
+  height: var(--s, 22px);
+  border-radius: calc(var(--s, 22px) * 0.26);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c), white 14%), var(--c));
+  box-shadow:
+    inset 0 0 0 0.5px rgb(0 0 0 / 0.12),
+    0 0.5px 1px rgb(0 0 0 / 0.15);
+  color: var(--on);
+}
+.tile.sync {
+  --c: var(--tile-sync);
+  --on: var(--on-tile-sync);
+}
+.tile.apps {
+  --c: var(--tile-apps);
+  --on: var(--on-tile-apps);
+}
+.tile.folders {
+  --c: var(--tile-folders);
+  --on: var(--on-tile-folders);
+}
+.tile.history {
+  --c: var(--tile-history);
+  --on: var(--on-tile-history);
+}
+.tile.plain {
+  --c: var(--raised);
+  --on: var(--ink);
+}
+.tile.good {
+  --c: var(--good);
+  --on: var(--bg);
+}
+.tile.warn {
+  --c: var(--warn);
+  --on: var(--bg);
+}
+.tile.bad {
+  --c: var(--bad);
+  --on: var(--bg);
+}
+
+.group h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 2px 7px;
+}
+.group > p {
+  font-size: 11px;
+  color: var(--quiet);
+  margin: 7px 2px 0;
+  line-height: 1.36;
+}
+.box {
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 0.5px var(--line),
+    0 1px 2px rgb(0 0 0 / 0.06);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 14px;
+  min-height: 40px;
+  position: relative;
+}
+/* Separators start at the text, not the box edge. */
+.row + .row::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 14px;
+  right: 0;
+  border-top: var(--hairline);
+}
+.row .text {
+  flex: 1;
+  min-width: 0;
+}
+.detail,
+.sub {
+  font-size: 11px;
+  color: var(--quiet);
+  line-height: 1.36;
+}
+.detail.warn {
+  color: var(--warn);
+}
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.inline {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.push {
+  font: 500 13px/18px var(--font);
+  color: var(--ink);
+  padding: 3px 14px;
+  border-radius: 6px;
+  outline: none;
+  border: var(--hairline);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--raised), white 6%), var(--raised));
+  box-shadow:
+    0 0.5px 1.5px rgb(0 0 0 / 0.18),
+    inset 0 0.5px 0 rgb(255 255 255 / 0.06);
+  transition: filter 0.12s var(--ease);
+  white-space: nowrap;
+}
+.push[data-hovered] {
+  filter: brightness(1.08);
+}
+.push[data-pressed] {
+  filter: brightness(0.92);
+}
+.push.prominent {
+  border-color: transparent;
+  color: var(--on-accent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent), white 12%), var(--accent));
+}
+.push[data-disabled] {
+  opacity: 0.5;
+  filter: none;
+}
+.push[data-focus-visible] {
+  box-shadow: var(--focus);
+}
+.link {
+  font: 12px var(--font);
+  border: 0;
+  background: none;
+  padding: 5px 0;
+  color: var(--quiet);
+  outline: none;
+  border-radius: 4px;
+}
+.link[data-hovered] {
+  color: var(--ink);
+}
+.link[data-disabled] {
+  opacity: 0.5;
+}
+.link[data-focus-visible] {
+  box-shadow: var(--focus);
+}
+
+/* macOS small switch: the knob slides, the track fills. */
+.switch {
+  display: inline-flex;
+  flex: none;
+  outline: none;
+}
+.switch .track {
+  width: 32px;
+  height: 18px;
+  border-radius: 9px;
+  position: relative;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--off-edge);
+  transition:
+    background-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease);
+}
+.switch .track::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--off-knob);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  transition:
+    transform 0.2s var(--ease),
+    background-color 0.2s var(--ease);
+}
+.switch[data-selected] .track {
+  background: var(--accent);
+  box-shadow: none;
+}
+.switch[data-selected] .track::after {
+  transform: translateX(14px);
+  background: var(--on-knob);
+}
+.switch[data-disabled] {
+  opacity: 0.5;
+}
+.switch[data-focus-visible] .track {
+  box-shadow: var(--focus);
+}
+
+.tip {
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--raised);
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: var(--hairline);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+}
+
+/* ---------- Sync ---------- */
+
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+}
+.hero h2 {
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.hero .detail {
+  font-size: 13px;
+  margin-top: 2px;
+}
+.hero .text {
+  flex: 1;
+  min-width: 0;
+}
+.busy .hero .tile {
+  animation: breathe 1.2s var(--ease) infinite alternate;
+}
+@keyframes breathe {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.notice .line {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.notice.good svg {
+  color: var(--good);
+}
+.notice.bad svg {
+  color: var(--bad);
+}
+.notice .indent {
+  margin-left: 23px;
+}
+.details {
+  font:
+    11px/1.4 ui-monospace,
+    monospace;
+  color: var(--quiet);
+  margin: 4px 0 0 23px;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.choices {
+  flex-wrap: wrap;
+  gap: 14px;
+}
+.choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+/* ---------- Apps matrix ---------- */
+
+.matrix {
+  display: grid;
+  grid-template-columns: 1fr repeat(var(--n), 104px) 92px;
+}
+.matrix.head {
+  font-size: 11px;
+  color: var(--quiet);
+  min-height: 0;
+}
+.cell-label {
+  display: none;
+}
+
+/* ---------- Setup ---------- */
+
+.page {
+  background: var(--bg);
+  height: 100vh;
+  overflow-y: auto;
+}
+.setup {
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 44px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.setup .intro {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.setup .intro .tile {
+  margin-bottom: 6px;
+}
+.setup h1 {
+  font-size: 22px;
+  font-weight: 700;
+}
+.setup .intro p:not(.sub) {
+  color: var(--quiet);
+}
+.step {
+  color: var(--quiet);
+}
+.step.now {
+  font-weight: 600;
+  color: var(--ink);
+}
+.badge {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  flex: none;
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--raised);
+  color: var(--quiet);
+}
+.badge.now {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.badge.done {
+  background: var(--good);
+  color: var(--bg);
+}
+.loading {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-mark);
+  animation: breathe 1.2s var(--ease) infinite alternate;
+}
+
+/* ---------- Narrow tiles ---------- */
+
+@media (max-width: 640px) {
+  .window {
+    grid-template-columns: 60px 1fr;
+  }
+  .nav {
+    justify-content: center;
+  }
+  .nav .label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .toolbar h1,
+  .content {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .hero {
+    flex-wrap: wrap;
+  }
+  .hero .push {
+    margin-left: 60px;
+  }
+  .matrix {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .matrix.head {
+    display: none;
+  }
+  .cell {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .cell-label {
+    display: inline;
+    font-size: 11px;
+  }
+}
+
+/* Respect "reduce motion": Hyprland/GNOME animations off (set by the app) or the web setting. */
+.no-motion *,
+.no-motion *::after {
+  animation: none !important;
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Status messages use <output> (implicit role="status"); it is inline by default. */
+output {
+  display: block;
+}
+
+/* Settings is grey, as in macOS. */
+.tile.settings {
+  --c: var(--tile-settings);
+  --on: var(--on-tile-settings);
+}
+
+/* macOS text field: inset, rounded, focus ring in the accent. */
+.field input {
+  font: 13px var(--font);
+  color: var(--ink);
+  width: 220px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  outline: none;
+  background: var(--bg);
+  border: var(--hairline);
+  box-shadow: inset 0 0.5px 1px rgb(0 0 0 / 0.15);
+}
+.field input[data-focused] {
+  box-shadow: var(--focus);
+}
+.field input[data-disabled] {
+  opacity: 0.5;
+}

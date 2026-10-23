@@ -1,0 +1,17 @@
+[package]
+name = "omarchy-sync"
+version = "0.1.0"
+edition = "2024"
+description = "Keep Omarchy settings, themes, plugins and apps the same on all your computers"
+license = "MIT"
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_yaml = "0.9"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[profile.release]
+strip = true
