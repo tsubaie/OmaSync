@@ -948,6 +948,12 @@ kbd {
     var(--shadow-lg),
     inset 0 0.5px 0 rgb(255 255 255 / 0.25);
 }
+/* The app's own icon greets people on the first run. */
+.setup .app-icon {
+  display: block;
+  margin: 0 auto 6px;
+  filter: drop-shadow(0 8px 18px rgb(0 0 0 / 0.25));
+}
 .setup h1 {
   font-size: 26px;
   font-weight: 700;

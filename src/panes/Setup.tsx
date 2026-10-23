@@ -1,6 +1,7 @@
-import { Check, Package, RefreshCw } from 'lucide-react';
+import { Check, Package } from 'lucide-react';
 import { api, type SetupState } from '../api';
 import type { SyncState } from '../state';
+import appIcon from '../assets/app-icon.png';
 import { Group, Link, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
 
@@ -101,7 +102,7 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
   return (
     <div className="setup">
       <div className="intro">
-        <Tile icon={RefreshCw} kind="sync" size={64} />
+        <img className="app-icon" src={appIcon} alt="" width={88} height={88} />
         <h1>Keep Your Computers in Step</h1>
         <p>Your Omarchy settings, themes, plugins and apps, the same on every computer.</p>
         <p className="sub">Step {current + 1} of 3</p>

@@ -30,39 +30,32 @@ const LATTE = [
 ].join('\n');
 const now = Math.floor(Date.now() / 1000);
 
+// The same folders as FOLDERS in sync.rs: [path, name, synced by default].
+const FOLDERS: [string, string, boolean][] = [
+  ['.config/omarchy', 'Other Omarchy settings', true],
+  ['.config/omarchy/themes', 'Current theme', true],
+  ['.config/omarchy/extensions', 'Omarchy menu additions', true],
+  ['.config/omarchy/hooks', 'Hooks', true],
+  ['.config/omarchy/plugins', 'Plugins', true],
+  ['.config/omarchy/shell.json', 'Bar layout and plugin settings', true],
+  ['.config/hypr', 'Other window settings', true],
+  ['.config/hypr/bindings.lua', 'Keyboard shortcuts', true],
+  ['.config/hypr/input.lua', 'Keyboard, mouse and touchpad', true],
+  ['.config/hypr/looknfeel.lua', 'Look and feel', true],
+  ['.config/hypr/autostart.lua', 'Apps that start with Omarchy', true],
+  ['.config/hypr/hyprsunset.conf', 'Night light', true],
+  ['.local/share/applications', 'Web apps and their icons', true],
+  ['.config/ghostty', 'Ghostty terminal', true],
+  ['.config/nvim', 'Neovim editor', false],
+  ['.config/btop', 'System monitor', false],
+];
 const catalog: Catalog = {
   data_label: 'Apps and sync choices',
-  folders: [
-    {
-      path: '.config/omarchy',
-      name: 'Other Omarchy settings',
-      default: true,
-      exists: true,
-    },
-    { path: '.config/omarchy/plugins', name: 'Plugins', default: true, exists: true },
-    {
-      path: '.config/omarchy/shell.json',
-      name: 'Bar layout and plugin settings',
-      default: true,
-      exists: true,
-    },
-    {
-      path: '.config/hypr',
-      name: 'Windows, keyboard shortcuts and input',
-      default: true,
-      exists: true,
-    },
-    { path: '.config/nvim', name: 'Neovim editor', default: false, exists: true },
-  ],
+  folders: FOLDERS.map(([path, name, on]) => ({ path, name, default: on, exists: true })),
 };
 
 let data: Data = {
-  folders: [
-    '.config/omarchy',
-    '.config/omarchy/plugins',
-    '.config/omarchy/shell.json',
-    '.config/hypr',
-  ],
+  folders: FOLDERS.filter(([, , on]) => on).map(([path]) => path),
   apps: ['brave-bin', 'yazi'],
   plugins: ['timezones', 'webcam'],
   computers: {
@@ -133,7 +126,7 @@ const status = (): Status => ({
         sha: 'a'.repeat(40),
         computer: 'bbbb33334444',
         when: now - 3600,
-        labels: ['Windows, keyboard shortcuts and input'],
+        labels: ['Keyboard shortcuts', 'Keyboard, mouse and touchpad'],
         is_undo: false,
         first: false,
         files: [
