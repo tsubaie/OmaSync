@@ -25,12 +25,16 @@ export type Computer = {
   skip_files?: string[];
   /** Plugin IDs on this computer. */
   plugins?: string[];
+  /** Synced plugins this computer doesn't want. */
+  skip_plugins?: string[];
   manual?: boolean;
   install_without_asking?: boolean;
 };
 export type Data = {
   folders: string[];
   apps: string[];
+  /** Plugin IDs shared between computers. */
+  plugins?: string[];
   theme?: string;
   computers: Record<string, Computer>;
 };
@@ -94,8 +98,11 @@ export const api = {
   installApps: () => invoke<void>('install_apps'),
   /** Whether the sync choices differ from what was last shared. */
   choicesChanged: () => invoke<boolean>('choices_changed'),
-  /** Takes other computers' plugins: all of them, or only the one named. */
-  installPlugins: (only?: string) => invoke<Data>('install_plugins', { only: only ?? null }),
+  setPluginSync: (plugin: string, on: boolean) => invoke<Data>('set_plugin_sync', { plugin, on }),
+  setPlugin: (computer: string, plugin: string, on: boolean) =>
+    invoke<Data>('set_plugin', { computer, plugin, on }),
+  /** Adds the synced plugins this computer is waiting for. */
+  installPlugins: () => invoke<Data>('install_plugins'),
   setApp: (computer: string, app: string, on: boolean) =>
     invoke<Data>('set_app', { computer, app, on }),
   stopApp: (app: string) => invoke<Data>('stop_app', { app }),

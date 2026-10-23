@@ -132,9 +132,7 @@ test("another computer's plugin waits for a yes before it's added here", async (
   await expect(waiting.getByText('Webcam Controls')).toBeVisible();
   await expect(waiting.getByText('On Desktop')).toBeVisible();
   await waiting.getByRole('button', { name: 'Add' }).click();
-  expect(await calls(page, 'install_plugins')).toEqual([
-    { cmd: 'install_plugins', args: { only: null } },
-  ]);
+  expect(await calls(page, 'install_plugins')).toEqual([{ cmd: 'install_plugins', args: {} }]);
   await expect(waiting).toBeHidden();
 });
 
@@ -157,4 +155,30 @@ test('an app syncs or stops with one switch that stays in its row', async ({ pag
   await expect(spotify).not.toBeChecked();
   await expect(banner).toBeHidden();
   expect((await calls(page, 'add_apps')).length + (await calls(page, 'stop_app')).length).toBe(2);
+});
+
+test('only Sync opens until the first check finishes', async ({ page }) => {
+  await page.goto('/?scenario=checking');
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('tab', { name: 'Sync', exact: true })).not.toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+  await page.keyboard.press('Control+2');
+  await expect(page.getByRole('heading', { level: 1, name: 'Sync' })).toBeVisible();
+});
+
+test('each plugin has its own Sync switch, like apps', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'Plugins' }).click();
+  const webcam = page.getByRole('switch', { name: 'Sync Webcam Controls' });
+  await expect(webcam).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Webcam Controls on Desktop' })).toBeChecked();
+  await webcam.focus();
+  await page.keyboard.press('Space');
+  await expect(webcam).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: 'Webcam Controls on Desktop' })).toBeHidden();
+  expect(await calls(page, 'set_plugin_sync')).toEqual([
+    { cmd: 'set_plugin_sync', args: { plugin: 'webcam', on: false } },
+  ]);
 });

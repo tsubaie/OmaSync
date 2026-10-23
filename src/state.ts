@@ -196,7 +196,8 @@ export function useSync() {
       e.preventDefault();
       if (ready && !conflict) sync();
     }
-    if (ctrl && ready && e.key >= '1' && e.key <= '7') {
+    // Like the sidebar, only Sync opens before the first check finishes.
+    if (ctrl && ready && e.key >= '1' && e.key <= (status ? '7' : '1')) {
       e.preventDefault();
       setTab(TABS[Number(e.key) - 1]);
     }
@@ -220,6 +221,9 @@ export function useSync() {
     overview && data
       ? data.apps.filter((a) => wants(host, a) && !overview.apps.installed.includes(a))
       : [];
+  const wantsPlugin = (computer: string, plugin: string) =>
+    !!data?.plugins?.includes(plugin) &&
+    !(data.computers?.[computer]?.skip_plugins ?? []).includes(plugin);
   /** The names of the other computers that have a plugin. */
   const whoHas = (plugin: string) =>
     Object.entries(data?.computers ?? {})
@@ -229,7 +233,10 @@ export function useSync() {
   const pluginsWaiting =
     data?.folders.includes('.config/omarchy/plugins') && overview
       ? overview.plugins.filter(
-          (p) => !(me.plugins ?? []).includes(p.id) && whoHas(p.id).length > 0,
+          (p) =>
+            wantsPlugin(host, p.id) &&
+            !(me.plugins ?? []).includes(p.id) &&
+            whoHas(p.id).length > 0,
         )
       : [];
 
@@ -266,6 +273,7 @@ export function useSync() {
     waiting,
     pluginsWaiting,
     whoHas,
+    wantsPlugin,
     dismissedPlugins,
     setDismissedPlugins,
     fail,

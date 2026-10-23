@@ -63,6 +63,7 @@ let data: Data = {
     '.config/hypr',
   ],
   apps: ['brave-bin', 'yazi'],
+  plugins: ['timezones', 'webcam'],
   computers: {
     aaaa11112222: { name: 'Laptop', plugins: ['timezones'] },
     bbbb33334444: { name: 'Desktop', skip_apps: ['yazi'], plugins: ['timezones', 'webcam'] },
@@ -142,7 +143,8 @@ mockIPC((cmd, args) => {
     case 'probe':
       return setup;
     case 'overview':
-      return status();
+      // "checking" never finishes its first check, to show the app before there's anything to see.
+      return scenario === 'checking' ? new Promise(() => {}) : status();
     case 'sync_now':
       return scenario === 'conflict' && a.prefer === 'Ask'
         ? Promise.reject(conflict)
@@ -153,6 +155,13 @@ mockIPC((cmd, args) => {
     case 'choices_changed':
       // Like the Rust side: order and empty lists don't count.
       return same(data) !== same(shared);
+    case 'set_plugin_sync': {
+      const set = new Set(data.plugins);
+      if (a.on) set.add(a.plugin as string);
+      else set.delete(a.plugin as string);
+      data = { ...data, plugins: [...set] };
+      return data;
+    }
     case 'stop_app':
       data = { ...data, apps: data.apps.filter((x) => x !== a.app) };
       return data;

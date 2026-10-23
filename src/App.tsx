@@ -73,6 +73,8 @@ export function App() {
       className={`window ${s.busy ? 'busy' : ''}`}
       orientation="vertical"
       selectedKey={s.tab}
+      // Until the first check finishes there's nothing to show anywhere but Sync.
+      disabledKeys={s.overview ? [] : SECTIONS.filter((x) => x.id !== 'sync').map((x) => x.id)}
       onSelectionChange={(k) => s.setTab(k as TabId)}
     >
       <TabList className="sidebar" aria-label="Sections">

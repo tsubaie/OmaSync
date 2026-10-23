@@ -62,17 +62,18 @@ const IGNORE: &str = r#"**/.git
 {{ . }}/**
 {{- end }}
 {{- end }}
-{{- $c := get .computers (include "/etc/machine-id" | trim | trunc 12) | default dict }}
+{{- $c := get .computers (env "OMARCHY_SYNC_HOST" | default (include "/etc/machine-id" | trim | trunc 12)) | default dict }}
 {{- range get $c "skip_files" | default list }}
 {{ . }}
 {{- end }}
 {{- $mine := get $c "plugins" | default list }}
-{{- range $id, $other := .computers }}
-{{- range get $other "plugins" | default list }}
-{{- if not (has . $mine) }}
-.config/omarchy/plugins/{{ . }}
-.config/omarchy/plugins/{{ . }}/**
-{{- end }}
+{{- $skip := get $c "skip_plugins" | default list }}
+.config/omarchy/plugins/*
+.config/omarchy/plugins/*/**
+{{- range .plugins | default list }}
+{{- if and (has . $mine) (not (has . $skip)) }}
+!.config/omarchy/plugins/{{ . }}
+!.config/omarchy/plugins/{{ . }}/**
 {{- end }}
 {{- end }}
 "#;
@@ -102,6 +103,9 @@ pub struct Data {
     pub theme: Option<String>,
     #[serde(default)]
     pub computers: BTreeMap<String, Computer>,
+    /// Plugins shared between computers; the rest stay on the computer that has them.
+    #[serde(default)]
+    pub plugins: Vec<String>,
     /// The layout of this file; older layouts are upgraded when read.
     #[serde(default)]
     pub version: u32,
@@ -120,10 +124,13 @@ pub struct Computer {
     pub skip_apps: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skip_files: Vec<String>,
-    /// The plugins on this computer. Other computers' plugins stay off it (by the ignore rules)
-    /// until it takes them.
+    /// The plugins on this computer. A synced plugin it doesn't have stays off it (by the ignore
+    /// rules) until it takes it.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub plugins: Vec<String>,
+    /// Synced plugins this computer doesn't want.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skip_plugins: Vec<String>,
     /// Turns off the background timer for this computer.
     #[serde(default, skip_serializing_if = "is_false")]
     pub manual: bool,
@@ -153,14 +160,25 @@ impl Data {
     }
 
     /// Version 1 split plugins and the bar's settings out of `.config/omarchy`; anyone who
-    /// synced that folder keeps syncing both.
+    /// synced that folder keeps syncing both. Version 2 chose plugins one by one; every plugin a
+    /// computer had (they all synced before) stays synced.
     pub fn upgrade(&mut self) {
         if self.version < 1 && self.folders.iter().any(|f| f == ".config/omarchy") {
             for f in NESTED {
                 toggle(&mut self.folders, f, true);
             }
         }
-        self.version = 1;
+        if self.version < 2 {
+            let all: BTreeSet<String> = self
+                .computers
+                .values()
+                .flat_map(|c| c.plugins.iter().cloned())
+                .collect();
+            for p in all {
+                toggle(&mut self.plugins, &p, true);
+            }
+        }
+        self.version = 2;
     }
 
     /// The computer ID behind a git author name: an ID, or an older name listed in `aka`.
@@ -229,16 +247,53 @@ impl Data {
         );
     }
 
+    /// A three-way merge of two versions that both started from `base`: list changes from
+    /// both sides are kept, and a computer's entry comes from the side that changed it
+    /// (`mine` when both did).
+    pub fn merge(base: &Data, theirs: &Data, mine: &Data) -> Data {
+        let list = |b: &[String], t: &[String], m: &[String]| -> Vec<String> {
+            let mut out: Vec<String> = t.to_vec();
+            for x in m.iter().filter(|x| !b.contains(x)) {
+                toggle(&mut out, x, true);
+            }
+            out.retain(|x| !(b.contains(x) && !m.contains(x)));
+            out
+        };
+        let mut computers = theirs.computers.clone();
+        for id in base.computers.keys().chain(mine.computers.keys()) {
+            if mine.computers.get(id) != base.computers.get(id) {
+                match mine.computers.get(id) {
+                    Some(c) => computers.insert(id.clone(), c.clone()),
+                    None => computers.remove(id),
+                };
+            }
+        }
+        Data {
+            folders: list(&base.folders, &theirs.folders, &mine.folders),
+            apps: list(&base.apps, &theirs.apps, &mine.apps),
+            plugins: list(&base.plugins, &theirs.plugins, &mine.plugins),
+            theme: if mine.theme != base.theme {
+                mine.theme.clone()
+            } else {
+                theirs.theme.clone()
+            },
+            computers,
+            version: theirs.version.max(mine.version),
+        }
+    }
+
     /// The same choices with every list in order, for comparing.
     pub fn sorted(mut self) -> Self {
         self.folders.sort();
         self.apps.sort();
+        self.plugins.sort();
         for c in self.computers.values_mut() {
             for list in [
                 &mut c.aka,
                 &mut c.skip_apps,
                 &mut c.skip_files,
                 &mut c.plugins,
+                &mut c.skip_plugins,
             ] {
                 list.sort();
             }
@@ -248,7 +303,23 @@ impl Data {
         self
     }
 
-    /// Plugins other computers have and this one doesn't, while plugins sync at all.
+    pub fn wants_plugin(&self, host: &str, plugin: &str) -> bool {
+        self.plugins.iter().any(|p| p == plugin)
+            && !self
+                .computers
+                .get(host)
+                .is_some_and(|c| c.skip_plugins.iter().any(|p| p == plugin))
+    }
+
+    pub fn set_plugin(&mut self, host: &str, plugin: &str, on: bool) {
+        toggle(
+            &mut self.computers.entry(host.into()).or_default().skip_plugins,
+            plugin,
+            !on,
+        );
+    }
+
+    /// Synced plugins this computer wants and doesn't have yet, while plugins sync at all.
     pub fn missing_plugins(&self, host: &str) -> Vec<String> {
         if !self.folders.iter().any(|f| f == PLUGIN_DIR) {
             return Vec::new();
@@ -258,18 +329,24 @@ impl Data {
             .get(host)
             .map(|c| c.plugins.as_slice())
             .unwrap_or_default();
-        let mut out: Vec<String> = self
+        let others: BTreeSet<&String> = self
             .computers
             .iter()
             .filter(|(id, _)| *id != host)
             .flat_map(|(_, c)| c.plugins.iter())
-            // IDs come from the shared file, so only plain folder names become paths.
-            .filter(|p| !mine.contains(p) && is_plugin_id(p))
-            .cloned()
             .collect();
-        out.sort();
-        out.dedup();
-        out
+        self.plugins
+            .iter()
+            // IDs come from the shared file, so only plain folder names become paths. Only
+            // plugins another computer has can arrive.
+            .filter(|p| {
+                is_plugin_id(p)
+                    && !mine.contains(p)
+                    && others.contains(p)
+                    && self.wants_plugin(host, p)
+            })
+            .cloned()
+            .collect()
     }
 
     /// Folders this computer should send and receive.
@@ -282,7 +359,7 @@ impl Data {
     }
 }
 
-fn is_plugin_id(id: &str) -> bool {
+pub fn is_plugin_id(id: &str) -> bool {
     !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\'])
 }
 
@@ -394,6 +471,10 @@ impl Ctx {
             .and_then(|s| serde_yaml::from_str(&s).ok())
             .unwrap_or_default();
         data.adopt_legacy(&self.host, &self.hostname);
+        if data.version < 2 {
+            // So this computer's plugins count among those that synced before.
+            data.computers.entry(self.host.clone()).or_default().plugins = self.local_plugins();
+        }
         data.upgrade();
         data
     }
@@ -405,6 +486,19 @@ impl Ctx {
 
     fn git(&self, args: &[&str]) -> Result<String, String> {
         run(Some(&self.src), "git", args)
+    }
+
+    fn rebasing(&self) -> bool {
+        let git_dir = self.src.join(".git");
+        git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists()
+    }
+
+    fn conflicted(&self) -> Vec<String> {
+        self.git(&["diff", "--name-only", "--diff-filter=U"])
+            .unwrap_or_default()
+            .lines()
+            .map(String::from)
+            .collect()
     }
 
     fn theme_file(&self) -> PathBuf {
@@ -731,6 +825,35 @@ fn save_local(ctx: &Ctx) -> Result<(), String> {
     commit(ctx)
 }
 
+/// Every computer writes its own entry in the shared choices file, so two computers syncing
+/// close together often clash there without touching the same choice. While the shared file is
+/// the only clash, each one is settled by merging the choices; returns false (still rebasing)
+/// when anything else clashes.
+fn settle_data(ctx: &Ctx) -> Result<bool, String> {
+    const FILE: &str = ".chezmoidata.yaml";
+    while ctx.rebasing() {
+        if ctx.conflicted() != [FILE] {
+            return Ok(false);
+        }
+        // During a rebase, stage 2 is what came from GitHub and stage 3 is this computer's.
+        let side = |n: u8| -> Data {
+            ctx.git(&["show", &format!(":{n}:{FILE}")])
+                .ok()
+                .and_then(|t| serde_yaml::from_str(&t).ok())
+                .unwrap_or_default()
+        };
+        ctx.save_data(&Data::merge(&side(1), &side(2), &side(3)))?;
+        ctx.git(&["add", FILE])?;
+        // Stops again at the next clashing change, if any; the loop looks again.
+        if let Err(e) = ctx.git(&["-c", "core.editor=true", "rebase", "--continue"])
+            && ctx.conflicted().is_empty()
+        {
+            return Err(e);
+        }
+    }
+    Ok(true)
+}
+
 pub fn sync(
     ctx: &Ctx,
     prefer: Prefer,
@@ -755,14 +878,11 @@ pub fn sync(
             Prefer::Ask => {}
         }
         if let Err(e) = ctx.git(&args) {
-            let git_dir = ctx.src.join(".git");
-            if git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists() {
-                let files: Vec<String> = ctx
-                    .git(&["diff", "--name-only", "--diff-filter=U"])
-                    .unwrap_or_default()
-                    .lines()
-                    .map(String::from)
-                    .collect();
+            if !ctx.rebasing() {
+                return Err(fail(e));
+            }
+            if !settle_data(ctx).map_err(fail)? {
+                let files = ctx.conflicted();
                 let _ = ctx.git(&["rebase", "--abort"]);
                 // The newest change to these files on GitHub names the other computer.
                 let mut args = vec!["log", "-1", "--format=%an%x09%ct", "@{u}", "--"];
@@ -778,7 +898,6 @@ pub fn sync(
                     by,
                 }));
             }
-            return Err(fail(e));
         }
     }
 
@@ -1160,6 +1279,7 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Overview, String> {
     step("Checking your apps and plugins");
     let apps = apps(&data);
     let mut ids: BTreeSet<String> = ctx.local_plugins().into_iter().collect();
+    ids.extend(data.plugins.iter().cloned());
     ids.extend(
         data.computers
             .values()
@@ -1216,6 +1336,22 @@ pub fn install_plugins(ctx: &Ctx, ids: &[String]) -> Result<(), String> {
     let mut args = vec!["apply", "--force"];
     args.extend(paths.iter().map(|s| s.as_str()));
     run(None, "chezmoi", &args).map(|_| ())
+}
+
+/// Starts or stops sharing one plugin. Starting adds this computer's copy (if it has one) to
+/// the sync folder; stopping takes it out, and every computer keeps the copy it has.
+pub fn track_plugin(ctx: &Ctx, id: &str, on: bool) -> Result<(), String> {
+    let path = ctx.home.join(PLUGIN_DIR).join(id);
+    let path = path.to_string_lossy();
+    if on {
+        if ctx.home.join(PLUGIN_DIR).join(id).exists() {
+            run(None, "chezmoi", &["add", &path])?;
+        }
+    } else {
+        // Fails only when it was never in the sync folder, which is the goal anyway.
+        let _ = run(None, "chezmoi", &["forget", "--force", &path]);
+    }
+    Ok(())
 }
 
 pub fn installed() -> BTreeSet<String> {
@@ -1419,6 +1555,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn merging_keeps_both_computers_changes() {
+        let mut base = Data {
+            apps: vec!["a".into(), "b".into()],
+            ..Default::default()
+        };
+        base.computers.entry("x".into()).or_default().name = "X".into();
+        base.computers.entry("y".into()).or_default().name = "Y".into();
+        let mut theirs = base.clone();
+        theirs.apps.push("c".into());
+        theirs.computers.get_mut("y").unwrap().plugins = vec!["dock".into()];
+        let mut mine = base.clone();
+        mine.apps.retain(|a| a != "a");
+        mine.computers.get_mut("x").unwrap().plugins = vec!["clock".into()];
+        let m = Data::merge(&base, &theirs, &mine);
+        assert_eq!(m.apps, vec!["b".to_string(), "c".to_string()]);
+        assert_eq!(m.computers["x"].plugins, vec!["clock".to_string()]);
+        assert_eq!(m.computers["y"].plugins, vec!["dock".to_string()]);
+    }
+
+    #[test]
     fn flipping_back_is_no_change() {
         let mut d = Data {
             apps: vec!["b".into(), "a".into()],
@@ -1437,18 +1593,40 @@ mod tests {
     fn plugins_from_other_computers_wait_here() {
         let mut d = Data {
             folders: vec![PLUGIN_DIR.into()],
+            plugins: vec!["clock".into(), "dock".into(), "../evil".into()],
             ..Default::default()
         };
         d.computers.entry("a".into()).or_default().plugins = vec!["clock".into()];
-        d.computers.entry("b".into()).or_default().plugins =
-            vec!["clock".into(), "dock".into(), "../evil".into()];
+        d.computers.entry("b".into()).or_default().plugins = vec![
+            "clock".into(),
+            "dock".into(),
+            "solo".into(),
+            "../evil".into(),
+        ];
+        // "solo" isn't synced, so it never waits anywhere.
         assert_eq!(d.missing_plugins("a"), vec!["dock".to_string()]);
         assert_eq!(
             d.missing_plugins("c"),
             vec!["clock".to_string(), "dock".to_string()]
         );
+        d.set_plugin("a", "dock", false);
+        assert!(d.missing_plugins("a").is_empty());
+        d.set_plugin("a", "dock", true);
         d.folders.clear();
         assert!(d.missing_plugins("a").is_empty());
+    }
+
+    #[test]
+    fn upgrade_keeps_every_plugin_synced() {
+        let mut d = Data::default();
+        d.computers.entry("a".into()).or_default().plugins = vec!["clock".into()];
+        d.computers.entry("b".into()).or_default().plugins = vec!["dock".into()];
+        d.upgrade();
+        assert_eq!(d.plugins, vec!["clock".to_string(), "dock".to_string()]);
+        // Switched off later, it stays off.
+        toggle(&mut d.plugins, "dock", false);
+        d.upgrade();
+        assert_eq!(d.plugins, vec!["clock".to_string()]);
     }
 
     #[test]
@@ -1633,15 +1811,9 @@ mod tests {
             std::fs::create_dir_all(home.join(".config/hypr")).unwrap();
             std::fs::write(home.join(".config/hypr/bindings.lua"), bindings).unwrap();
             std::fs::write(home.join(".config/hypr/monitors.lua"), monitors).unwrap();
-            // B is the computer running the test: the ignore rules find it by /etc/machine-id.
-            let host = if name == "b" {
-                Ctx::load().host
-            } else {
-                name.into()
-            };
             Ctx {
                 src: home.join(".local/share/chezmoi"),
-                host,
+                host: name.into(),
                 hostname: name.into(),
                 home,
             }
@@ -1653,6 +1825,8 @@ mod tests {
             std::env::set_var("XDG_DATA_HOME", ctx.home.join(".local/share"));
             std::env::set_var("XDG_STATE_HOME", ctx.home.join(".local/state"));
             std::env::set_var("XDG_CACHE_HOME", ctx.home.join(".cache"));
+            // The ignore rules find this computer by /etc/machine-id; here, both share one.
+            std::env::set_var("OMARCHY_SYNC_HOST", &ctx.host);
         };
         let read = |ctx: &Ctx, f: &str| {
             std::fs::read_to_string(ctx.home.join(".config/hypr").join(f)).unwrap()
@@ -1696,6 +1870,18 @@ mod tests {
         assert!(b.load_data().missing_plugins(&b.host).is_empty());
         ok(sync(&b, Prefer::Ask, false, &quiet));
 
+        // A plugin nobody switched on stays on the computer that has it.
+        enter(&a);
+        let solo = a.home.join(PLUGIN_DIR).join("solo");
+        std::fs::create_dir_all(&solo).unwrap();
+        std::fs::write(solo.join("manifest.json"), "{}").unwrap();
+        ok(sync(&a, Prefer::Ask, false, &quiet));
+        enter(&b);
+        ok(sync(&b, Prefer::Ask, false, &quiet));
+        assert!(!b.home.join(PLUGIN_DIR).join("solo").exists());
+        assert!(!b.src.join("dot_config/omarchy/plugins/solo").exists());
+        assert!(b.load_data().missing_plugins(&b.host).is_empty());
+
         // Both change the same file; the second to sync is asked, then keeps its own version.
         enter(&a);
         write(&a, "bindings.lua", "a2");
@@ -1733,7 +1919,7 @@ mod tests {
                 .iter()
                 .map(|c| c.0.as_str())
                 .collect::<Vec<_>>(),
-            vec!["a", b.host.as_str()]
+            vec!["a", "b"]
         );
 
         // Undo the last change on one computer; the other gets the undo on its next sync.

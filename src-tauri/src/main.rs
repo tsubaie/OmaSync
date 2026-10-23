@@ -29,6 +29,8 @@ fn main() {
             install_apps,
             install_plugins,
             choices_changed,
+            set_plugin_sync,
+            set_plugin,
             set_app,
             stop_app,
             add_apps,
@@ -277,18 +279,46 @@ async fn install_apps() -> Result<()> {
     .map_err(Problem::from)
 }
 
-/// Takes the plugins other computers have and this one doesn't: all of them, or the one named.
+/// Adds exactly the synced plugins this computer is waiting for, nothing the page names itself.
 #[tauri::command]
-async fn install_plugins(only: Option<String>) -> Result<Data> {
+async fn install_plugins() -> Result<Data> {
     blocking(move |ctx| {
-        let mut ids = ctx.load_data().missing_plugins(&ctx.host);
-        if let Some(id) = only {
-            ids.retain(|p| *p == id);
-        }
+        let ids = ctx.load_data().missing_plugins(&ctx.host);
         sync::install_plugins(ctx, &ids).map(|()| ctx.load_data())
     })
     .await
     .map_err(Problem::from)
+}
+
+fn plugin_id(id: &str) -> Result<()> {
+    if sync::is_plugin_id(id) {
+        Ok(())
+    } else {
+        Err(format!("not a plugin: {id}").into())
+    }
+}
+
+/// Shares a plugin with every computer, or stops sharing it.
+#[tauri::command]
+async fn set_plugin_sync(plugin: String, on: bool) -> Result<Data> {
+    plugin_id(&plugin)?;
+    let data = edit(|d, host| {
+        sync::toggle(&mut d.plugins, &plugin, on);
+        // This computer's copy is the one shared, so it counts as having it.
+        if on {
+            let ctx = Ctx::load();
+            d.computers.entry(host.into()).or_default().plugins = ctx.local_plugins();
+        }
+    })?;
+    blocking(move |ctx| sync::track_plugin(ctx, &plugin, on)).await?;
+    Ok(data)
+}
+
+/// Whether one computer gets a synced plugin.
+#[tauri::command]
+fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> {
+    plugin_id(&plugin)?;
+    edit(|d, _| d.set_plugin(&computer, &plugin, on))
 }
 
 #[tauri::command]
