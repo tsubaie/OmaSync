@@ -410,10 +410,17 @@ impl Data {
                     .iter()
                     .any(|o| folder == *o || folder.starts_with(&format!("{o}/")))
         };
+        // Leaving a folder out leaves out what's synced separately inside it too (the ignore
+        // rules do), or chezmoi would be asked to add files whose folder isn't synced here.
+        let skipped = |c: &Computer| {
+            c.skip_files
+                .iter()
+                .any(|f| folder == f || folder.starts_with(&format!("{f}/")))
+        };
         !self
             .computers
             .get(host)
-            .is_some_and(|c| c.skip_files.iter().any(|f| f == folder) || paused(c))
+            .is_some_and(|c| skipped(c) || paused(c))
     }
 
     /// The newest Omarchy major version among the computers.
@@ -521,10 +528,11 @@ impl Data {
 
     pub fn wants_plugin(&self, host: &str, plugin: &str) -> bool {
         self.plugins.iter().any(|p| p == plugin)
+            && self.uses_folder(host, PLUGIN_DIR)
             && !self
                 .computers
                 .get(host)
-                .is_some_and(|c| c.paused || c.skip_plugins.iter().any(|p| p == plugin))
+                .is_some_and(|c| c.skip_plugins.iter().any(|p| p == plugin))
     }
 
     #[cfg(test)]
@@ -622,9 +630,7 @@ impl Data {
     /// Whether the current theme syncs here: its switch is on and not kept separate here.
     pub fn uses_theme(&self, host: &str) -> bool {
         const THEMES: &str = ".config/omarchy/themes";
-        self.folders.iter().any(|f| f == THEMES)
-            && self.uses_folder(host, THEMES)
-            && self.uses_folder(host, ".config/omarchy")
+        self.folders.iter().any(|f| f == THEMES) && self.uses_folder(host, THEMES)
     }
 
     /// Synced plugins this computer wants and doesn't have yet, while plugins sync at all.
@@ -3725,6 +3731,26 @@ mod tests {
             vec![".config/omarchy".to_string()]
         );
         assert_eq!(d.active_folders("desktop").len(), 2);
+    }
+
+    #[test]
+    fn leaving_out_a_folder_leaves_out_what_is_synced_inside_it() {
+        let mut d = Data {
+            folders: FOLDERS.iter().map(|(f, _, _)| f.to_string()).collect(),
+            plugins: vec!["dock".into()],
+            ..Default::default()
+        };
+        d.set_folder_here("laptop", ".config/omarchy", false);
+        assert!(
+            !d.active_folders("laptop")
+                .iter()
+                .any(|f| f.starts_with(".config/omarchy")),
+            "{:?}",
+            d.active_folders("laptop")
+        );
+        assert!(!d.uses_theme("laptop") && d.uses_theme("desktop"));
+        assert!(!d.wants_plugin("laptop", "dock") && d.wants_plugin("desktop", "dock"));
+        assert!(d.uses_folder("laptop", ".config/hypr/bindings.lua"));
     }
 
     #[test]
