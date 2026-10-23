@@ -21,7 +21,7 @@ export const TABS: Tab[] = ['sync', 'history', 'omarchy', 'plugins', 'apps', 'da
 export type Notice = { good: boolean; text: string; details?: string };
 
 export function useSync() {
-  const [catalog, setCatalog] = useState<Catalog>({ folders: [], plugins: [], data_label: '' });
+  const [catalog, setCatalog] = useState<Catalog>({ folders: [], data_label: '' });
   const [setup, setSetup] = useState<SetupState | null>(null);
   const [tab, setTab] = useState<Tab>('sync');
   // The window opens already checking what state this computer is in.
@@ -32,6 +32,7 @@ export function useSync() {
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [confirmUndo, setConfirmUndo] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState('');
+  const [dismissedPlugins, setDismissedPlugins] = useState('');
   const [signingIn, setSigningIn] = useState(false);
   const [pending, setPending] = useState(false);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
@@ -218,6 +219,18 @@ export function useSync() {
     overview && data
       ? data.apps.filter((a) => wants(host, a) && !overview.apps.installed.includes(a))
       : [];
+  /** The names of the other computers that have a plugin. */
+  const whoHas = (plugin: string) =>
+    Object.entries(data?.computers ?? {})
+      .filter(([id, c]) => id !== host && (c.plugins ?? []).includes(plugin))
+      .map(([id]) => nameOf(id));
+  // Mirrors Data::missing_plugins in sync.rs: other computers' plugins this one doesn't have.
+  const pluginsWaiting =
+    data?.folders.includes('.config/omarchy/plugins') && overview
+      ? overview.plugins.filter(
+          (p) => !(me.plugins ?? []).includes(p.id) && whoHas(p.id).length > 0,
+        )
+      : [];
 
   return {
     catalog,
@@ -250,6 +263,10 @@ export function useSync() {
     me,
     wants,
     waiting,
+    pluginsWaiting,
+    whoHas,
+    dismissedPlugins,
+    setDismissedPlugins,
     fail,
     probe,
     refresh,

@@ -5,8 +5,8 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 
 export type Look = { colors_toml: string; motion: boolean };
 export type Folder = { path: string; name: string; default: boolean; exists: boolean };
-export type Plugin = { name: string; description: string };
-export type Catalog = { folders: Folder[]; plugins: Plugin[]; data_label: string };
+export type Catalog = { folders: Folder[]; data_label: string };
+export type Plugin = { id: string; name: string; description: string };
 
 export type SetupState = {
   missing: string[];
@@ -23,6 +23,8 @@ export type Computer = {
   aka?: string[];
   skip_apps?: string[];
   skip_files?: string[];
+  /** Plugin IDs on this computer. */
+  plugins?: string[];
   manual?: boolean;
   install_without_asking?: boolean;
 };
@@ -52,6 +54,8 @@ export type Overview = {
   incoming_files: string[];
   incoming_from: string[];
   history: Entry[];
+  /** Every computer's plugins. */
+  plugins: Plugin[];
 };
 export type Status = {
   overview: Overview;
@@ -88,6 +92,8 @@ export const api = {
   /** Returns where this computer's previous settings were backed up. */
   join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
   installApps: () => invoke<void>('install_apps'),
+  /** Takes other computers' plugins: all of them, or only the one named. */
+  installPlugins: (only?: string) => invoke<Data>('install_plugins', { only: only ?? null }),
   setApp: (computer: string, app: string, on: boolean) =>
     invoke<Data>('set_app', { computer, app, on }),
   stopApp: (app: string) => invoke<Data>('stop_app', { app }),

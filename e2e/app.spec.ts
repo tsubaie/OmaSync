@@ -125,3 +125,15 @@ test('settings names this computer and shows the sync space', async ({ page }) =
   await page.getByRole('button', { name: 'Cancel' }).click();
   expect(await calls(page, 'forget_computer')).toEqual([]);
 });
+
+test("another computer's plugin waits for a yes before it's added here", async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  const waiting = page.getByRole('region', { name: 'Plugins Waiting to Add' });
+  await expect(waiting.getByText('Webcam Controls')).toBeVisible();
+  await expect(waiting.getByText('On Desktop')).toBeVisible();
+  await waiting.getByRole('button', { name: 'Add' }).click();
+  expect(await calls(page, 'install_plugins')).toEqual([
+    { cmd: 'install_plugins', args: { only: null } },
+  ]);
+  await expect(waiting).toBeHidden();
+});

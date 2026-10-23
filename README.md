@@ -11,7 +11,7 @@ Your settings are kept in a private `omarchy-sync` repository in your own GitHub
 - **Apps**: choose which apps belong on which computer. New apps wait for your approval before installing (through `yay`, which asks for your password) unless you allow installing without asking. Switching an app off never uninstalls it.
 - **History**: every sync is kept. Undo reverses one change on all computers.
 - **When the same setting changed on two computers**, you choose which version to keep. The buttons name the other computer and say when it changed.
-- **Configurations, Plugins and App Data**: choose which settings and app folders sync, or keep a separate version of a folder on one computer. Plugins and their bar layout and settings each have their own switch.
+- **Configurations, Plugins and App Data**: choose which settings and app folders sync, or keep a separate version of a folder on one computer. Plugins and their bar layout and settings each have their own switch. Each computer chooses its plugins: one added on another computer waits on the Sync pane until you add it here.
 - The Sync pane shows each step while it checks for changes, and when it last synced and last checked.
 - Your active theme follows you. `~/.config/hypr/monitors.lua` never syncs, because every screen is different.
 

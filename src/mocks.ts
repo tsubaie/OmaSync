@@ -53,10 +53,6 @@ const catalog: Catalog = {
     },
     { path: '.config/nvim', name: 'Neovim editor', default: false, exists: true },
   ],
-  plugins: [
-    { name: 'Timezones', description: 'World clock bar pill with an hour-grid popup.' },
-    { name: 'Webcam Controls', description: 'Control any webcam from the Omarchy bar.' },
-  ],
 };
 
 let data: Data = {
@@ -68,8 +64,8 @@ let data: Data = {
   ],
   apps: ['brave-bin', 'yazi'],
   computers: {
-    aaaa11112222: { name: 'Laptop' },
-    bbbb33334444: { name: 'Desktop', skip_apps: ['yazi'] },
+    aaaa11112222: { name: 'Laptop', plugins: ['timezones'] },
+    bbbb33334444: { name: 'Desktop', skip_apps: ['yazi'], plugins: ['timezones', 'webcam'] },
   },
 };
 
@@ -93,6 +89,10 @@ const status = (): Status => ({
     },
     incoming_files: [],
     incoming_from: [],
+    plugins: [
+      { id: 'timezones', name: 'Timezones', description: 'World clock with an hour-grid popup.' },
+      { id: 'webcam', name: 'Webcam Controls', description: 'Control any webcam from the bar.' },
+    ],
     history: [
       {
         sha: 'a'.repeat(40),
@@ -143,6 +143,17 @@ mockIPC((cmd, args) => {
       return scenario === 'conflict' && a.prefer === 'Ask'
         ? Promise.reject(conflict)
         : { notes: [], waiting: [] };
+    case 'install_plugins': {
+      const laptop = data.computers.aaaa11112222;
+      data = {
+        ...data,
+        computers: {
+          ...data.computers,
+          aaaa11112222: { ...laptop, plugins: ['timezones', 'webcam'] },
+        },
+      };
+      return data;
+    }
     case 'set_app': {
       const skip = new Set(data.computers[a.computer]?.skip_apps ?? []);
       if (a.on) skip.delete(a.app);

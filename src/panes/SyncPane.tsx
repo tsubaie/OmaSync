@@ -5,6 +5,7 @@ import {
   Download,
   Package,
   Plus,
+  Puzzle,
   RefreshCw,
   TriangleAlert,
   Upload,
@@ -233,6 +234,8 @@ export function SyncPane({ s }: { s: SyncState }) {
     );
   }
   const showWaiting = s.waiting.length > 0 && s.waiting.join() !== s.dismissed && s.idle;
+  const pluginIds = s.pluginsWaiting.map((p) => p.id).join();
+  const showPlugins = pluginIds !== '' && pluginIds !== s.dismissedPlugins && s.idle;
   const from =
     ov?.incoming_from.length === 1
       ? `From ${s.nameOf(ov.incoming_from[0])}.`
@@ -254,6 +257,25 @@ export function SyncPane({ s }: { s: SyncState }) {
                 <Push onPress={() => s.act('Installing apps', () => api.installApps(), s.refresh)}>
                   Install
                 </Push>
+              </div>
+            </Group>
+          )}
+          {showPlugins && (
+            <Group
+              title="Plugins Waiting to Add"
+              footer="Your other computers have these. Adding one brings it and its files here."
+            >
+              {s.pluginsWaiting.map((p) => (
+                <Row
+                  key={p.id}
+                  lead={<Tile icon={Puzzle} kind="plain" size={24} />}
+                  title={p.name}
+                  detail={`On ${s.whoHas(p.id).join(' and ')}`}
+                />
+              ))}
+              <div className="row actions">
+                <Push onPress={() => s.setDismissedPlugins(pluginIds)}>Not Now</Push>
+                <Push onPress={() => s.edit(() => api.installPlugins())}>Add</Push>
               </div>
             </Group>
           )}

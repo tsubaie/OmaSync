@@ -66,7 +66,19 @@ const IGNORE: &str = r#"**/.git
 {{- range get $c "skip_files" | default list }}
 {{ . }}
 {{- end }}
+{{- $mine := get $c "plugins" | default list }}
+{{- range $id, $other := .computers }}
+{{- range get $other "plugins" | default list }}
+{{- if not (has . $mine) }}
+.config/omarchy/plugins/{{ . }}
+.config/omarchy/plugins/{{ . }}/**
+{{- end }}
+{{- end }}
+{{- end }}
 "#;
+
+/// Where Omarchy shell plugins live; each one is a folder named by its ID.
+pub const PLUGIN_DIR: &str = ".config/omarchy/plugins";
 
 /// Base system packages that are never offered as "apps".
 const SYSTEM: &[&str] = &[
@@ -108,6 +120,10 @@ pub struct Computer {
     pub skip_apps: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub skip_files: Vec<String>,
+    /// The plugins on this computer. Other computers' plugins stay off it (by the ignore rules)
+    /// until it takes them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plugins: Vec<String>,
     /// Turns off the background timer for this computer.
     #[serde(default, skip_serializing_if = "is_false")]
     pub manual: bool,
@@ -213,6 +229,30 @@ impl Data {
         );
     }
 
+    /// Plugins other computers have and this one doesn't, while plugins sync at all.
+    pub fn missing_plugins(&self, host: &str) -> Vec<String> {
+        if !self.folders.iter().any(|f| f == PLUGIN_DIR) {
+            return Vec::new();
+        }
+        let mine = self
+            .computers
+            .get(host)
+            .map(|c| c.plugins.as_slice())
+            .unwrap_or_default();
+        let mut out: Vec<String> = self
+            .computers
+            .iter()
+            .filter(|(id, _)| *id != host)
+            .flat_map(|(_, c)| c.plugins.iter())
+            // IDs come from the shared file, so only plain folder names become paths.
+            .filter(|p| !mine.contains(p) && is_plugin_id(p))
+            .cloned()
+            .collect();
+        out.sort();
+        out.dedup();
+        out
+    }
+
     /// Folders this computer should send and receive.
     pub fn active_folders(&self, host: &str) -> Vec<String> {
         self.folders
@@ -221,6 +261,18 @@ impl Data {
             .cloned()
             .collect()
     }
+}
+
+fn is_plugin_id(id: &str) -> bool {
+    !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\'])
+}
+
+/// A plugin as people see it: its manifest's name and description.
+#[derive(Clone, Debug, Serialize)]
+pub struct Plugin {
+    pub id: String,
+    pub name: String,
+    pub description: String,
 }
 
 /// Adds or removes `item` so that `list.contains(item) == present`.
@@ -263,6 +315,44 @@ impl Ctx {
 
     fn data_path(&self) -> PathBuf {
         self.src.join(".chezmoidata.yaml")
+    }
+
+    /// Plugin folders on this computer.
+    pub fn local_plugins(&self) -> Vec<String> {
+        let mut ids: Vec<String> = std::fs::read_dir(self.home.join(PLUGIN_DIR))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|id| is_plugin_id(id))
+            .collect();
+        ids.sort();
+        ids
+    }
+
+    /// Names a plugin from its manifest, here or (for one this computer doesn't have) in the
+    /// sync folder.
+    pub fn plugin(&self, id: &str) -> Plugin {
+        let manifest = [
+            self.home.join(PLUGIN_DIR).join(id),
+            self.src.join("dot_config/omarchy/plugins").join(id),
+        ]
+        .iter()
+        .find_map(|dir| std::fs::read(dir.join("manifest.json")).ok())
+        .and_then(|m| serde_json::from_slice::<serde_json::Value>(&m).ok())
+        .unwrap_or_default();
+        let text = |k: &str| manifest[k].as_str().unwrap_or_default().trim().to_string();
+        let name = text("name");
+        Plugin {
+            id: id.to_string(),
+            name: if name.is_empty() {
+                id.to_string()
+            } else {
+                name
+            },
+            description: text("description"),
+        }
     }
 
     pub fn load_data(&self) -> Data {
@@ -602,6 +692,7 @@ fn save_local(ctx: &Ctx) -> Result<(), String> {
     if let Some(t) = ctx.current_theme() {
         data.theme = Some(t);
     }
+    data.computers.entry(ctx.host.clone()).or_default().plugins = ctx.local_plugins();
     ctx.save_data(&data)?;
     stage(ctx, &data)?;
     commit(ctx)
@@ -674,6 +765,15 @@ pub fn sync(
     } else {
         ctx.git(&["push", "-q", "-u", "origin", "HEAD"])
             .map_err(fail)?;
+    }
+
+    let plugins = data.missing_plugins(&ctx.host);
+    if install && !plugins.is_empty() {
+        step(&format!("Adding {}", plural(plugins.len(), "plugin")));
+        match install_plugins(ctx, &plugins) {
+            Ok(()) => notes.push(format!("Added {}.", plural(plugins.len(), "plugin"))),
+            Err(e) => notes.push(format!("Couldn't add plugins. {}", friendly(&e))),
+        }
     }
 
     let missing = missing_apps(&data, &ctx.host, &installed());
@@ -984,6 +1084,8 @@ pub struct Overview {
     pub incoming_files: Vec<String>,
     pub incoming_from: Vec<String>,
     pub history: Vec<Entry>,
+    /// Every computer's plugins, named.
+    pub plugins: Vec<Plugin>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -1022,8 +1124,20 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Overview, String> {
             incoming_from.push(name.to_string());
         }
     }
-    step("Checking your apps");
+    step("Checking your apps and plugins");
     let apps = apps(&data);
+    let mut ids: BTreeSet<String> = ctx.local_plugins().into_iter().collect();
+    ids.extend(
+        data.computers
+            .values()
+            .flat_map(|c| c.plugins.iter().cloned()),
+    );
+    let mut plugins: Vec<Plugin> = ids
+        .iter()
+        .filter(|id| is_plugin_id(id))
+        .map(|id| ctx.plugin(id))
+        .collect();
+    plugins.sort_by_key(|p| p.name.to_lowercase());
     Ok(Overview {
         unshared: to_targets(ctx, parse_status(&status)),
         incoming,
@@ -1043,7 +1157,32 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Overview, String> {
                 ..e
             })
             .collect(),
+        plugins,
     })
+}
+
+/// Takes other computers' plugins onto this one: it now counts as having them, so the ignore
+/// rules let them through, and they're written out straight away.
+pub fn install_plugins(ctx: &Ctx, ids: &[String]) -> Result<(), String> {
+    let mut data = ctx.load_data();
+    let me = data.computers.entry(ctx.host.clone()).or_default();
+    for id in ids {
+        toggle(&mut me.plugins, id, true);
+    }
+    ctx.save_data(&data)?;
+    let paths: Vec<String> = ids
+        .iter()
+        .map(|id| {
+            ctx.home
+                .join(PLUGIN_DIR)
+                .join(id)
+                .to_string_lossy()
+                .into_owned()
+        })
+        .collect();
+    let mut args = vec!["apply", "--force"];
+    args.extend(paths.iter().map(|s| s.as_str()));
+    run(None, "chezmoi", &args).map(|_| ())
 }
 
 pub fn installed() -> BTreeSet<String> {
@@ -1250,6 +1389,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn plugins_from_other_computers_wait_here() {
+        let mut d = Data {
+            folders: vec![PLUGIN_DIR.into()],
+            ..Default::default()
+        };
+        d.computers.entry("a".into()).or_default().plugins = vec!["clock".into()];
+        d.computers.entry("b".into()).or_default().plugins =
+            vec!["clock".into(), "dock".into(), "../evil".into()];
+        assert_eq!(d.missing_plugins("a"), vec!["dock".to_string()]);
+        assert_eq!(
+            d.missing_plugins("c"),
+            vec!["clock".to_string(), "dock".to_string()]
+        );
+        d.folders.clear();
+        assert!(d.missing_plugins("a").is_empty());
+    }
+
+    #[test]
     fn upgrade_keeps_plugins_syncing_once() {
         let mut d = Data {
             folders: vec![".config/omarchy".into()],
@@ -1431,9 +1588,15 @@ mod tests {
             std::fs::create_dir_all(home.join(".config/hypr")).unwrap();
             std::fs::write(home.join(".config/hypr/bindings.lua"), bindings).unwrap();
             std::fs::write(home.join(".config/hypr/monitors.lua"), monitors).unwrap();
+            // B is the computer running the test: the ignore rules find it by /etc/machine-id.
+            let host = if name == "b" {
+                Ctx::load().host
+            } else {
+                name.into()
+            };
             Ctx {
                 src: home.join(".local/share/chezmoi"),
-                host: name.into(),
+                host,
                 hostname: name.into(),
                 home,
             }
@@ -1460,6 +1623,9 @@ mod tests {
         };
 
         let a = computer("a", "a1", "screen-a");
+        let dock = a.home.join(PLUGIN_DIR).join("dock");
+        std::fs::create_dir_all(&dock).unwrap();
+        std::fs::write(dock.join("manifest.json"), r#"{"name":"Dock"}"#).unwrap();
         enter(&a);
         seed(&a).unwrap();
         a.git(&["remote", "add", "origin", &remote]).unwrap();
@@ -1471,6 +1637,19 @@ mod tests {
         ok(sync(&b, Prefer::Ask, false, &quiet));
         assert_eq!(read(&b, "bindings.lua"), "a1");
         assert_eq!(read(&b, "monitors.lua"), "screen-b");
+
+        // A's plugin waits on B until B takes it.
+        let b_dock = b.home.join(PLUGIN_DIR).join("dock/manifest.json");
+        assert!(!b_dock.exists());
+        assert_eq!(
+            b.load_data().missing_plugins(&b.host),
+            vec!["dock".to_string()]
+        );
+        assert_eq!(b.plugin("dock").name, "Dock");
+        install_plugins(&b, &["dock".into()]).unwrap();
+        assert!(b_dock.exists());
+        assert!(b.load_data().missing_plugins(&b.host).is_empty());
+        ok(sync(&b, Prefer::Ask, false, &quiet));
 
         // Both change the same file; the second to sync is asked, then keeps its own version.
         enter(&a);
@@ -1509,7 +1688,7 @@ mod tests {
                 .iter()
                 .map(|c| c.0.as_str())
                 .collect::<Vec<_>>(),
-            vec!["a", "b"]
+            vec!["a", b.host.as_str()]
         );
 
         // Undo the last change on one computer; the other gets the undo on its next sync.

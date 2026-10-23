@@ -123,12 +123,12 @@ export function SettingsPane({ s }: { s: SyncState }) {
           }
         />
         <Row
-          title="Install synced apps without asking"
-          detail="When off, new apps wait on the Sync pane for you to approve them."
+          title="Add synced apps and plugins without asking"
+          detail="When off, new apps and plugins wait on the Sync pane for you to approve them."
           end={
             <Toggle
               on={!!s.me.install_without_asking}
-              label="Install synced apps without asking"
+              label="Add synced apps and plugins without asking"
               disabled={!s.idle}
               onChange={(on) => s.edit(() => api.setInstallAuto(on))}
             />

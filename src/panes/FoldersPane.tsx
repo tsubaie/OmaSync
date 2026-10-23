@@ -1,7 +1,7 @@
 import { Puzzle } from 'lucide-react';
 import { api, type Folder } from '../api';
 import type { SyncState } from '../state';
-import { Group, Link, Row, Tile, Toggle } from '../ui';
+import { Group, Link, Push, Row, Tile, Toggle } from '../ui';
 
 /** Folders that make up Omarchy itself, and its plugins; every other folder is an app's data. */
 const OMARCHY = ['.config/omarchy', '.config/hypr'];
@@ -73,24 +73,43 @@ export function AppDataPane({ s }: { s: SyncState }) {
 }
 
 export function PluginsPane({ s }: { s: SyncState }) {
-  const { plugins } = s.catalog;
+  const plugins = s.overview?.plugins ?? [];
+  const mine = s.me.plugins ?? [];
+  const waiting = s.pluginsWaiting.map((p) => p.id);
   return (
     <>
       <FolderGroup
         s={s}
         pick={(f) => PLUGINS.includes(f.path)}
-        footer="Plugins are the add-ons themselves. Their settings, and where they sit on the bar, are kept in the bar layout."
+        footer="Each computer chooses its plugins: one added on another computer waits here until you add it. Their settings, and where they sit on the bar, are kept in the bar layout."
       />
-      <Group title="Installed on This Computer">
-        {plugins.length === 0 && <Row title="No plugins installed." />}
-        {plugins.map((p) => (
-          <Row
-            key={p.name}
-            lead={<Tile icon={Puzzle} kind="plain" size={26} />}
-            title={p.name}
-            detail={p.description}
-          />
-        ))}
+      <Group title="Your Plugins">
+        {plugins.length === 0 && <Row title="No plugins on any computer yet." />}
+        {plugins.map((p) => {
+          const others = s.whoHas(p.id);
+          const where = mine.includes(p.id)
+            ? others.length > 0
+              ? `Here and on ${others.join(' and ')}`
+              : 'Only on this computer'
+            : `On ${others.join(' and ')}`;
+          return (
+            <Row
+              key={p.id}
+              lead={<Tile icon={Puzzle} kind="plain" size={26} />}
+              title={p.name}
+              detail={
+                p.description ? `${p.description.replace(/\.$/, '')}. ${where}.` : `${where}.`
+              }
+              end={
+                waiting.includes(p.id) && (
+                  <Push disabled={!s.idle} onPress={() => s.edit(() => api.installPlugins(p.id))}>
+                    Add Here
+                  </Push>
+                )
+              }
+            />
+          );
+        })}
       </Group>
     </>
   );
