@@ -15,13 +15,13 @@ import {
 } from './api';
 import { applyLook } from './theme';
 
-export type Tab = 'sync' | 'apps' | 'folders' | 'history' | 'settings';
-export const TABS: Tab[] = ['sync', 'apps', 'folders', 'history', 'settings'];
+export type Tab = 'sync' | 'omarchy' | 'plugins' | 'apps' | 'data' | 'history' | 'settings';
+export const TABS: Tab[] = ['sync', 'omarchy', 'plugins', 'apps', 'data', 'history', 'settings'];
 
 export type Notice = { good: boolean; text: string; details?: string };
 
 export function useSync() {
-  const [catalog, setCatalog] = useState<Catalog>({ folders: [], data_label: '' });
+  const [catalog, setCatalog] = useState<Catalog>({ folders: [], plugins: [], data_label: '' });
   const [setup, setSetup] = useState<SetupState | null>(null);
   const [tab, setTab] = useState<Tab>('sync');
   // The window opens already checking what state this computer is in.
@@ -183,7 +183,7 @@ export function useSync() {
     return () => clearInterval(timer);
   }, []);
 
-  // Ctrl+Q quits, Ctrl+R or F5 syncs (instead of reloading the page), Ctrl+1 to 4 switch panes.
+  // Ctrl+Q quits, Ctrl+R or F5 syncs (instead of reloading the page), Ctrl+1 to 7 switch panes.
   const onKey = useEffectEvent((e: KeyboardEvent) => {
     const ctrl = e.ctrlKey && !e.altKey && !e.metaKey;
     if (ctrl && e.key === 'q') getCurrentWindow().close();
@@ -191,7 +191,7 @@ export function useSync() {
       e.preventDefault();
       if (ready && !conflict) sync();
     }
-    if (ctrl && ready && e.key >= '1' && e.key <= '5') {
+    if (ctrl && ready && e.key >= '1' && e.key <= '7') {
       e.preventDefault();
       setTab(TABS[Number(e.key) - 1]);
     }

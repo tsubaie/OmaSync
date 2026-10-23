@@ -11,7 +11,7 @@ Your settings are kept in a private `omarchy-sync` repository in your own GitHub
 - **Apps**: choose which apps belong on which computer. New apps wait for your approval before installing (through `yay`, which asks for your password) unless you allow installing without asking. Switching an app off never uninstalls it.
 - **History**: every sync is kept. Undo reverses one change on all computers.
 - **When the same setting changed on two computers**, you choose which version to keep. The buttons name the other computer and say when it changed.
-- **What's synced**: choose folders, or keep a separate version of a folder on one computer.
+- **Omarchy, Plugins and App Data**: choose which settings and app folders sync, or keep a separate version of a folder on one computer. Plugins sync with your Omarchy settings.
 - Your active theme follows you. `~/.config/hypr/monitors.lua` never syncs, because every screen is different.
 
 Not synced: deleting a file or uninstalling an app on one computer (do that on each), and the git history inside plugin folders (plugin files sync, their `.git` folders don't).
@@ -34,7 +34,7 @@ Then open **Omarchy Sync** from the app launcher. The first run says exactly wha
 
 ## Keyboard and accessibility
 
-Every control is reachable with Tab, and the sidebar works with the arrow keys. Shortcuts: **Ctrl+1** to **Ctrl+5** switch panes, **Ctrl+R** or **F5** syncs, **Ctrl+Q** quits. Controls come from [React Aria](https://react-spectrum.adobe.com/react-aria/), so screen readers can use them, and every pane is checked against WCAG 2.2 AA in the test suite.
+Every control is reachable with Tab, and the sidebar works with the arrow keys. Shortcuts: **Ctrl+1** to **Ctrl+7** switch panes, **Ctrl+R** or **F5** syncs, **Ctrl+Q** quits. Controls come from [React Aria](https://react-spectrum.adobe.com/react-aria/), so screen readers can use them, and every pane is checked against WCAG 2.2 AA in the test suite.
 
 Colours come from your active Omarchy theme and are adjusted to meet WCAG contrast. Animations stop when Hyprland or GNOME animations are turned off.
 

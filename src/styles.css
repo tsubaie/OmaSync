@@ -142,6 +142,14 @@ output {
 .nav[data-focus-visible] {
   box-shadow: var(--focus);
 }
+/* Sections that belong to the one above them, indented as a second level. */
+.nav.child {
+  padding-left: 30px;
+}
+/* Settings sits at the very bottom of the sidebar. */
+.nav.end {
+  margin-top: auto;
+}
 
 .pane-wrap {
   min-width: 0;
@@ -638,10 +646,14 @@ kbd {
   display: grid;
   place-items: center;
   color: var(--state);
-  background: color-mix(in srgb, var(--state) 14%, var(--card));
+  background: color-mix(in srgb, var(--state) 22%, var(--card));
   box-shadow:
     var(--shadow-sm),
-    0 0 0 5px color-mix(in srgb, var(--state) 8%, transparent);
+    0 0 0 5px color-mix(in srgb, var(--state) 14%, var(--card));
+  /* Opaque and on top, with the wires running underneath it into the middle. */
+  position: relative;
+  z-index: 1;
+  margin-inline: -14px;
 }
 /* Lines between devices and the sync space; light travels along them while syncing. */
 .wire {
@@ -867,8 +879,10 @@ kbd {
   .window {
     grid-template-columns: 64px 1fr;
   }
-  .nav {
+  .nav,
+  .nav.child {
     justify-content: center;
+    padding-left: 10px;
   }
   .nav .label {
     position: absolute;

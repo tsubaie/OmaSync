@@ -1,16 +1,18 @@
 import { useState } from 'react';
 import {
   CircleCheck,
-  FolderSync,
+  FolderCog,
   History,
+  Monitor,
   Package,
+  Puzzle,
   RefreshCw,
   Settings,
   type LucideIcon,
 } from 'lucide-react';
 import { Tab, TabList, TabPanel, Tabs } from 'react-aria-components';
 import { AppsPane } from './panes/AppsPane';
-import { FoldersPane } from './panes/FoldersPane';
+import { AppDataPane, OmarchyPane, PluginsPane } from './panes/FoldersPane';
 import { HistoryPane } from './panes/HistoryPane';
 import { NoticeLine } from './panes/NoticeLine';
 import { SettingsPane } from './panes/SettingsPane';
@@ -19,18 +21,23 @@ import { SyncPane } from './panes/SyncPane';
 import { type Tab as TabId, useSync } from './state';
 import { Push } from './ui';
 
-const SECTIONS: { id: TabId; name: string; icon: LucideIcon }[] = [
+// `child` sections belong to the one above them; `end` pins Settings to the bottom.
+const SECTIONS: { id: TabId; name: string; icon: LucideIcon; place?: 'child' | 'end' }[] = [
   { id: 'sync', name: 'Sync', icon: RefreshCw },
+  { id: 'omarchy', name: 'Omarchy', icon: Monitor },
+  { id: 'plugins', name: 'Plugins', icon: Puzzle, place: 'child' },
   { id: 'apps', name: 'Apps', icon: Package },
-  { id: 'folders', name: "What's Synced", icon: FolderSync },
+  { id: 'data', name: 'App Data', icon: FolderCog, place: 'child' },
   { id: 'history', name: 'History', icon: History },
-  { id: 'settings', name: 'Settings', icon: Settings },
+  { id: 'settings', name: 'Settings', icon: Settings, place: 'end' },
 ];
 
 const PANES = {
   sync: SyncPane,
+  omarchy: OmarchyPane,
+  plugins: PluginsPane,
   apps: AppsPane,
-  folders: FoldersPane,
+  data: AppDataPane,
   history: HistoryPane,
   settings: SettingsPane,
 };
@@ -70,7 +77,7 @@ export function App() {
     >
       <TabList className="sidebar" aria-label="Sections">
         {SECTIONS.map((sec) => (
-          <Tab key={sec.id} id={sec.id} className="nav" aria-label={sec.name}>
+          <Tab key={sec.id} id={sec.id} className={`nav ${sec.place ?? ''}`} aria-label={sec.name}>
             {/* Plain line icons in the text colour, as macOS sidebars draw them. */}
             <sec.icon size={16} strokeWidth={1.75} aria-hidden="true" />
             <span className="label">{sec.name}</span>

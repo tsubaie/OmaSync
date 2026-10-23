@@ -1,17 +1,30 @@
-import { api } from '../api';
+import { Puzzle } from 'lucide-react';
+import { api, type Folder } from '../api';
 import type { SyncState } from '../state';
-import { Group, Link, Row, Toggle } from '../ui';
+import { Group, Link, Row, Tile, Toggle } from '../ui';
 
-export function FoldersPane({ s }: { s: SyncState }) {
+/** Folders that make up Omarchy itself; every other folder is an app's data. */
+const OMARCHY = ['.config/omarchy', '.config/hypr'];
+const isOmarchy = (f: Folder) => OMARCHY.includes(f.path);
+
+function FolderGroup({
+  s,
+  pick,
+  footer,
+}: {
+  s: SyncState;
+  pick: (f: Folder) => boolean;
+  footer?: string;
+}) {
   const data = s.data;
   if (!data) return null;
   const separate = data.computers?.[s.host]?.skip_files ?? [];
-  const folders = s.catalog.folders.filter((f) => data.folders.includes(f.path) || f.exists);
+  const folders = s.catalog.folders.filter(
+    (f) => pick(f) && (data.folders.includes(f.path) || f.exists),
+  );
   return (
-    <Group
-      title="Same on Every Computer"
-      footer="Your display layout (monitors.lua) always stays separate on each computer, because every screen is different."
-    >
+    <Group title="Same on Every Computer" footer={footer}>
+      {folders.length === 0 && <Row title="None of these apps are on this computer." />}
       {folders.map((f) => {
         const synced = data.folders.includes(f.path);
         const here = !separate.includes(f.path);
@@ -40,6 +53,45 @@ export function FoldersPane({ s }: { s: SyncState }) {
           </Row>
         );
       })}
+    </Group>
+  );
+}
+
+export function OmarchyPane({ s }: { s: SyncState }) {
+  return (
+    <FolderGroup
+      s={s}
+      pick={isOmarchy}
+      footer="Your display layout (monitors.lua) always stays separate on each computer, because every screen is different."
+    />
+  );
+}
+
+export function AppDataPane({ s }: { s: SyncState }) {
+  return <FolderGroup s={s} pick={(f) => !isOmarchy(f)} />;
+}
+
+export function PluginsPane({ s }: { s: SyncState }) {
+  const synced = s.data?.folders.includes('.config/omarchy');
+  const { plugins } = s.catalog;
+  return (
+    <Group
+      title="On This Computer"
+      footer={
+        synced
+          ? 'Plugins sync with your Omarchy settings, so new ones appear on your other computers too.'
+          : 'Plugins sync with your Omarchy settings, which are turned off in Omarchy.'
+      }
+    >
+      {plugins.length === 0 && <Row title="No plugins installed." />}
+      {plugins.map((p) => (
+        <Row
+          key={p.name}
+          lead={<Tile icon={Puzzle} kind="plain" size={26} />}
+          title={p.name}
+          detail={p.description}
+        />
+      ))}
     </Group>
   );
 }

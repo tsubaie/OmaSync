@@ -78,7 +78,7 @@ export function SettingsPane({ s }: { s: SyncState }) {
         footer="Removing only takes a computer off this list, for one you no longer use. If it syncs again, it comes back."
       >
         {others.length === 0 && (
-          <Row title="No other computers yet." detail="Add one with the steps below." />
+          <Row title="No other computers yet." detail="Add one from the Sync pane." />
         )}
         {others.map(([id, when]) => (
           <Row
@@ -105,36 +105,6 @@ export function SettingsPane({ s }: { s: SyncState }) {
                 </Link>
               )
             }
-          />
-        ))}
-      </Group>
-
-      <Group
-        title="Add a Computer"
-        footer="The new computer joins by itself; nothing needs to change here."
-      >
-        {[
-          ['Install Omarchy Sync on the other computer', 'The same way you installed it here.'],
-          [
-            'Sign in to the same GitHub account',
-            space
-              ? `The one that owns ${space.replace('https://github.com/', '')}.`
-              : 'The one you use here.',
-          ],
-          [
-            'Choose Use My Synced Settings',
-            "It backs up that computer's settings first, then brings in yours.",
-          ],
-        ].map(([title, detail], i) => (
-          <Row
-            key={title}
-            lead={
-              <span className="badge now" aria-hidden="true">
-                {i + 1}
-              </span>
-            }
-            title={title}
-            detail={detail}
           />
         ))}
       </Group>
@@ -170,7 +140,7 @@ export function SettingsPane({ s }: { s: SyncState }) {
         {(
           [
             ['Sync now', ['Ctrl', 'R']],
-            ['Go to a section', ['Ctrl', '1–5']],
+            ['Go to a section', ['Ctrl', '1–7']],
             ['Move between controls', ['Tab']],
             ['Cancel a confirmation', ['Esc']],
             ['Quit', ['Ctrl', 'Q']],

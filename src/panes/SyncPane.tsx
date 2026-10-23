@@ -128,7 +128,12 @@ function Hero({ s }: { s: SyncState }) {
         ) : (
           <>
             <span className="wire dashed" aria-hidden="true" />
-            <Button className="device empty" onPress={() => s.setTab('settings')}>
+            <Button
+              className="device empty"
+              onPress={() =>
+                document.getElementById('add-computer')?.scrollIntoView({ behavior: 'smooth' })
+              }
+            >
               <span className="screen">
                 <Plus size={26} strokeWidth={2} />
               </span>
@@ -175,6 +180,44 @@ function ConflictGroup({ s }: { s: SyncState }) {
         </div>
       </div>
     </Group>
+  );
+}
+
+/** How another computer joins: it signs in to the same account and picks the synced settings. */
+function AddComputer({ s }: { s: SyncState }) {
+  const space = s.syncSpace;
+  return (
+    <div id="add-computer">
+      <Group
+        title="Add a Computer"
+        footer="The new computer joins by itself; nothing needs to change here."
+      >
+        {[
+          ['Install Omarchy Sync on the other computer', 'The same way you installed it here.'],
+          [
+            'Sign in to the same GitHub account',
+            space
+              ? `The one that owns ${space.replace('https://github.com/', '')}.`
+              : 'The one you use here.',
+          ],
+          [
+            'Choose Use My Synced Settings',
+            "It backs up that computer's settings first, then brings in yours.",
+          ],
+        ].map(([title, detail], i) => (
+          <Row
+            key={title}
+            lead={
+              <span className="badge now" aria-hidden="true">
+                {i + 1}
+              </span>
+            }
+            title={title}
+            detail={detail}
+          />
+        ))}
+      </Group>
+    </div>
   );
 }
 
@@ -234,6 +277,7 @@ export function SyncPane({ s }: { s: SyncState }) {
               ))
             )}
           </Group>
+          <AddComputer s={s} />
         </>
       )}
     </>

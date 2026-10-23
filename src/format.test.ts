@@ -14,6 +14,7 @@ describe('format', () => {
   it('groups paths under the most specific folder name', () => {
     const catalog = {
       data_label: 'Apps and sync choices',
+      plugins: [],
       folders: [
         { path: '.config/hypr', name: 'Windows', default: true, exists: true },
         { path: '.config', name: 'Everything', default: false, exists: true },

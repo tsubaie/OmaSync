@@ -47,10 +47,12 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
     'true',
   );
   for (const [key, name] of [
-    ['2', 'Apps'],
-    ['3', "What's Synced"],
-    ['4', 'History'],
-    ['5', 'Settings'],
+    ['2', 'Omarchy'],
+    ['3', 'Plugins'],
+    ['4', 'Apps'],
+    ['5', 'App Data'],
+    ['6', 'History'],
+    ['7', 'Settings'],
   ]) {
     await page.keyboard.press(`Control+${key}`);
     await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
@@ -59,7 +61,7 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
   // Arrow keys move through the sidebar like a macOS source list.
   await page.getByRole('tab', { name: 'History' }).focus();
   await page.keyboard.press('ArrowUp');
-  await expect(page.getByRole('tab', { name: "What's Synced" })).toBeFocused();
+  await expect(page.getByRole('tab', { name: 'App Data' })).toBeFocused();
 });
 
 test('switching an app off for a computer saves the choice', async ({ page }) => {
@@ -102,12 +104,12 @@ test('undo asks before changing every computer', async ({ page }) => {
   expect(await calls(page, 'undo')).toEqual([]);
 });
 
-test('settings names this computer, shows the sync space and how to add one', async ({ page }) => {
+test('settings names this computer and shows the sync space', async ({ page }) => {
   await page.goto('/?scenario=synced');
-  await page.keyboard.press('Control+5');
+  await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
+  await page.keyboard.press('Control+7');
   await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
   await expect(page.getByText('github.com/someone/omarchy-sync')).toBeVisible();
-  await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
   expect(await a11y(page)).toEqual([]);
 
   const name = page.getByRole('textbox', { name: "This computer's name" });

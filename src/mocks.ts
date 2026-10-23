@@ -46,6 +46,10 @@ const catalog: Catalog = {
     },
     { path: '.config/nvim', name: 'Neovim editor', default: false, exists: true },
   ],
+  plugins: [
+    { name: 'Timezones', description: 'World clock bar pill with an hour-grid popup.' },
+    { name: 'Webcam Controls', description: 'Control any webcam from the Omarchy bar.' },
+  ],
 };
 
 let data: Data = {

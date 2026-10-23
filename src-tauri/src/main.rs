@@ -132,8 +132,16 @@ struct Folder {
 }
 
 #[derive(Serialize)]
+struct Plugin {
+    name: String,
+    description: String,
+}
+
+#[derive(Serialize)]
 struct Catalog {
     folders: Vec<Folder>,
+    /// The Omarchy shell plugins on this computer; they sync with `.config/omarchy`.
+    plugins: Vec<Plugin>,
     /// How a change to the app list and sync choices is named.
     data_label: &'static str,
 }
@@ -153,6 +161,7 @@ fn folders() -> Catalog {
         .collect();
     Catalog {
         folders,
+        plugins: plugins(&home.join(".config/omarchy/plugins")),
         data_label: sync::DATA_LABEL,
     }
 }
@@ -297,6 +306,31 @@ fn stop_app(app: String) -> Result<Data> {
 #[tauri::command]
 fn add_apps(apps: Vec<String>) -> Result<Data> {
     edit(|d, _| apps.iter().for_each(|a| sync::toggle(&mut d.apps, a, true)))
+}
+
+/// Each plugin folder named by its manifest; folders without a readable one are skipped.
+fn plugins(dir: &std::path::Path) -> Vec<Plugin> {
+    let mut list: Vec<Plugin> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| {
+            let manifest = std::fs::read(e.path().join("manifest.json")).ok()?;
+            let m: serde_json::Value = serde_json::from_slice(&manifest).ok()?;
+            let text = |k: &str| m[k].as_str().unwrap_or_default().trim().to_string();
+            let name = text("name");
+            Some(Plugin {
+                name: if name.is_empty() {
+                    e.file_name().to_string_lossy().into()
+                } else {
+                    name
+                },
+                description: text("description"),
+            })
+        })
+        .collect();
+    list.sort_by_key(|p| p.name.to_lowercase());
+    list
 }
 
 /// Folders are limited to the known list; the page can't make chezmoi add arbitrary paths.

@@ -5,7 +5,8 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 
 export type Look = { colors_toml: string; motion: boolean };
 export type Folder = { path: string; name: string; default: boolean; exists: boolean };
-export type Catalog = { folders: Folder[]; data_label: string };
+export type Plugin = { name: string; description: string };
+export type Catalog = { folders: Folder[]; plugins: Plugin[]; data_label: string };
 
 export type SetupState = {
   missing: string[];
