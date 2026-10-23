@@ -1,9 +1,35 @@
+import { useState } from 'react';
 import { Monitor, Undo2, Upload } from 'lucide-react';
-import { ago } from '../format';
+import type { Entry } from '../api';
+import { ago, byFolder, plural } from '../format';
 import type { SyncState } from '../state';
 import { Group, Link, Push, Row, Tile } from '../ui';
 
+/** What one sync changed, grouped by the names people know ("Ghostty terminal: Changed config"). */
+function Changes({ e, s }: { e: Entry; s: SyncState }) {
+  const how = new Map(e.files.map((f) => [f.path.split('/').pop()!, f.how]));
+  return (
+    <ul className="changes">
+      {byFolder(
+        e.files.map((f) => f.path),
+        s.catalog,
+      ).map(([label, names]) => (
+        <li key={label}>
+          <span className="label">{label}</span>
+          {names.length > 0 && (
+            <span className="detail">
+              {' '}
+              {names.map((n) => `${how.get(n) ?? 'Changed'} ${n}`).join(', ')}
+            </span>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function HistoryPane({ s }: { s: SyncState }) {
+  const [open, setOpen] = useState<string | null>(null);
   const history = s.overview?.history;
   if (!history) return null;
   return (
@@ -17,11 +43,12 @@ export function HistoryPane({ s }: { s: SyncState }) {
             : e.labels.length === 0
               ? `${s.nameOf(e.computer)} synced`
               : `${s.nameOf(e.computer)} changed ${e.labels.join(', ').toLowerCase()}`;
+        // Every entry in Omarchy's colour; the icon tells undo, this computer and others apart.
         const [icon, kind] = e.is_undo
-          ? [Undo2, 'history']
+          ? [Undo2, 'accent']
           : e.computer === s.host
-            ? [Upload, 'sync']
-            : [Monitor, 'plain'];
+            ? [Upload, 'accent']
+            : [Monitor, 'accent'];
         const end =
           e.first || e.is_undo ? null : s.confirmUndo === e.sha ? (
             <div className="actions">
@@ -41,6 +68,8 @@ export function HistoryPane({ s }: { s: SyncState }) {
               Undo
             </Link>
           );
+        const confirming = s.confirmUndo === e.sha;
+        const shown = confirming || open === e.sha;
         return (
           <Row
             key={e.sha}
@@ -48,7 +77,21 @@ export function HistoryPane({ s }: { s: SyncState }) {
             title={what}
             detail={ago(e.when, s.now)}
             end={end}
-          />
+          >
+            {e.files.length > 0 && !confirming && (
+              <div className="inline">
+                <Link onPress={() => setOpen(shown ? null : e.sha)}>
+                  {shown ? 'Hide Files' : `Show ${plural(e.files.length, 'File')}`}
+                </Link>
+              </div>
+            )}
+            {confirming && (
+              <p className="detail">
+                Undo puts these back as they were before this sync, on every computer:
+              </p>
+            )}
+            {shown && <Changes e={e} s={s} />}
+          </Row>
         );
       })}
     </Group>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ago, byFolder, plural, shortList } from './format';
+import { ago, byFolder, plural, progress, shortList } from './format';
 
 describe('format', () => {
   it('says time and counts in plain words', () => {
@@ -27,5 +27,16 @@ describe('format', () => {
       ['Windows', ['a.lua']],
     ]);
     expect(shortList(['a', 'b', 'c'], 2)).toBe('a, b and 1 more');
+  });
+});
+
+describe('progress', () => {
+  it('lists reached steps, then the rest of the plan, and counts the percentage', () => {
+    const plan = ['Save', 'Fetch', 'Share'];
+    expect(progress(['Save', 'Saving 3 new files', 'Fetch'], plan, 50)).toEqual({
+      items: ['Save', 'Saving 3 new files', 'Fetch', 'Share'],
+      share: 2.5 / 4,
+    });
+    expect(progress([], plan, null).share).toBe(0);
   });
 });

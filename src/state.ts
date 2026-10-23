@@ -10,13 +10,14 @@ import {
   type Data,
   type Prefer,
   type Problem,
+  type Report,
   type SetupState,
   type Status,
 } from './api';
 import { applyLook } from './theme';
 
-export type Tab = 'sync' | 'apps' | 'folders' | 'history' | 'settings';
-export const TABS: Tab[] = ['sync', 'apps', 'folders', 'history', 'settings'];
+export type Tab = 'sync' | 'history' | 'omarchy' | 'plugins' | 'apps' | 'data' | 'settings';
+export const TABS: Tab[] = ['sync', 'history', 'omarchy', 'plugins', 'apps', 'data', 'settings'];
 
 export type Notice = { good: boolean; text: string; details?: string };
 
@@ -26,18 +27,28 @@ export function useSync() {
   const [tab, setTab] = useState<Tab>('sync');
   // The window opens already checking what state this computer is in.
   const [busy, setBusy] = useState<string | null>('Getting ready');
+  /** The steps the running job has reached so far, the last one in progress. */
+  const [steps, setSteps] = useState<string[]>([]);
+  /** The steps it announced it will take (some reached steps may be extra, like new files). */
+  const [plan, setPlan] = useState<string[]>([]);
+  /** How far along the current step is, when it can tell (uploads and downloads). */
+  const [percent, setPercent] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [conflict, setConflict] = useState<Conflict | null>(null);
   const [confirmUndo, setConfirmUndo] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState('');
+  const [dismissedPlugins, setDismissedPlugins] = useState('');
   const [signingIn, setSigningIn] = useState(false);
   const [pending, setPending] = useState(false);
+  const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const working = useRef(true);
   // Unix seconds, ticking each minute; components read it instead of the clock so rendering stays pure.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const lastRefresh = useRef(0);
+  /** When this window last looked for changes, as unix time. */
+  const [checked, setChecked] = useState<number | null>(null);
 
   const ready = !!setup?.ready;
 
@@ -57,26 +68,54 @@ export function useSync() {
   async function run<T>(
     first: string,
     work: (onStep: (s: string) => void) => Promise<T>,
+    // A sync and the look afterwards are one round: the first keeps its steps on screen,
+    // the second carries on from them.
+    round: 'whole' | 'starts' | 'continues' = 'whole',
   ): Promise<T | undefined> {
     if (working.current) return undefined;
     working.current = true;
     setBusy(first);
+    if (round !== 'continues') {
+      setSteps([]);
+      setPlan([]);
+    }
+    setPercent(null);
     try {
-      return await work(setBusy);
+      return await work((line) => {
+        // Besides step names, sync.rs sends the plan and percentages on lines starting \u0001.
+        const [kind, ...rest] = line.split('\t');
+        if (kind === '\u0001plan') setPlan(rest);
+        else if (kind === '\u0001percent') setPercent(Number(rest[0]));
+        else {
+          setBusy(line);
+          setSteps((done) => [...done, line]);
+          setPercent(null);
+        }
+      });
     } finally {
       working.current = false;
       setBusy(null);
+      if (round !== 'starts') {
+        setSteps([]);
+        setPlan([]);
+      }
+      setPercent(null);
       setSyncing(false);
     }
   }
 
-  async function refresh() {
+  async function refresh(afterSync = false) {
     try {
-      const st = await run('Checking for changes', () => api.overview());
+      const st = await run(
+        'Checking for changes',
+        (onStep) => api.overview(onStep, afterSync),
+        afterSync ? 'continues' : 'whole',
+      );
       if (!st) return;
       setStatus(st);
       lastRefresh.current = Date.now();
       setNow(Math.floor(Date.now() / 1000));
+      setChecked(Math.floor(Date.now() / 1000));
       if (st.schedule_error) {
         setNotice({
           good: false,
@@ -109,19 +148,27 @@ export function useSync() {
     setNotice(null);
     setTab('sync');
     setSyncing(true);
+    let report: Report | undefined;
     try {
-      const report = await run(undoSha ? 'Undoing' : 'Starting', (onStep) =>
-        undoSha ? api.undo(undoSha, onStep) : api.syncNow(prefer, onStep),
+      report = await run(
+        undoSha ? 'Undoing' : 'Starting',
+        (onStep) => (undoSha ? api.undo(undoSha, onStep) : api.syncNow(prefer, onStep)),
+        'starts',
       );
       if (report) {
-        setNotice({ good: true, text: ['Synced.', ...report.notes].join(' ') });
+        // Success is a small toast; anything worth reading (apps installed or not) stays on screen.
+        if (report.notes.length) setNotice({ good: true, text: report.notes.join(' ') });
+        const id = Date.now();
+        setToast({ id, text: undoSha ? 'Undone' : 'Synced' });
+        setTimeout(() => setToast((t) => (t?.id === id ? null : t)), 3000);
         setConflict(null);
         setPending(false);
       }
     } catch (e) {
       fail(e);
     }
-    await refresh();
+    // After a sync, a quick look continues its progress; after a failure, a full check.
+    await refresh(!!report);
   }
 
   async function act<T>(
@@ -142,7 +189,8 @@ export function useSync() {
     try {
       const data = await work();
       setStatus((s) => (s ? { ...s, data } : s));
-      setPending(true);
+      // Compared with what was last shared, so flipping a switch back hides the banner again.
+      setPending(await api.choicesChanged());
     } catch (e) {
       fail(e);
     }
@@ -178,7 +226,7 @@ export function useSync() {
     return () => clearInterval(timer);
   }, []);
 
-  // Ctrl+Q quits, Ctrl+R or F5 syncs (instead of reloading the page), Ctrl+1 to 4 switch panes.
+  // Ctrl+Q quits, Ctrl+R or F5 syncs (instead of reloading the page), Ctrl+1 to 7 switch panes.
   const onKey = useEffectEvent((e: KeyboardEvent) => {
     const ctrl = e.ctrlKey && !e.altKey && !e.metaKey;
     if (ctrl && e.key === 'q') getCurrentWindow().close();
@@ -186,7 +234,8 @@ export function useSync() {
       e.preventDefault();
       if (ready && !conflict) sync();
     }
-    if (ctrl && ready && e.key >= '1' && e.key <= '5') {
+    // Like the sidebar, only Sync opens before the first check finishes.
+    if (ctrl && ready && e.key >= '1' && e.key <= (status ? '7' : '1')) {
       e.preventDefault();
       setTab(TABS[Number(e.key) - 1]);
     }
@@ -210,19 +259,42 @@ export function useSync() {
     overview && data
       ? data.apps.filter((a) => wants(host, a) && !overview.apps.installed.includes(a))
       : [];
+  const wantsPlugin = (computer: string, plugin: string) =>
+    !!data?.plugins?.includes(plugin) &&
+    !(data.computers?.[computer]?.skip_plugins ?? []).includes(plugin);
+  /** The names of the other computers that have a plugin. */
+  const whoHas = (plugin: string) =>
+    Object.entries(data?.computers ?? {})
+      .filter(([id, c]) => id !== host && (c.plugins ?? []).includes(plugin))
+      .map(([id]) => nameOf(id));
+  // Mirrors Data::missing_plugins in sync.rs: other computers' plugins this one doesn't have.
+  const pluginsWaiting =
+    data?.folders.includes('.config/omarchy/plugins') && overview
+      ? overview.plugins.filter(
+          (p) =>
+            wantsPlugin(host, p.id) &&
+            !(me.plugins ?? []).includes(p.id) &&
+            whoHas(p.id).length > 0,
+        )
+      : [];
 
   return {
     catalog,
+    toast,
     nameOf,
     syncSpace: status?.sync_space ?? null,
     setSetup,
     setNotice,
     now,
+    checked,
     setup,
     ready,
     tab,
     setTab,
     busy,
+    steps,
+    plan,
+    percent,
     idle: busy === null,
     syncing,
     notice,
@@ -240,6 +312,11 @@ export function useSync() {
     me,
     wants,
     waiting,
+    pluginsWaiting,
+    whoHas,
+    wantsPlugin,
+    dismissedPlugins,
+    setDismissedPlugins,
     fail,
     probe,
     refresh,

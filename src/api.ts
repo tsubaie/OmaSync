@@ -3,9 +3,10 @@
 
 import { Channel, invoke } from '@tauri-apps/api/core';
 
-export type Look = { colors_toml: string; motion: boolean; blur: boolean };
+export type Look = { colors_toml: string; motion: boolean };
 export type Folder = { path: string; name: string; default: boolean; exists: boolean };
 export type Catalog = { folders: Folder[]; data_label: string };
+export type Plugin = { id: string; name: string; description: string };
 
 export type SetupState = {
   missing: string[];
@@ -22,12 +23,18 @@ export type Computer = {
   aka?: string[];
   skip_apps?: string[];
   skip_files?: string[];
+  /** Plugin IDs on this computer. */
+  plugins?: string[];
+  /** Synced plugins this computer doesn't want. */
+  skip_plugins?: string[];
   manual?: boolean;
   install_without_asking?: boolean;
 };
 export type Data = {
   folders: string[];
   apps: string[];
+  /** Plugin IDs shared between computers. */
+  plugins?: string[];
   theme?: string;
   computers: Record<string, Computer>;
 };
@@ -39,6 +46,8 @@ export type Entry = {
   labels: string[];
   is_undo: boolean;
   first: boolean;
+  /** Every file it changed: what Undo puts back. `path` is under home, or the data label. */
+  files: { path: string; how: 'Added' | 'Changed' | 'Removed' }[];
 };
 export type Overview = {
   /** Paths under home changed here and not shared yet. */
@@ -47,10 +56,12 @@ export type Overview = {
   online: boolean;
   /** [computer name, last sync as unix time], this computer first. */
   computers: [string, number | null][];
-  apps: { installed: string[]; local_only: string[]; about: Record<string, string> };
+  apps: { installed: string[]; mine: string[]; about: Record<string, string> };
   incoming_files: string[];
   incoming_from: string[];
   history: Entry[];
+  /** Every computer's plugins. */
+  plugins: Plugin[];
 };
 export type Status = {
   overview: Overview;
@@ -77,7 +88,9 @@ export const api = {
   look: () => invoke<Look>('look'),
   folders: () => invoke<Catalog>('folders'),
   probe: () => invoke<SetupState>('probe'),
-  overview: () => invoke<Status>('overview'),
+  /** `justSynced`: right after a sync, which already saved and fetched. */
+  overview: (onStep: OnStep, justSynced = false) =>
+    invoke<Status>('overview', { onStep: steps(onStep), justSynced }),
   syncNow: (prefer: Prefer, onStep: OnStep) =>
     invoke<Report>('sync_now', { prefer, onStep: steps(onStep) }),
   undo: (sha: string, onStep: OnStep) => invoke<Report>('undo', { sha, onStep: steps(onStep) }),
@@ -87,9 +100,14 @@ export const api = {
   /** Returns where this computer's previous settings were backed up. */
   join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
   installApps: () => invoke<void>('install_apps'),
+  /** Whether the sync choices differ from what was last shared. */
+  choicesChanged: () => invoke<boolean>('choices_changed'),
+  setPlugin: (computer: string, plugin: string, on: boolean) =>
+    invoke<Data>('set_plugin', { computer, plugin, on }),
+  /** Adds the synced plugins this computer is waiting for. */
+  installPlugins: () => invoke<Data>('install_plugins'),
   setApp: (computer: string, app: string, on: boolean) =>
     invoke<Data>('set_app', { computer, app, on }),
-  stopApp: (app: string) => invoke<Data>('stop_app', { app }),
   addApps: (apps: string[]) => invoke<Data>('add_apps', { apps }),
   setFolder: (path: string, on: boolean) => invoke<Data>('set_folder', { path, on }),
   folderHere: (path: string, on: boolean) => invoke<Data>('folder_here', { path, on }),

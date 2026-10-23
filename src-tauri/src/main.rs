@@ -27,8 +27,10 @@ fn main() {
             start,
             join,
             install_apps,
+            install_plugins,
+            choices_changed,
+            set_plugin,
             set_app,
-            stop_app,
             add_apps,
             set_folder,
             folder_here,
@@ -85,15 +87,13 @@ fn steps(channel: Channel<String>) -> impl Fn(&str) {
 }
 
 /// What the page needs to dress itself like the desktop: the active Omarchy theme's colours
-/// (the page derives contrast-checked roles from them) and the desktop's motion and blur settings.
+/// (the page derives contrast-checked roles from them) and whether desktop animations are on.
 #[derive(Serialize)]
 struct Look {
     /// The raw `colors.toml` of the active Omarchy theme, empty if there is none.
     colors_toml: String,
     /// Desktop animations are on (Hyprland and GNOME both allow them).
     motion: bool,
-    /// Hyprland blurs behind windows, so see-through surfaces stay legible.
-    blur: bool,
 }
 
 fn output(prog: &str, args: &[&str]) -> Option<String> {
@@ -121,8 +121,6 @@ fn look() -> Look {
         colors_toml: std::fs::read_to_string(state.join("omarchy/current/theme/colors.toml"))
             .unwrap_or_default(),
         motion: !(hypr_off || gnome_off),
-        blur: output("hyprctl", &["getoption", "decoration:blur:enabled", "-j"])
-            .is_some_and(|s| s.contains("\"bool\":true")),
     }
 }
 
@@ -179,13 +177,13 @@ struct Status {
 }
 
 #[tauri::command]
-async fn overview() -> Result<Status> {
-    blocking(|ctx| {
+async fn overview(on_step: Channel<String>, just_synced: bool) -> Result<Status> {
+    blocking(move |ctx| {
         let data = ctx.load_data();
         let manual = data.computers.get(&ctx.host).is_some_and(|c| c.manual);
         // Keeps the background timer matching this computer's choice (cheap when it already does).
         let schedule_error = sync::schedule(ctx, !manual).err();
-        let overview = sync::overview(ctx)?;
+        let overview = sync::overview(ctx, &steps(on_step), just_synced)?;
         Ok(Status {
             overview,
             data: ctx.load_data(),
@@ -279,6 +277,51 @@ async fn install_apps() -> Result<()> {
     .map_err(Problem::from)
 }
 
+/// Adds exactly the synced plugins this computer is waiting for, nothing the page names itself.
+#[tauri::command]
+async fn install_plugins() -> Result<Data> {
+    blocking(move |ctx| {
+        let ids = ctx.load_data().missing_plugins(&ctx.host);
+        sync::install_plugins(ctx, &ids).map(|()| ctx.load_data())
+    })
+    .await
+    .map_err(Problem::from)
+}
+
+fn plugin_id(id: &str) -> Result<()> {
+    if sync::is_plugin_id(id) {
+        Ok(())
+    } else {
+        Err(format!("not a plugin: {id}").into())
+    }
+}
+
+/// Whether one computer gets a plugin; see `Data::place`.
+#[tauri::command]
+async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> {
+    plugin_id(&plugin)?;
+    let mut shared = None;
+    let data = edit(|d, host| {
+        let before = d.plugins.contains(&plugin);
+        // This computer's copy may be the one shared, so it counts as having what's here.
+        d.computers.entry(host.into()).or_default().plugins = Ctx::load().local_plugins();
+        d.place_plugin(&computer, &plugin, on);
+        let after = d.plugins.contains(&plugin);
+        if before != after {
+            shared = Some(after);
+        }
+    })?;
+    if let Some(on) = shared {
+        blocking(move |ctx| sync::track_plugin(ctx, &plugin, on)).await?;
+    }
+    Ok(data)
+}
+
+#[tauri::command]
+fn choices_changed() -> bool {
+    Ctx::load().choices_changed()
+}
+
 /// Loads the shared data, applies one change, saves it, and hands the result back to the page.
 fn edit(change: impl FnOnce(&mut Data, &str)) -> Result<Data> {
     let ctx = Ctx::load();
@@ -290,12 +333,8 @@ fn edit(change: impl FnOnce(&mut Data, &str)) -> Result<Data> {
 
 #[tauri::command]
 fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
-    edit(|d, _| d.set_app(&computer, &app, on))
-}
-
-#[tauri::command]
-fn stop_app(app: String) -> Result<Data> {
-    edit(|d, _| sync::toggle(&mut d.apps, &app, false))
+    let installed_here = sync::installed().contains(&app);
+    edit(|d, host| d.place_app(host, installed_here, &computer, &app, on))
 }
 
 #[tauri::command]
@@ -315,8 +354,15 @@ fn known_folder(path: &str) -> Result<&'static str> {
 #[tauri::command]
 async fn set_folder(path: String, on: bool) -> Result<Data> {
     let path = known_folder(&path)?;
+    // Stop tracking before saving "off": once saved, the ignore rules hide it from chezmoi,
+    // which then can't forget it. Starting is the other way round.
+    if !on {
+        blocking(move |ctx| sync::track(ctx, path, false)).await?;
+    }
     let data = edit(|d, _| sync::toggle(&mut d.folders, path, on))?;
-    blocking(move |ctx| sync::track(ctx, path, on)).await?;
+    if on {
+        blocking(move |ctx| sync::track(ctx, path, true)).await?;
+    }
     Ok(data)
 }
 

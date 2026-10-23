@@ -78,19 +78,22 @@ export function Row({
 export function Push({
   children,
   prominent,
+  large,
   disabled,
   onPress,
   tip,
 }: {
   children: ReactNode;
   prominent?: boolean;
+  /** The one main action on a screen, a size up. */
+  large?: boolean;
   disabled?: boolean;
   onPress: () => void;
   tip?: string;
 }) {
   const button = (
     <Button
-      className={`push ${prominent ? 'prominent' : ''}`}
+      className={`push ${prominent ? 'prominent' : ''} ${large ? 'large' : ''}`}
       isDisabled={disabled}
       onPress={onPress}
     >
@@ -151,5 +154,18 @@ export function Tip({ label, children }: { label: string; children: ReactNode })
         {label}
       </Tooltip>
     </TooltipTrigger>
+  );
+}
+
+/** The Omarchy mark, in the current text colour (white on the blue tile). */
+export function OmarchyLogo({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 1200 1200" aria-hidden="true">
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="m1200 1200h-480v-80h400v-1040h-479.996v160h-400v720h720v-720h-80v-80h159.996v880h-400v160h-640v-1200h1200zm-1120-80h480v-80h-400l.004-400h-80.004zm0-560h80.004v-400h400v-80h-480.004z"
+      />
+    </svg>
   );
 }

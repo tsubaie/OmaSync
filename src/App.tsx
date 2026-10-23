@@ -1,29 +1,44 @@
 import { useState } from 'react';
-import { FolderSync, History, Package, RefreshCw, Settings, type LucideIcon } from 'lucide-react';
+import {
+  CircleCheck,
+  FolderCog,
+  History,
+  Package,
+  Puzzle,
+  RefreshCw,
+  Settings,
+  SlidersHorizontal,
+  type LucideIcon,
+} from 'lucide-react';
 import { Tab, TabList, TabPanel, Tabs } from 'react-aria-components';
 import { AppsPane } from './panes/AppsPane';
-import { FoldersPane } from './panes/FoldersPane';
+import { AppDataPane, OmarchyPane, PluginsPane } from './panes/FoldersPane';
 import { HistoryPane } from './panes/HistoryPane';
 import { NoticeLine } from './panes/NoticeLine';
 import { SettingsPane } from './panes/SettingsPane';
 import { Setup } from './panes/Setup';
 import { SyncPane } from './panes/SyncPane';
 import { type Tab as TabId, useSync } from './state';
-import { Push, Tile } from './ui';
+import { Push } from './ui';
 
-const SECTIONS: { id: TabId; name: string; icon: LucideIcon }[] = [
+// Grouped like a Finder sidebar: a quiet heading starts each group; Settings sits at the bottom.
+const SECTIONS: { id: TabId; name: string; icon: LucideIcon; heading?: string; end?: boolean }[] = [
   { id: 'sync', name: 'Sync', icon: RefreshCw },
-  { id: 'apps', name: 'Apps', icon: Package },
-  { id: 'folders', name: "What's Synced", icon: FolderSync },
   { id: 'history', name: 'History', icon: History },
-  { id: 'settings', name: 'Settings', icon: Settings },
+  { id: 'omarchy', name: 'Configurations', icon: SlidersHorizontal, heading: 'Omarchy' },
+  { id: 'plugins', name: 'Plugins', icon: Puzzle },
+  { id: 'apps', name: 'Installed Apps', icon: Package, heading: 'Apps' },
+  { id: 'data', name: 'App Data', icon: FolderCog },
+  { id: 'settings', name: 'Settings', icon: Settings, end: true },
 ];
 
 const PANES = {
   sync: SyncPane,
-  apps: AppsPane,
-  folders: FoldersPane,
   history: HistoryPane,
+  omarchy: OmarchyPane,
+  plugins: PluginsPane,
+  apps: AppsPane,
+  data: AppDataPane,
   settings: SettingsPane,
 };
 
@@ -58,12 +73,21 @@ export function App() {
       className={`window ${s.busy ? 'busy' : ''}`}
       orientation="vertical"
       selectedKey={s.tab}
+      // Until the first check finishes there's nothing to show anywhere but Sync.
+      disabledKeys={s.overview ? [] : SECTIONS.filter((x) => x.id !== 'sync').map((x) => x.id)}
       onSelectionChange={(k) => s.setTab(k as TabId)}
     >
       <TabList className="sidebar" aria-label="Sections">
         {SECTIONS.map((sec) => (
-          <Tab key={sec.id} id={sec.id} className="nav" aria-label={sec.name}>
-            <Tile icon={sec.icon} kind={sec.id} />
+          <Tab
+            key={sec.id}
+            id={sec.id}
+            className={`nav ${sec.end ? 'end' : ''}`}
+            data-heading={sec.heading}
+            aria-label={sec.name}
+          >
+            {/* Plain line icons in the text colour, as macOS sidebars draw them. */}
+            <sec.icon size={16} strokeWidth={1.75} aria-hidden="true" />
             <span className="label">{sec.name}</span>
           </Tab>
         ))}
@@ -95,6 +119,12 @@ export function App() {
           </TabPanel>
         );
       })}
+      {s.toast && (
+        <output key={s.toast.id} className="toast">
+          <CircleCheck size={16} aria-hidden="true" />
+          {s.toast.text}
+        </output>
+      )}
     </Tabs>
   );
 }

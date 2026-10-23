@@ -11,7 +11,8 @@ Your settings are kept in a private `omarchy-sync` repository in your own GitHub
 - **Apps**: choose which apps belong on which computer. New apps wait for your approval before installing (through `yay`, which asks for your password) unless you allow installing without asking. Switching an app off never uninstalls it.
 - **History**: every sync is kept. Undo reverses one change on all computers.
 - **When the same setting changed on two computers**, you choose which version to keep. The buttons name the other computer and say when it changed.
-- **What's synced**: choose folders, or keep a separate version of a folder on one computer.
+- **Configurations, Plugins and App Data**: choose which settings and app folders sync, or keep a separate version of a folder on one computer. Plugins and their bar layout and settings each have their own switch. Each plugin has its own Sync switch and per-computer switches, like apps; a synced plugin waits on the Sync pane until you add it to a computer.
+- The Sync pane shows each step while it checks for changes, and when it last synced and last checked.
 - Your active theme follows you. `~/.config/hypr/monitors.lua` never syncs, because every screen is different.
 
 Not synced: deleting a file or uninstalling an app on one computer (do that on each), and the git history inside plugin folders (plugin files sync, their `.git` folders don't).
@@ -21,20 +22,21 @@ Not synced: deleting a file or uninstalling an app on one computer (do that on e
 Omarchy Sync is built from source for now. You need [mise](https://mise.jdx.dev), which Omarchy already includes, and Tauri's system libraries (`webkit2gtk-4.1`, already installed on Omarchy).
 
 ```bash
-git clone https://github.com/tsubaie/omarchy-sync-app.git
-cd omarchy-sync-app
+git clone https://github.com/tsubaie/OmaSync.git
+cd OmaSync
 mise install                      # the Node, pnpm and Rust versions in .mise.toml
 mise x -- pnpm install
 mise x -- pnpm tauri build --no-bundle
 install -Dm755 src-tauri/target/release/omarchy-sync ~/.local/bin/omarchy-sync
 install -Dm644 omarchy-sync.desktop ~/.local/share/applications/omarchy-sync.desktop
+install -Dm644 src-tauri/icons/icon.png ~/.local/share/icons/hicolor/512x512/apps/omarchy-sync.png
 ```
 
 Then open **Omarchy Sync** from the app launcher. The first run says exactly what it will install and do before each step: install the tools it needs, sign you in to GitHub, and then either save this computer's settings (your first computer) or bring in your synced ones (every other computer, after backing up the current ones to `~/.local/share/omarchy-sync/backups/`).
 
 ## Keyboard and accessibility
 
-Every control is reachable with Tab, and the sidebar works with the arrow keys. Shortcuts: **Ctrl+1** to **Ctrl+5** switch panes, **Ctrl+R** or **F5** syncs, **Ctrl+Q** quits. Controls come from [React Aria](https://react-spectrum.adobe.com/react-aria/), so screen readers can use them, and every pane is checked against WCAG 2.2 AA in the test suite.
+Every control is reachable with Tab, and the sidebar works with the arrow keys. Shortcuts: **Ctrl+1** to **Ctrl+7** switch panes, **Ctrl+R** or **F5** syncs, **Ctrl+Q** quits. Controls come from [React Aria](https://react-spectrum.adobe.com/react-aria/), so screen readers can use them, and every pane is checked against WCAG 2.2 AA in the test suite.
 
 Colours come from your active Omarchy theme and are adjusted to meet WCAG contrast. Animations stop when Hyprland or GNOME animations are turned off.
 
@@ -48,4 +50,4 @@ MIT, see [LICENSE](LICENSE).
 
 ## Credits
 
-Built with [Tauri](https://tauri.app), [React](https://react.dev) and [React Aria](https://react-spectrum.adobe.com/react-aria/). Icons from [Lucide](https://lucide.dev) (ISC). The [Inter](https://rsms.me/inter/) typeface (SIL Open Font License) stands in for Apple's SF Pro, which may only be used on Apple platforms.
+Built with [Tauri](https://tauri.app), [React](https://react.dev) and [React Aria](https://react-spectrum.adobe.com/react-aria/). Icons from [Lucide](https://lucide.dev) (ISC). The Omarchy logo belongs to the [Omarchy](https://omarchy.org) project. The [Inter](https://rsms.me/inter/) typeface (SIL Open Font License) stands in for Apple's SF Pro, which may only be used on Apple platforms.

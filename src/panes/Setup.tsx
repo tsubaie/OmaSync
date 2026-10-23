@@ -153,7 +153,7 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
             {s.signingIn && !st.signed_in && (
               <Link onPress={() => api.signIn().catch(s.fail)}>Open the Sign-In Window Again</Link>
             )}
-            <Push prominent onPress={go}>
+            <Push prominent large onPress={go}>
               {label}
             </Push>
           </>

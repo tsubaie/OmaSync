@@ -64,14 +64,23 @@ export function palette(toml: string): Record<string, Rgb> {
   };
   const bg = get('background', '#1e1e2e');
   const ink = get('foreground', '#cdd6f4');
-  const accent = get('accent', '#89b4fa');
   const raised = get('lighter_background', '#313244');
-  const card = mix(bg, ink, 0.05);
-  const surfaces = [bg, card];
-  const onAccent = bestOn(accent, bg, ink);
+  // macOS designs each appearance on its own: light windows put white cards on a soft grey,
+  // dark ones lift cards a step lighter than the window.
+  const light = luminance(bg) > 0.4;
+  // Selection, buttons and switches use Omarchy's green (on trial; Apple's blue was #0058d0
+  // dark and #0064e1 light, with white text): bright with dark text in the dark appearance,
+  // deeper with white text in the light one.
+  const accent = hex(light ? '#3f6d1f' : '#9ece6a')!;
+  const card = light ? mix(bg, WHITE, 0.75) : mix(bg, ink, 0.06);
+  // The sidebar: the theme's own darker shade, a step below the window.
+  const sidebar = get('dark_background', '#161622');
+  const surfaces = [bg, card, sidebar];
+  const onAccent = light ? WHITE : hex('#16161e')!;
   const p: Record<string, Rgb> = {
     bg,
     card,
+    sidebar,
     line: mix(bg, ink, 0.12),
     raised,
     ink,
@@ -103,12 +112,11 @@ export function palette(toml: string): Record<string, Rgb> {
   return p;
 }
 
-/** Dresses the page like the desktop: theme colours, light or dark, motion and blur. */
+/** Dresses the page like the desktop: theme colours, light or dark, and motion. */
 export function applyLook(look: Look) {
   const root = document.documentElement;
   const p = palette(look.colors_toml);
   for (const [name, value] of Object.entries(p)) root.style.setProperty(`--${name}`, css(value));
   root.style.colorScheme = luminance(p.bg) < 0.2 ? 'dark' : 'light';
   root.classList.toggle('no-motion', !look.motion);
-  root.classList.toggle('no-blur', !look.blur);
 }

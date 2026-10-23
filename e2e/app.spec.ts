@@ -33,7 +33,8 @@ test('sync pane shows the state and syncs on request', async ({ page }) => {
   expect(await a11y(page)).toEqual([]);
 
   await page.getByRole('button', { name: 'Sync Now' }).click();
-  await expect(page.getByText('Synced.')).toBeVisible();
+  // Success is a toast that slides away.
+  await expect(page.locator('.toast').getByText('Synced')).toBeVisible();
   expect(await calls(page, 'sync_now')).toEqual([
     expect.objectContaining({ args: expect.objectContaining({ prefer: 'Ask' }) }),
   ]);
@@ -46,27 +47,31 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
     'true',
   );
   for (const [key, name] of [
-    ['2', 'Apps'],
-    ['3', "What's Synced"],
-    ['4', 'History'],
-    ['5', 'Settings'],
+    ['2', 'History'],
+    ['3', 'Configurations'],
+    ['4', 'Plugins'],
+    ['5', 'Installed Apps'],
+    ['6', 'App Data'],
+    ['7', 'Settings'],
   ]) {
     await page.keyboard.press(`Control+${key}`);
     await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
     expect(await a11y(page), name).toEqual([]);
   }
   // Arrow keys move through the sidebar like a macOS source list.
-  await page.getByRole('tab', { name: 'History' }).focus();
+  await page.getByRole('tab', { name: 'App Data' }).focus();
   await page.keyboard.press('ArrowUp');
-  await expect(page.getByRole('tab', { name: "What's Synced" })).toBeFocused();
+  await expect(page.getByRole('tab', { name: 'Installed Apps' })).toBeFocused();
 });
 
 test('switching an app off for a computer saves the choice', async ({ page }) => {
   await page.goto('/?scenario=synced');
-  await page.getByRole('tab', { name: 'Apps' }).click();
-  const yazi = page.getByRole('switch', { name: 'yazi on This Computer' });
+  await page.getByRole('tab', { name: 'Installed Apps' }).click();
+  const yazi = page.getByRole('switch', { name: 'yazi synced on This Computer' });
   await expect(yazi).toBeChecked();
-  await yazi.click({ force: true });
+  // Toggle it the way a keyboard user does; it works the same in WebKit and Chromium.
+  await yazi.focus();
+  await page.keyboard.press('Space');
   await expect(yazi).not.toBeChecked();
   expect(await calls(page, 'set_app')).toEqual([
     { cmd: 'set_app', args: { computer: 'aaaa11112222', app: 'yazi', on: false } },
@@ -97,14 +102,20 @@ test('undo asks before changing every computer', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Undo on All Computers' })).toBeHidden();
   expect(await calls(page, 'undo')).toEqual([]);
+  // Each sync lists the files it changed, and Undo shows them before going ahead.
+  await page.getByRole('button', { name: 'Show 2 Files' }).click();
+  await expect(page.getByText('Changed bindings.lua, Added input.lua')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByText('Undo puts these back as they were before this sync')).toBeVisible();
+  await expect(page.getByText('Changed bindings.lua, Added input.lua')).toBeVisible();
 });
 
-test('settings names this computer, shows the sync space and how to add one', async ({ page }) => {
+test('settings names this computer and shows the sync space', async ({ page }) => {
   await page.goto('/?scenario=synced');
-  await page.keyboard.press('Control+5');
+  await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
+  await page.keyboard.press('Control+7');
   await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
   await expect(page.getByText('github.com/someone/omarchy-sync')).toBeVisible();
-  await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
   expect(await a11y(page)).toEqual([]);
 
   const name = page.getByRole('textbox', { name: "This computer's name" });
@@ -119,4 +130,67 @@ test('settings names this computer, shows the sync space and how to add one', as
   await expect(page.getByRole('button', { name: 'Remove', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Cancel' }).click();
   expect(await calls(page, 'forget_computer')).toEqual([]);
+});
+
+test("another computer's plugin waits for a yes before it's added here", async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  const waiting = page.getByRole('region', { name: 'Plugins Waiting to Add' });
+  await expect(waiting.getByText('Webcam Controls')).toBeVisible();
+  await expect(waiting.getByText('On Desktop')).toBeVisible();
+  await waiting.getByRole('button', { name: 'Add' }).click();
+  expect(await calls(page, 'install_plugins')).toEqual([{ cmd: 'install_plugins', args: {} }]);
+  await expect(waiting).toBeHidden();
+});
+
+test('an app is switched on per computer, in place', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'Installed Apps' }).click();
+  const rows = page.locator('.matrix:not(.head) .text > div:first-child');
+  await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
+  await expect(page.getByText('Only on this computer')).toBeVisible();
+  const desk = page.getByRole('switch', { name: 'spotify synced on Desktop' });
+  await expect(desk).not.toBeChecked();
+  // Switching Desktop on shares it, and this computer (which has it) comes along.
+  await desk.focus();
+  await page.keyboard.press('Space');
+  await expect(desk).toBeChecked();
+  await expect(page.getByRole('switch', { name: 'spotify synced on This Computer' })).toBeChecked();
+  await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
+  const banner = page.getByText('Your other computers get this change the next time you sync.');
+  await expect(banner).toBeVisible();
+  // Every computer switched off again: nothing is left to share, so the banner goes away.
+  const here = page.getByRole('switch', { name: 'spotify synced on This Computer' });
+  await page.keyboard.press('Space');
+  await here.focus();
+  await page.keyboard.press('Space');
+  await expect(desk).not.toBeChecked();
+  await expect(here).not.toBeChecked();
+  await expect(banner).toBeHidden();
+  // Switched on for this computer alone, it stays on: computers added later get it.
+  await page.keyboard.press('Space');
+  await expect(here).toBeChecked();
+});
+
+test('only Sync opens until the first check finishes', async ({ page }) => {
+  await page.goto('/?scenario=checking');
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.getByRole('tab', { name: 'Sync', exact: true })).not.toHaveAttribute(
+    'aria-disabled',
+    'true',
+  );
+  await page.keyboard.press('Control+2');
+  await expect(page.getByRole('heading', { level: 1, name: 'Sync' })).toBeVisible();
+});
+
+test('each plugin is switched on per computer, like apps', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'Plugins' }).click();
+  const desk = page.getByRole('switch', { name: 'Webcam Controls synced on Desktop' });
+  await expect(desk).toBeChecked();
+  await desk.focus();
+  await page.keyboard.press('Space');
+  await expect(desk).not.toBeChecked();
+  expect(await calls(page, 'set_plugin')).toEqual([
+    { cmd: 'set_plugin', args: { computer: 'bbbb33334444', plugin: 'webcam', on: false } },
+  ]);
 });
