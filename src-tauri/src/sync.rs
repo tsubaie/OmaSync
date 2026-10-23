@@ -940,7 +940,7 @@ const PLAN: &str = "\u{1}plan\t";
 const PERCENT: &str = "\u{1}percent\t";
 
 /// Announces every step a job will take, so the page can show what's still to come.
-fn plan(step: &dyn Fn(&str), steps: &[&str]) {
+pub(crate) fn plan(step: &dyn Fn(&str), steps: &[&str]) {
     step(&format!("{PLAN}{}", steps.join("\t")));
 }
 
@@ -1016,6 +1016,8 @@ pub fn friendly(err: &str) -> String {
         "This change can't be undone on its own, because later changes build on it.".into()
     } else if e.contains("rejected") || e.contains("non-fast-forward") {
         "Another computer synced at the same moment. Press Sync now again.".into()
+    } else if e.contains("checksum") || e.contains("attestation") {
+        "The downloaded update couldn't be verified, so nothing was installed.".into()
     } else {
         "Something went wrong. Nothing on this computer was lost.".into()
     }
@@ -1453,7 +1455,7 @@ pub struct Report {
 }
 
 /// Only one sync at a time, whether it comes from the window or the background timer.
-fn lock(ctx: &Ctx) -> Result<std::fs::File, String> {
+pub(crate) fn lock(ctx: &Ctx) -> Result<std::fs::File, String> {
     let file =
         std::fs::File::create(ctx.src.join(".git/omarchy-sync.lock")).map_err(|e| e.to_string())?;
     file.try_lock()
@@ -1462,7 +1464,7 @@ fn lock(ctx: &Ctx) -> Result<std::fs::File, String> {
 }
 
 /// Waits for any running sync (window or background timer) to finish, then holds the lock.
-fn lock_wait(ctx: &Ctx) -> Result<std::fs::File, String> {
+pub(crate) fn lock_wait(ctx: &Ctx) -> Result<std::fs::File, String> {
     let file =
         std::fs::File::create(ctx.src.join(".git/omarchy-sync.lock")).map_err(|e| e.to_string())?;
     file.lock().map_err(|e| e.to_string())?;

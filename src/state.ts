@@ -371,6 +371,8 @@ export function useSync() {
     nameOf,
     syncSpace: status?.sync_space ?? null,
     barIndicator: !!status?.bar_indicator,
+    version: status?.version ?? '',
+    installedHow: status?.installed_how ?? 'Package',
     setSetup,
     setNotice,
     now,

@@ -106,9 +106,16 @@ export type Status = {
   schedule_error: string | null;
   /** Whether the sync indicator is on the Omarchy bar. */
   bar_indicator: boolean;
+  /** This copy's version, and how it was installed. */
+  version: string;
+  installed_how: How;
 };
 
 export type Report = { notes: string[]; waiting: string[] };
+/** How this copy was installed: the release package, the AUR package, or built from source. */
+export type How = 'Package' | 'Aur' | 'Source';
+/** A newer release of Omarchy Sync, and its page on GitHub. */
+export type Update = { version: string; url: string };
 /** A clashing file as it is here (`mine`) and on the other computer (`theirs`); null when that
  * side removed it. `source` is its path in the sync folder, which choices are keyed by. */
 export type Versions = {
@@ -187,4 +194,11 @@ export const api = {
   openSyncSpace: () => invoke<void>('open_sync_space'),
   /** Returns where the local sync folder was moved. */
   disconnect: () => invoke<string>('disconnect'),
+  /** A newer release, or null when this copy is the latest. Nothing is downloaded. */
+  checkUpdate: () => invoke<Update | null>('check_update'),
+  /** Installs that release (it must still be the latest), then restarts the app. */
+  installUpdate: (version: string, onStep: OnStep) =>
+    invoke<void>('install_update', { version, onStep: steps(onStep) }),
+  /** Opens a release's page on GitHub. */
+  openRelease: (version: string) => invoke<void>('open_release', { version }),
 };

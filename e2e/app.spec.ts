@@ -393,3 +393,32 @@ test('the newer computer says which one to update', async ({ page }) => {
     older.getByText('Update the older computers, not this one', { exact: false }),
   ).toBeVisible();
 });
+
+test('settings shows the version and installs a newer release after a clear confirmation', async ({
+  page,
+}) => {
+  await page.goto('/?scenario=update');
+  await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
+  await page.keyboard.press('Control+8');
+  const updates = page.getByRole('region', { name: 'Updates' });
+  await expect(updates.getByText('Omarchy Sync 0.1.1')).toBeVisible();
+  await updates.getByRole('button', { name: 'Check for Updates' }).click();
+  await expect(updates.getByText('0.2.0 is available.')).toBeVisible();
+  await updates.getByRole('button', { name: 'Update to 0.2.0…' }).click();
+  await expect(updates.getByText('restarts Omarchy Sync', { exact: false })).toBeVisible();
+  expect(await calls(page, 'install_update')).toEqual([]);
+  expect(await a11y(page)).toEqual([]);
+  await updates.getByRole('button', { name: 'Update', exact: true }).click();
+  expect(await calls(page, 'install_update')).toEqual([
+    expect.objectContaining({ args: expect.objectContaining({ version: '0.2.0' }) }),
+  ]);
+});
+
+test('a copy built from source says how it updates instead', async ({ page }) => {
+  await page.goto('/?scenario=source');
+  await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
+  await page.keyboard.press('Control+8');
+  const updates = page.getByRole('region', { name: 'Updates' });
+  await expect(updates.getByText('Built from source', { exact: true })).toBeVisible();
+  await expect(updates.getByRole('button', { name: 'Check for Updates' })).toHaveCount(0);
+});
