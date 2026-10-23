@@ -45,6 +45,10 @@ Pull requests run these on GitHub Actions; that's the normal place to run the sl
 
 The Rust tests never touch your real settings: the two-computer test points `HOME` and every `XDG_*` folder at a temporary directory.
 
+## Releasing
+
+`install.sh` installs the Arch package attached to the latest GitHub Release. To publish `X.Y.Z`: set the version in `package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` (and refresh `Cargo.lock` with a build), then push the tag `vX.Y.Z`. `.github/workflows/release.yml` builds the package from `packaging/arch/PKGBUILD` in an Arch container, writes `SHA256SUMS`, and publishes the release. The workflow refuses a tag whose number differs from the version.
+
 ## Decisions to keep
 
 - **Undo is shared.** History's Undo reverses a sync on every computer. Anything that should only affect this computer (Put Back My Settings, the first-sync backup) uses a local copy instead.
