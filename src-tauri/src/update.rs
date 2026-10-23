@@ -45,11 +45,10 @@ pub fn parse_owner(out: &str) -> How {
     }
 }
 
-/// A newer release: its version and its page on GitHub, for what's new.
+/// A newer release.
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Update {
     pub version: String,
-    pub url: String,
 }
 
 /// "0.1.2" or "v0.1.2" as numbers; anything else (a pre-release, a dev build) is none.
@@ -81,10 +80,7 @@ pub fn check() -> Result<Option<Update>, String> {
     let body = run(None, "curl", &["-fsS", "--max-time", "15", &url])?;
     let json: serde_json::Value = serde_json::from_str(&body).map_err(|e| e.to_string())?;
     let tag = json["tag_name"].as_str().unwrap_or_default();
-    Ok(newer(env!("CARGO_PKG_VERSION"), tag).map(|version| Update {
-        url: release_page(&version),
-        version,
-    }))
+    Ok(newer(env!("CARGO_PKG_VERSION"), tag).map(|version| Update { version }))
 }
 
 /// The line of a SHA256SUMS text that names `file`.
@@ -112,6 +108,11 @@ pub fn install(ctx: &Ctx, version: &str, step: &dyn Fn(&str)) -> Result<(), Stri
             "installed from source: update with git pull and the build steps in the README".into(),
         );
     }
+    if how == How::Aur {
+        sync::plan(step, &["Installing", "Restarting Omarchy Sync"]);
+        step("Installing");
+        return sync::install_apps(&["omarchy-sync-bin".to_string()]);
+    }
     let downloading = format!("Downloading Omarchy Sync {version}");
     sync::plan(
         step,
@@ -122,10 +123,6 @@ pub fn install(ctx: &Ctx, version: &str, step: &dyn Fn(&str)) -> Result<(), Stri
             "Restarting Omarchy Sync",
         ],
     );
-    if how == How::Aur {
-        step("Installing");
-        return sync::install_apps(&["omarchy-sync-bin".to_string()]);
-    }
     let dir = std::env::temp_dir().join(format!("omarchy-sync-update-{}", std::process::id()));
     let result = download_and_install(&dir, version, step);
     let _ = std::fs::remove_dir_all(&dir);

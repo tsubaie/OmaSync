@@ -114,8 +114,8 @@ export type Status = {
 export type Report = { notes: string[]; waiting: string[] };
 /** How this copy was installed: the release package, the AUR package, or built from source. */
 export type How = 'Package' | 'Aur' | 'Source';
-/** A newer release of Omarchy Sync, and its page on GitHub. */
-export type Update = { version: string; url: string };
+/** A newer release of Omarchy Sync. */
+export type Update = { version: string };
 /** A clashing file as it is here (`mine`) and on the other computer (`theirs`); null when that
  * side removed it. `source` is its path in the sync folder, which choices are keyed by. */
 export type Versions = {

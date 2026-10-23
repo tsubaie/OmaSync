@@ -1016,6 +1016,10 @@ pub fn friendly(err: &str) -> String {
         "This change can't be undone on its own, because later changes build on it.".into()
     } else if e.contains("rejected") || e.contains("non-fast-forward") {
         "Another computer synced at the same moment. Press Sync now again.".into()
+    } else if e.contains("isn't the latest release") {
+        "A newer release appeared in the meantime. Check for updates again.".into()
+    } else if e.contains("gh auth login") {
+        "Not signed in to GitHub. Run gh auth login in a terminal, then try again.".into()
     } else if e.contains("checksum") || e.contains("attestation") {
         "The downloaded update couldn't be verified, so nothing was installed.".into()
     } else {

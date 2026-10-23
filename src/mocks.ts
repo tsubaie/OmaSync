@@ -396,9 +396,7 @@ mockIPC((cmd, args) => {
     case 'set_install_auto':
       return data;
     case 'check_update':
-      return scenario === 'update'
-        ? { version: '0.2.0', url: 'https://github.com/tsubaie/OmaSync/releases/tag/v0.2.0' }
-        : null;
+      return scenario === 'update' ? { version: '0.2.0' } : null;
     case 'install_update':
       emit(a.onStep, [
         "\u0001plan\tDownloading Omarchy Sync 0.2.0\tChecking it's genuine\tInstalling\tRestarting Omarchy Sync",
