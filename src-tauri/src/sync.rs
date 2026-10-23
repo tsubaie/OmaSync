@@ -2014,6 +2014,24 @@ pub fn missing_repos(
         .collect()
 }
 
+/// The extra repositories this computer has that are shared, with the person's apps from each.
+pub fn repos_with_apps(data: &Data, here: &BTreeSet<String>) -> Vec<MissingRepo> {
+    data.repositories
+        .iter()
+        .filter(|(name, _)| here.contains(*name))
+        .map(|(name, repository)| MissingRepo {
+            name: name.clone(),
+            repository: repository.clone(),
+            apps: data
+                .app_repo
+                .iter()
+                .filter(|(_, r)| *r == name)
+                .map(|(app, _)| app.clone())
+                .collect(),
+        })
+        .collect()
+}
+
 /// This computer's extra repositories as pacman uses them (servers and signature rules), with
 /// the key that signs each, and which of the person's apps come from one.
 fn record_repositories(data: &mut Data) {
@@ -2714,6 +2732,8 @@ pub struct Overview {
     pub plugins: Vec<Plugin>,
     /// Extra repositories this computer needs for apps it should have, waiting to be added.
     pub missing_repos: Vec<MissingRepo>,
+    /// Shared extra repositories this computer already has.
+    pub repos_here: Vec<MissingRepo>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -2785,8 +2805,15 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
         .map(|id| ctx.plugin(id))
         .collect();
     plugins.sort_by_key(|p| p.name.to_lowercase());
+    let here = repos_here();
+    let mut unshared = to_targets(ctx, parse_status(&status));
+    for change in look_changes(ctx, &data) {
+        if !unshared.contains(&change) {
+            unshared.push(change);
+        }
+    }
     Ok(Overview {
-        unshared: to_targets(ctx, parse_status(&status)),
+        unshared,
         incoming,
         online,
         computers: computers(&parse_log(&log), &data, &ctx.host),
@@ -2805,7 +2832,8 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
             })
             .collect(),
         plugins,
-        missing_repos: missing_repos(&data, &ctx.host, &installed(), &repos_here()),
+        missing_repos: missing_repos(&data, &ctx.host, &installed(), &here),
+        repos_here: repos_with_apps(&data, &here),
     })
 }
 
@@ -2922,6 +2950,27 @@ pub fn user_apps<'a>(
 }
 
 /// Maps paths inside the sync folder to paths under home.
+/// The theme and background in use here when they differ from the shared ones. Neither shows
+/// in git until a sync records it, so a change made in Omarchy is listed from here.
+fn look_changes(ctx: &Ctx, data: &Data) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(theme) = ctx.current_theme().filter(|t| is_file_name(t))
+        && data.uses_theme(&ctx.host)
+        && data.theme.as_ref() != Some(&theme)
+    {
+        out.push(format!(".config/omarchy/themes/{theme}"));
+    }
+    if let Some(name) = ctx
+        .current_background()
+        .and_then(|p| Some(p.file_name()?.to_string_lossy().into_owned()))
+        .filter(|n| is_file_name(n))
+        && data.background.as_ref() != Some(&name)
+    {
+        out.push(format!(".background/{name}"));
+    }
+    out
+}
+
 fn to_targets(ctx: &Ctx, paths: Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
     let mut files = Vec::new();
@@ -3512,6 +3561,7 @@ mod tests {
         // Once the repository is here, nothing waits for it.
         let here = BTreeSet::from(["openai-chatgpt".to_string()]);
         assert!(missing_repos(&d, "b", &none, &here).is_empty());
+        assert_eq!(repos_with_apps(&d, &here)[0].apps, missing[0].apps);
         // A repository recorded on one computer survives a merge with another's changes.
         let base = Data::default();
         let theirs = Data {
@@ -3684,6 +3734,15 @@ mod tests {
 
         assert!(a.src.join(".background/hills.jpg").exists());
         assert!(!a.src.join("dot_config/omarchy/backgrounds").exists());
+        // A theme picked in Omarchy shows as not shared yet, before any sync records it.
+        let state = a.home.join(".local/state/omarchy/current");
+        assert!(look_changes(&a, &a.load_data()).is_empty());
+        std::fs::write(state.join("theme.name"), "old").unwrap();
+        assert_eq!(
+            look_changes(&a, &a.load_data()),
+            [".config/omarchy/themes/old"]
+        );
+        std::fs::write(state.join("theme.name"), "mine").unwrap();
         enter(&b);
         assert!(adopt(&b, &remote, &quiet).unwrap().exists());
         ok(sync(&b, Prefer::Ask, false, &quiet));

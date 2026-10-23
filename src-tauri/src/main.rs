@@ -25,6 +25,10 @@ fn main() {
             }
             let _ = app.emit("show-sync", ());
         }))
+        .setup(|app| {
+            watch_look(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             look,
             folders,
@@ -123,10 +127,6 @@ fn output(prog: &str, args: &[&str]) -> Option<String> {
 
 #[tauri::command]
 fn look() -> Look {
-    let ctx = Ctx::load();
-    let state = std::env::var("XDG_STATE_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or(ctx.home.join(".local/state"));
     let hypr_off = output("hyprctl", &["getoption", "animations:enabled", "-j"])
         .is_some_and(|s| s.contains("\"bool\":false") || s.contains("\"int\":0"));
     let gnome_off = output(
@@ -135,10 +135,40 @@ fn look() -> Look {
     )
     .is_some_and(|s| s.trim() == "false");
     Look {
-        colors_toml: std::fs::read_to_string(state.join("omarchy/current/theme/colors.toml"))
-            .unwrap_or_default(),
+        colors_toml: colors_toml(&Ctx::load()),
         motion: !(hypr_off || gnome_off),
     }
+}
+
+fn colors_toml(ctx: &Ctx) -> String {
+    let state = std::env::var("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or(ctx.home.join(".local/state"));
+    std::fs::read_to_string(state.join("omarchy/current/theme/colors.toml")).unwrap_or_default()
+}
+
+/// Tells the page when the Omarchy theme or background changes, so it recolours itself and
+/// lists the change to share, like other apps that follow the desktop theme.
+fn watch_look(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let ctx = Ctx::load();
+        let now = || {
+            (
+                ctx.current_theme(),
+                colors_toml(&ctx),
+                ctx.current_background(),
+            )
+        };
+        let mut last = now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let seen = now();
+            if seen != last {
+                last = seen;
+                let _ = app.emit("look-changed", ());
+            }
+        }
+    });
 }
 
 #[derive(Serialize)]

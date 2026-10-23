@@ -159,6 +159,7 @@ const status = (): Status => ({
     incoming_files: [],
     incoming_from: [],
     // "repo": an app here comes from its maker's own repository, which this computer lacks.
+    repos_here: [],
     missing_repos:
       scenario === 'repo'
         ? [

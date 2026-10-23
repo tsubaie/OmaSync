@@ -64,10 +64,11 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
   for (const [key, name] of [
     ['2', 'Configurations'],
     ['3', 'Plugins'],
-    ['4', 'Installed Apps'],
-    ['5', 'App Data'],
-    ['6', 'History'],
-    ['7', 'Settings'],
+    ['4', 'Repositories'],
+    ['5', 'Installed Apps'],
+    ['6', 'App Data'],
+    ['7', 'History'],
+    ['8', 'Settings'],
   ]) {
     await page.keyboard.press(`Control+${key}`);
     await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
@@ -161,7 +162,7 @@ test('undo asks before changing every computer', async ({ page }) => {
 test('settings names this computer and shows the sync space', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+7');
+  await page.keyboard.press('Control+8');
   await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
   await expect(page.getByText('github.com/someone/omarchy-sync')).toBeVisible();
   expect(await a11y(page)).toEqual([]);
@@ -305,7 +306,7 @@ test('an install command runs only after a warning and a second yes', async ({ p
 
 test('the bar indicator is on by default and flips off at once', async ({ page }) => {
   await page.goto('/?scenario=synced');
-  await page.keyboard.press('Control+7');
+  await page.keyboard.press('Control+8');
   const bar = page.getByRole('switch', { name: 'Show in the bar' });
   await expect(bar).toBeChecked();
   await bar.focus();
@@ -326,6 +327,9 @@ test('problems and ideas can be reported from beside Settings', async ({ page })
 
 test("an app from its maker's repository waits until the repository is added", async ({ page }) => {
   await page.goto('/?scenario=repo');
+  // The Sync page points to the Repositories section, where they are added.
+  await page.getByRole('button', { name: 'Show Repositories' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Repositories' })).toBeVisible();
   const group = page.getByRole('region', { name: 'Repositories to Add' });
   await expect(group.getByText('Needed for chatgpt-bin.', { exact: false })).toBeVisible();
   await group.getByRole('button', { name: 'Add Repository…' }).click();

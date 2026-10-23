@@ -119,6 +119,8 @@ If another computer already uses this computer's name (Omarchy names every compu
 
 **On your bar.** Omarchy Sync puts its icon on your Omarchy bar: spinning in green while syncing, green for a few seconds when a sync finishes well, red when syncing fails, and yellow when something waits for you, with the reason in its tooltip. Click it to open Omarchy Sync.
 
+**Theme and background.** Picking another Omarchy theme or background shows up at once under **Not Shared Yet**, and the next sync gives it to your other computers. The app recolours itself to match, like other apps.
+
 **Choosing what syncs.** **Configurations** and **App Data** list everything that can sync, each with a switch: off stops syncing it everywhere. **Don't Sync on This Computer** leaves only this computer out: it keeps its own version while the others stay in step.
 
 **Apps and plugins.** In **Installed Apps** and **Plugins**, each computer has its own switch:
@@ -127,7 +129,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 - When a synced app or plugin isn't on this computer yet, it waits on the Sync screen with **Install** (or **Add**) and **Not Now**, and you get a notification.
 - To skip the waiting, turn on **Add synced apps and plugins without asking** in Settings.
 - Switching anything off never uninstalls it.
-- Apps from their maker's own repository (like ChatGPT's) never fall back to the AUR. Each computer records its extra repositories and their signing keys, and a computer without one shows **Repositories to Add**: the repository's address and its key's owner and fingerprint, added only after you agree, with your password.
+- Apps from their maker's own repository (like ChatGPT's) never fall back to the AUR. Each computer records its extra repositories and their signing keys, and the **Repositories** section lists them, and a computer without one shows **Repositories to Add** there: the repository's address and its key's owner and fingerprint, added only after you agree, with your password.
 - Apps that aren't in Arch's repos or the AUR (ones you built from your own repository, say) can't install through `yay`. Their row says so and offers **Add Install Steps…**: the commands that install it, one per line, such as cloning its repository, building it and running its install script. They run in order and stop at the first step that fails. Other computers then offer **Install**, which runs it in an empty folder in a terminal window you can watch. Without one, the app stays on the computers that have it.
 
 **When two computers changed the same thing.** You get two equal choices, **Keep This Computer's Version** or **Keep Desktop's Version**, each saying when it changed. Changes to the choices themselves (which apps, which plugins) never ask: they're merged automatically.
@@ -138,7 +140,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 
 **Stopping.** **Settings → Disconnect** stops syncing on this computer. Its settings stay exactly as they are, and your other computers carry on.
 
-**Keyboard.** Ctrl+1 to Ctrl+7 switch sections, Ctrl+R or F5 syncs, Ctrl+Q quits, Esc cancels a confirmation. Everything is reachable with Tab, and the sidebar works with the arrow keys.
+**Keyboard.** Ctrl+1 to Ctrl+8 switch sections, Ctrl+R or F5 syncs, Ctrl+Q quits, Esc cancels a confirmation. Everything is reachable with Tab, and the sidebar works with the arrow keys.
 
 ## What syncs
 

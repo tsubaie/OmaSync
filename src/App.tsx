@@ -7,6 +7,7 @@ import {
   Package,
   Puzzle,
   RefreshCw,
+  Server,
   Settings,
   SlidersHorizontal,
   type LucideIcon,
@@ -16,6 +17,7 @@ import { AppsPane } from './panes/AppsPane';
 import { AppDataPane, OmarchyPane, PluginsPane } from './panes/FoldersPane';
 import { HistoryPane } from './panes/HistoryPane';
 import { NoticeLine } from './panes/NoticeLine';
+import { ReposPane } from './panes/ReposPane';
 import { SettingsPane } from './panes/SettingsPane';
 import { Setup } from './panes/Setup';
 import { SyncPane } from './panes/SyncPane';
@@ -29,7 +31,8 @@ const SECTIONS: { id: TabId; name: string; icon: LucideIcon; heading?: string; e
   { id: 'sync', name: 'Sync', icon: RefreshCw },
   { id: 'omarchy', name: 'Configurations', icon: SlidersHorizontal, heading: 'Omarchy' },
   { id: 'plugins', name: 'Plugins', icon: Puzzle },
-  { id: 'apps', name: 'Installed Apps', icon: Package, heading: 'Apps' },
+  { id: 'repos', name: 'Repositories', icon: Server, heading: 'Apps' },
+  { id: 'apps', name: 'Installed Apps', icon: Package },
   { id: 'data', name: 'App Data', icon: FolderCog },
   { id: 'history', name: 'History', icon: History, end: true },
   { id: 'settings', name: 'Settings', icon: Settings },
@@ -59,6 +62,7 @@ const PANES = {
   history: HistoryPane,
   omarchy: OmarchyPane,
   plugins: PluginsPane,
+  repos: ReposPane,
   apps: AppsPane,
   data: AppDataPane,
   settings: SettingsPane,

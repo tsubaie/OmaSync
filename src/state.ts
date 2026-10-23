@@ -18,8 +18,18 @@ import {
 } from './api';
 import { applyLook } from './theme';
 
-export type Tab = 'sync' | 'history' | 'omarchy' | 'plugins' | 'apps' | 'data' | 'settings';
-export const TABS: Tab[] = ['sync', 'omarchy', 'plugins', 'apps', 'data', 'history', 'settings'];
+export type Tab =
+  'sync' | 'history' | 'omarchy' | 'plugins' | 'repos' | 'apps' | 'data' | 'settings';
+export const TABS: Tab[] = [
+  'sync',
+  'omarchy',
+  'plugins',
+  'repos',
+  'apps',
+  'data',
+  'history',
+  'settings',
+];
 
 export type Notice = { good: boolean; text: string; details?: string };
 
@@ -265,6 +275,17 @@ export function useSync() {
     setTab('sync');
     if (!working.current) refresh();
   });
+  // The Omarchy theme or background changed: recolour, and list the change to share.
+  const onLook = useEffectEvent(() => {
+    api.look().then(applyLook, fail);
+    if (ready && !working.current) refresh();
+  });
+  useEffect(() => {
+    const stop = listen('look-changed', onLook);
+    return () => {
+      stop.then((unlisten) => unlisten());
+    };
+  }, []);
   useEffect(() => {
     const stop = listen('show-sync', onShow);
     return () => {
@@ -291,7 +312,7 @@ export function useSync() {
       if (ready && !conflict) sync();
     }
     // Like the sidebar, only Sync opens before the first check finishes.
-    if (ctrl && ready && e.key >= '1' && e.key <= (status ? '7' : '1')) {
+    if (ctrl && ready && e.key >= '1' && e.key <= (status ? '8' : '1')) {
       e.preventDefault();
       setTab(TABS[Number(e.key) - 1]);
     }

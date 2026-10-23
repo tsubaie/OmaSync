@@ -88,6 +88,7 @@ export type Overview = {
   plugins: Plugin[];
   /** Extra repositories this computer needs for apps it should have. */
   missing_repos: MissingRepo[];
+  repos_here: MissingRepo[];
 };
 export type Status = {
   overview: Overview;
