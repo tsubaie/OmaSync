@@ -91,6 +91,11 @@ function Device({
     <div className={`device ${here ? 'here' : ''}`}>
       <span className={`screen ${more ? 'stack' : ''}`}>
         <OmarchyLogo size={32} />
+        {more ? (
+          <span className="count" aria-hidden="true">
+            {more + 1}
+          </span>
+        ) : null}
         {Badge && (
           <span className="badge-dot">
             <Badge size={13} strokeWidth={3} />
