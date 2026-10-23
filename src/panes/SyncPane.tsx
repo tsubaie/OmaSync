@@ -359,6 +359,117 @@ function ScriptedApps({ s }: { s: SyncState }) {
   );
 }
 
+const has = (list: unknown[]) => (list.length === 1 ? 'has' : 'have');
+
+const major = (version?: string) => {
+  const n = Number.parseInt(version ?? '', 10);
+  return Number.isNaN(n) ? null : n;
+};
+
+/**
+ * Computers on different Omarchy major versions. The shared Omarchy settings follow the newest;
+ * an older computer keeps its own until it's updated, and can try the newer ones with a way back.
+ */
+function OmarchyVersions({ s }: { s: SyncState }) {
+  const [confirm, setConfirm] = useState(false);
+  const computers = Object.entries(s.data?.computers ?? {});
+  const me = s.data?.computers[s.host];
+  const mine = major(me?.omarchy);
+  const newest = Math.max(0, ...computers.map(([, c]) => major(c.omarchy) ?? 0));
+  if (!me || mine === null || newest === 0) return null;
+  const ahead = computers.filter(([, c]) => major(c.omarchy) === newest);
+  const behind = computers.filter(
+    ([id, c]) => id !== s.host && (major(c.omarchy) ?? newest) < newest,
+  );
+  const names = (list: typeof computers) => shortList(list.map(([id]) => s.nameOf(id)));
+
+  if (mine < newest && me.tried === newest && !me.paused) {
+    return (
+      <Group title="Trying Newer Omarchy Settings">
+        <Row
+          title={`This computer has Omarchy ${me.omarchy} and uses the settings from Omarchy ${newest}.`}
+          detail="If something doesn't work, put back the settings it had before. Updating Omarchy here keeps the newer ones for good."
+          end={
+            <Push
+              disabled={!s.idle}
+              onPress={() =>
+                s.act(
+                  'Putting back your Omarchy settings',
+                  () => api.putBackOmarchy(),
+                  () => s.sync(),
+                )
+              }
+            >
+              Put Back My Settings
+            </Push>
+          }
+        />
+      </Group>
+    );
+  }
+  if (mine < newest) {
+    return (
+      <Group
+        title="Omarchy Settings Paused"
+        footer="Apps, app data, terminals and the background still sync."
+      >
+        <Row
+          title={`This computer has Omarchy ${me.omarchy}; ${names(ahead)} ${has(ahead)} Omarchy ${ahead[0][1].omarchy}.`}
+          detail="Settings made for a newer Omarchy may not work on an older one, so this computer keeps its own Omarchy settings for now. Update Omarchy here and they sync again by themselves."
+          end={
+            <Push disabled={!s.idle} onPress={() => api.updateOmarchy().catch(s.fail)}>
+              Update Omarchy
+            </Push>
+          }
+        >
+          <div className="inline">
+            {confirm ? (
+              <>
+                <Link onPress={() => setConfirm(false)}>Cancel</Link>
+                <Push
+                  onPress={() => {
+                    setConfirm(false);
+                    void s.edit(() => api.tryOmarchy()).then(() => s.sync());
+                  }}
+                >
+                  Try Them
+                </Push>
+              </>
+            ) : (
+              <Link onPress={() => setConfirm(true)}>Try Their Settings Anyway…</Link>
+            )}
+          </div>
+          {confirm && (
+            <Caution>
+              <b>This computer's Omarchy settings are saved first.</b> If something doesn't work
+              after the sync, Put Back My Settings restores them exactly and pauses again.
+            </Caution>
+          )}
+        </Row>
+      </Group>
+    );
+  }
+  if (behind.length === 0) return null;
+  return (
+    <Group
+      title="Older Omarchy Elsewhere"
+      footer="Your Omarchy settings follow the newest Omarchy. Update the older computers, not this one; their Omarchy settings sync again once they're updated."
+    >
+      {behind.map(([id, c]) => (
+        <Row
+          key={id}
+          title={s.nameOf(id)}
+          detail={`Omarchy ${c.omarchy}. ${
+            c.tried === newest
+              ? 'It is trying the newer settings.'
+              : 'It keeps its own Omarchy settings until it is updated.'
+          }`}
+        />
+      ))}
+    </Group>
+  );
+}
+
 export function SyncPane({ s }: { s: SyncState }) {
   const ov = s.overview;
   if (s.conflict) {
@@ -385,6 +496,7 @@ export function SyncPane({ s }: { s: SyncState }) {
       <NoticeLine s={s} />
       {ov && (
         <>
+          <OmarchyVersions s={s} />
           {showWaiting && (
             // Installing changes the system, so it waits for a yes unless this computer opted out of asking.
             <Group title="Apps Waiting to Install" footer="Omarchy will ask for your password.">

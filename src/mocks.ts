@@ -67,8 +67,21 @@ let data: Data = {
   outside: { quicknote: { command: 'curl -fsSL https://example.com/quicknote.sh | bash' } },
   plugins: ['timezones', 'webcam'],
   computers: {
-    aaaa11112222: { name: 'Laptop', plugins: ['timezones'] },
-    bbbb33334444: { name: 'Desktop', skip_apps: ['yazi'], plugins: ['timezones', 'webcam'] },
+    // "older": this computer runs an older Omarchy, so its Omarchy settings are paused.
+    // "newer": Desktop does.
+    aaaa11112222: {
+      name: 'Laptop',
+      plugins: ['timezones'],
+      omarchy: scenario === 'older' ? '4.0.6-1' : '5.1.0',
+      paused: scenario === 'older',
+    },
+    bbbb33334444: {
+      name: 'Desktop',
+      skip_apps: ['yazi'],
+      plugins: ['timezones', 'webcam'],
+      omarchy: scenario === 'newer' ? '4.0.6-1' : '5.1.0',
+      paused: scenario === 'newer',
+    },
     ...Object.fromEntries(
       (
         [
@@ -322,7 +335,15 @@ mockIPC((cmd, args) => {
       return { notes: [], waiting: [] };
     case 'report':
     case 'add_repository':
+    case 'update_omarchy':
       return null;
+    case 'try_omarchy':
+    case 'put_back_omarchy': {
+      const trying = cmd === 'try_omarchy';
+      const me = { ...data.computers.aaaa11112222, tried: trying ? 5 : 0, paused: !trying };
+      data = { ...data, computers: { ...data.computers, aaaa11112222: me } };
+      return trying ? data : null;
+    }
     case 'set_bar_indicator':
       barIndicator = !!a.on;
       return null;

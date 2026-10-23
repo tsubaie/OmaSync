@@ -46,6 +46,9 @@ fn main() {
             set_app_script,
             set_bar_indicator,
             add_repository,
+            try_omarchy,
+            put_back_omarchy,
+            update_omarchy,
             report,
             remove_app_script,
             install_with_script,
@@ -530,6 +533,45 @@ async fn set_folder(path: String, on: bool) -> Result<Data> {
         blocking(move |ctx| sync::track(ctx, path, true)).await?;
     }
     Ok(data)
+}
+
+/// Tries the newer Omarchy's settings on this paused computer; the sync that follows saves its
+/// own first (see `sync::settle_pause`).
+#[tauri::command]
+fn try_omarchy() -> Result<Data> {
+    edit(|d, host| {
+        if d.should_pause(host)
+            && let Some(newest) = d.newest_omarchy()
+        {
+            d.computers.entry(host.into()).or_default().tried = newest;
+        }
+    })
+}
+
+#[tauri::command]
+async fn put_back_omarchy() -> Result<()> {
+    let ctx = Ctx::load();
+    if ctx
+        .load_data()
+        .computers
+        .get(&ctx.host)
+        .is_none_or(|c| c.tried == 0)
+    {
+        return Err("This computer isn't trying another Omarchy's settings."
+            .to_string()
+            .into());
+    }
+    Ok(blocking(sync::put_back_omarchy).await?)
+}
+
+/// Omarchy's own updater, in a terminal where it can ask for the password.
+#[tauri::command]
+fn update_omarchy() -> Result<()> {
+    std::process::Command::new("xdg-terminal-exec")
+        .args(["omarchy", "update"])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("xdg-terminal-exec: {e}").into())
 }
 
 #[tauri::command]

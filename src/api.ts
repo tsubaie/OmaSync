@@ -41,6 +41,12 @@ export type Computer = {
   skip_plugins?: string[];
   manual?: boolean;
   install_without_asking?: boolean;
+  /** Its Omarchy version, as `omarchy version` prints it. */
+  omarchy?: string;
+  /** Omarchy's own settings don't sync there for now: a newer Omarchy runs elsewhere. */
+  paused?: boolean;
+  /** The newer Omarchy major version whose settings it's trying anyway. */
+  tried?: number;
 };
 export type Data = {
   folders: string[];
@@ -150,6 +156,9 @@ export const api = {
   installApps: () => invoke<void>('install_apps'),
   /** Adds an extra repository this computer needs (asks for the password). */
   addRepository: (name: string) => invoke<void>('add_repository', { name }),
+  tryOmarchy: () => invoke<Data>('try_omarchy'),
+  putBackOmarchy: () => invoke<void>('put_back_omarchy'),
+  updateOmarchy: () => invoke<void>('update_omarchy'),
   /** Opens a new GitHub issue: the choice of kind, or a problem report filled in with an error. */
   report: (message?: string, details?: string) =>
     invoke<void>('report', { message: message ?? null, details: details ?? null }),

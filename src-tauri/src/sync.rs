@@ -86,6 +86,9 @@ const IGNORE: &str = r#"**/.git
 {{- end }}
 {{- $c := get .computers (env "OMARCHY_SYNC_HOST" | default (include "/etc/machine-id" | trim | trunc 12)) | default dict }}
 {{- $skipFiles := get $c "skip_files" | default list }}
+{{- if get $c "paused" }}
+{{- $skipFiles = concat $skipFiles (list ".config/omarchy" ".config/hypr") }}
+{{- end }}
 {{- range $skipFiles }}
 {{ . }}
 {{- end }}
@@ -274,10 +277,32 @@ pub struct Computer {
     /// The person took the sync indicator off this computer's Omarchy bar (it's on by default).
     #[serde(default, skip_serializing_if = "is_false")]
     pub no_bar_indicator: bool,
+    /// The Omarchy version here, as `omarchy version` prints it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub omarchy: String,
+    /// Omarchy's own settings don't sync here for now: a newer Omarchy runs on another computer,
+    /// and settings made for it may not work on this one (see `should_pause`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub paused: bool,
+    /// The newer Omarchy major version whose settings the person chose to try here anyway.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tried: u32,
 }
 
 fn is_false(b: &bool) -> bool {
     !b
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// Omarchy's own settings, which can change shape between its major versions.
+pub const OMARCHY_OWN: [&str; 2] = [".config/omarchy", ".config/hypr"];
+
+/// The major version in what `omarchy version` prints ("4.0.6-1" is 4); none for a dev copy.
+pub fn major(version: &str) -> Option<u32> {
+    version.split('.').next()?.parse().ok()
 }
 
 impl Data {
@@ -379,10 +404,37 @@ impl Data {
     }
 
     pub fn uses_folder(&self, host: &str, folder: &str) -> bool {
+        let paused = |c: &Computer| {
+            c.paused
+                && OMARCHY_OWN
+                    .iter()
+                    .any(|o| folder == *o || folder.starts_with(&format!("{o}/")))
+        };
         !self
             .computers
             .get(host)
-            .is_some_and(|c| c.skip_files.iter().any(|f| f == folder))
+            .is_some_and(|c| c.skip_files.iter().any(|f| f == folder) || paused(c))
+    }
+
+    /// The newest Omarchy major version among the computers.
+    pub fn newest_omarchy(&self) -> Option<u32> {
+        self.computers
+            .values()
+            .filter_map(|c| major(&c.omarchy))
+            .max()
+    }
+
+    /// Whether Omarchy's own settings should stop syncing here: another computer runs a newer
+    /// major version (the shared settings follow the newest), and the person hasn't chosen to
+    /// try its settings. Each computer only pauses itself; the newest ones carry on.
+    pub fn should_pause(&self, host: &str) -> bool {
+        let Some(c) = self.computers.get(host) else {
+            return false;
+        };
+        match (major(&c.omarchy), self.newest_omarchy()) {
+            (Some(mine), Some(newest)) => newest > mine && c.tried != newest,
+            _ => false,
+        }
     }
 
     #[cfg(test)]
@@ -472,7 +524,7 @@ impl Data {
             && !self
                 .computers
                 .get(host)
-                .is_some_and(|c| c.skip_plugins.iter().any(|p| p == plugin))
+                .is_some_and(|c| c.paused || c.skip_plugins.iter().any(|p| p == plugin))
     }
 
     #[cfg(test)]
@@ -1102,18 +1154,23 @@ pub fn join(ctx: &Ctx, login: &str, step: &dyn Fn(&str)) -> Result<PathBuf, Stri
 fn adopt(ctx: &Ctx, url: &str, step: &dyn Fn(&str)) -> Result<PathBuf, String> {
     step("Downloading your synced settings");
     run(None, "chezmoi", &["init", url])?;
-    let data = ctx.load_data();
+    let mut data = ctx.load_data();
+    // Joining with an older Omarchy than the others: its own settings stay as they are.
+    note_omarchy(&mut data, &ctx.host);
+    let paused = data.should_pause(&ctx.host);
+    data.computers.entry(ctx.host.clone()).or_default().paused = paused;
+    ctx.save_data(&data)?;
     step("Backing up this computer's current settings");
-    let backup = backup(ctx, &data.folders)?;
+    let backup = backup(ctx, &data.folders, &format!("before-first-sync-{}", now()))?;
     step("Updating this computer");
     run(None, "chezmoi", &["apply", "--force"])?;
     Ok(backup)
 }
 
-fn backup(ctx: &Ctx, folders: &[String]) -> Result<PathBuf, String> {
+fn backup(ctx: &Ctx, folders: &[String], name: &str) -> Result<PathBuf, String> {
     let dir = ctx.home.join(".local/share/omarchy-sync/backups");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let file = dir.join(format!("before-first-sync-{}.tar.gz", now()));
+    let file = dir.join(format!("{name}.tar.gz"));
     let existing: Vec<&str> = folders
         .iter()
         .map(|f| f.as_str())
@@ -1397,6 +1454,7 @@ fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String>, String> 
     if std::fs::read_to_string(&ignore).is_ok_and(|current| current != IGNORE) {
         std::fs::write(&ignore, IGNORE).map_err(|e| e.to_string())?;
     }
+    note_omarchy(&mut data, &ctx.host);
     if let Some(t) = ctx.current_theme().filter(|t| is_file_name(t)) {
         data.theme = Some(t);
     }
@@ -1620,6 +1678,7 @@ pub fn resolve(
         }
         // Put the chosen versions in place now; the sync below starts by saving this computer's
         // files, which would otherwise save the clashing ones back over the choice.
+        settle_pause(ctx).map_err(fail)?;
         run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
     }
     // Joined: the rest is an ordinary sync (apply here, share, apps and plugins).
@@ -1666,6 +1725,80 @@ fn data_at(ctx: &Ctx, rev: &str) -> Data {
         .ok()
         .and_then(|t| serde_yaml::from_str(&t).ok())
         .unwrap_or_default()
+}
+
+/// The saved copy of this computer's Omarchy settings from before it took the shared ones.
+const OMARCHY_BACKUP: &str = "before-other-omarchy-settings";
+
+/// Records this computer's Omarchy version.
+fn note_omarchy(data: &mut Data, host: &str) {
+    if let Ok(v) = run(None, "omarchy", &["version"]) {
+        let v: String = v
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(40)
+            .collect();
+        data.computers.entry(host.into()).or_default().omarchy = v;
+    }
+}
+
+/// Pauses or resumes syncing Omarchy's own settings here, once the other computers' changes
+/// are in and before they're applied. Resuming (after updating Omarchy, or to try the newer
+/// settings) saves this computer's settings first; the shared ones then replace them.
+fn settle_pause(ctx: &Ctx) -> Result<Option<String>, String> {
+    let mut data = ctx.load_data();
+    let newest = data.newest_omarchy();
+    let pause = data.should_pause(&ctx.host);
+    let Some(c) = data.computers.get_mut(&ctx.host) else {
+        return Ok(None);
+    };
+    let before = c.clone();
+    c.paused = pause;
+    // Caught up: nothing left to try.
+    if major(&c.omarchy) == newest {
+        c.tried = 0;
+    }
+    if *c == before {
+        return Ok(None);
+    }
+    let note = if before.paused && !pause {
+        backup(ctx, &OMARCHY_OWN.map(String::from), OMARCHY_BACKUP)?;
+        Some(
+            "This computer now uses the Omarchy settings from your other computers. Its own were saved first."
+                .to_string(),
+        )
+    } else {
+        None
+    };
+    ctx.save_data(&data)?;
+    ctx.git(&["commit", "-q", "-am", &format!("Sync from {}", ctx.host)])?;
+    Ok(note)
+}
+
+/// Puts back the Omarchy settings saved before this computer tried a newer Omarchy's, and
+/// pauses syncing them again.
+pub fn put_back_omarchy(ctx: &Ctx) -> Result<(), String> {
+    let _lock = lock_wait(ctx)?;
+    let file = ctx
+        .home
+        .join(".local/share/omarchy-sync/backups")
+        .join(format!("{OMARCHY_BACKUP}.tar.gz"));
+    let (f, h) = (file.to_string_lossy(), ctx.home.to_string_lossy());
+    // The folders are only cleared once the saved copy is known to read.
+    run(None, "tar", &["-tzf", &f])?;
+    let mut data = ctx.load_data();
+    data.computers.entry(ctx.host.clone()).or_default().tried = 0;
+    let paused = data.should_pause(&ctx.host);
+    data.computers.entry(ctx.host.clone()).or_default().paused = paused;
+    ctx.save_data(&data)?;
+    for own in OMARCHY_OWN {
+        let _ = std::fs::remove_dir_all(ctx.home.join(own));
+    }
+    run(None, "tar", &["-xzf", &f, "-C", &h])?;
+    // The shell keeps plugin code it has loaded (see the bar indicator).
+    let _ = run(None, "omarchy", &["restart", "shell"]);
+    Ok(())
 }
 
 /// After combining, the shared choices file must still read; if git's line-by-line combining
@@ -1897,6 +2030,7 @@ fn sync_inner(
     }
 
     step("Updating this computer");
+    notes.extend(settle_pause(ctx).map_err(fail)?);
     run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
     let data = ctx.load_data();
     // The Current theme switch governs applying it too.
@@ -3531,6 +3665,33 @@ mod tests {
             transfer_percent("remote: Enumerating objects: 5, done."),
             None
         );
+    }
+
+    #[test]
+    fn an_older_omarchy_pauses_its_own_settings_until_tried_or_updated() {
+        let on = |v: &str| Computer {
+            omarchy: v.into(),
+            ..Default::default()
+        };
+        let mut d = Data {
+            folders: vec![".config/hypr".into(), ".config/alacritty".into()],
+            ..Default::default()
+        };
+        d.computers.insert("old".into(), on("4.0.6-1"));
+        d.computers.insert("new".into(), on("5.1.0"));
+        d.computers.insert("dev".into(), on("dev (abc123)"));
+        assert_eq!((major("4.0.6-1"), major("dev (abc123)")), (Some(4), None));
+        // The newest computers carry on; an older one pauses, and so would a 4.5 next to a 4.0
+        // only if the major version differed.
+        assert!(d.should_pause("old") && !d.should_pause("new") && !d.should_pause("dev"));
+        d.computers.get_mut("old").unwrap().paused = true;
+        assert_eq!(d.active_folders("old"), [".config/alacritty"]);
+        assert_eq!(d.active_folders("new").len(), 2);
+        // Trying Omarchy 5's settings resumes it, until an Omarchy 6 arrives.
+        d.computers.get_mut("old").unwrap().tried = 5;
+        assert!(!d.should_pause("old"));
+        d.computers.get_mut("new").unwrap().omarchy = "6.0.0".into();
+        assert!(d.should_pause("old"));
     }
 
     #[test]

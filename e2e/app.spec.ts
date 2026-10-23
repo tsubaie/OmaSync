@@ -361,3 +361,33 @@ test("an app from its maker's repository waits until the repository is added", a
     page.getByRole('switch', { name: 'chatgpt-bin synced on This Computer' }),
   ).not.toBeChecked();
 });
+
+test('an older Omarchy keeps its own settings, can try the newer ones, and put them back', async ({
+  page,
+}) => {
+  await page.goto('/?scenario=older');
+  const paused = page.getByRole('region', { name: 'Omarchy Settings Paused' });
+  await expect(
+    paused.getByText('This computer has Omarchy 4.0.6-1; Desktop has Omarchy 5.1.0.'),
+  ).toBeVisible();
+  await paused.getByRole('button', { name: 'Try Their Settings Anyway…' }).click();
+  // Nothing changes until the person has read how to go back.
+  await expect(paused.getByText("This computer's Omarchy settings are saved first.")).toBeVisible();
+  expect(await calls(page, 'try_omarchy')).toEqual([]);
+  expect(await a11y(page)).toEqual([]);
+  await paused.getByRole('button', { name: 'Try Them' }).click();
+  expect(await calls(page, 'try_omarchy')).toHaveLength(1);
+  const trying = page.getByRole('region', { name: 'Trying Newer Omarchy Settings' });
+  await trying.getByRole('button', { name: 'Put Back My Settings' }).click();
+  expect(await calls(page, 'put_back_omarchy')).toHaveLength(1);
+  await expect(page.getByRole('region', { name: 'Omarchy Settings Paused' })).toBeVisible();
+});
+
+test('the newer computer says which one to update', async ({ page }) => {
+  await page.goto('/?scenario=newer');
+  const older = page.getByRole('region', { name: 'Older Omarchy Elsewhere' });
+  await expect(older.getByText('Omarchy 4.0.6-1.', { exact: false })).toBeVisible();
+  await expect(
+    older.getByText('Update the older computers, not this one', { exact: false }),
+  ).toBeVisible();
+});
