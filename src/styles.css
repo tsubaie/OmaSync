@@ -561,6 +561,14 @@ kbd {
 
 /* ---------- Sync: the picture of your computers ---------- */
 
+/* One line under the Sync heading saying what the app does. */
+.lede {
+  margin: 6px 4px 2px;
+  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--quiet);
+}
 .hero {
   --state: var(--good);
   position: relative;

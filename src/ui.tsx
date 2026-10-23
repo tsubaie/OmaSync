@@ -2,8 +2,9 @@
 // (keyboard, focus and screen-reader behaviour come from React Aria; the look is styles.css).
 
 import type { ReactNode } from 'react';
-import type { LucideIcon } from 'lucide-react';
+import { Check, Circle, RefreshCw, type LucideIcon } from 'lucide-react';
 import { Button, Switch, Tooltip, TooltipTrigger } from 'react-aria-components';
+import { progress } from './format';
 
 /** A rounded-square icon tile, the System Settings way of marking a section or state. */
 export function Tile({
@@ -167,5 +168,45 @@ export function OmarchyLogo({ size }: { size: number }) {
         d="m1200 1200h-480v-80h400v-1040h-479.996v160h-400v720h720v-720h-80v-80h159.996v880h-400v160h-640v-1200h1200zm-1120-80h480v-80h-400l.004-400h-80.004zm0-560h80.004v-400h400v-80h-480.004z"
       />
     </svg>
+  );
+}
+
+/**
+ * The real progress of the running job: the steps it announced, ticked as they finish, the
+ * current one with its upload or download percentage, and the ones still to come.
+ */
+export function Progress({
+  steps,
+  plan,
+  percent,
+}: {
+  steps: string[];
+  plan: string[];
+  percent: number | null;
+}) {
+  if (plan.length === 0 || steps.length === 0) return null;
+  const { items, share } = progress(steps, plan, percent);
+  return (
+    <div className="progress">
+      <progress className="bar" aria-label="Progress" value={share} max={1} />
+      <ol className="steps">
+        {items.map((step, i) => {
+          const state = i < steps.length - 1 ? 'done' : i === steps.length - 1 ? 'now' : 'next';
+          return (
+            <li key={`${i}${step}`} className={state}>
+              {state === 'done' ? (
+                <Check size={12} aria-hidden="true" />
+              ) : state === 'now' ? (
+                <RefreshCw size={12} aria-hidden="true" />
+              ) : (
+                <Circle size={12} aria-hidden="true" />
+              )}
+              {step}
+              {state === 'now' && percent !== null && ` ${percent}%`}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }

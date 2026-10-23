@@ -398,6 +398,13 @@ fn rename_computer(name: String) -> Result<Data> {
             .to_string()
             .into());
     }
+    // Names tell computers apart in History and on the Sync screen, so each is used once.
+    let ctx = Ctx::load();
+    if sync::name_taken(&ctx.load_data(), &ctx.host, &name) {
+        return Err(
+            format!("Another computer is already called {name}. Choose a different name.").into(),
+        );
+    }
     edit(|d, host| d.computers.entry(host.into()).or_default().name = name)
 }
 

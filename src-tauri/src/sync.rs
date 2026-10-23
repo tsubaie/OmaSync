@@ -534,6 +534,15 @@ fn is_file_name(n: &str) -> bool {
         && !n.chars().any(char::is_control)
 }
 
+/// Whether a computer other than `host` already goes by `name` (ignoring case and spaces at
+/// either end).
+pub fn name_taken(data: &Data, host: &str, name: &str) -> bool {
+    let name = name.trim().to_lowercase();
+    data.computers
+        .iter()
+        .any(|(id, c)| id != host && c.name.trim().to_lowercase() == name)
+}
+
 pub fn is_plugin_id(id: &str) -> bool {
     !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\'])
 }
@@ -924,6 +933,14 @@ pub fn sign_in() -> Result<(), String> {
 
 /// First computer: save its settings into a new private GitHub repo.
 pub fn start(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<(), String> {
+    plan(
+        step,
+        &[
+            "Getting ready",
+            "Saving this computer's settings",
+            "Creating your private sync space on GitHub",
+        ],
+    );
     step("Getting ready");
     run(None, "gh", &["auth", "setup-git"])?;
     step("Saving this computer's settings");
@@ -969,6 +986,15 @@ fn seed(ctx: &Ctx) -> Result<(), String> {
 
 /// Another computer already syncs: back up this one, then take the synced settings.
 pub fn join(ctx: &Ctx, login: &str, step: &dyn Fn(&str)) -> Result<PathBuf, String> {
+    plan(
+        step,
+        &[
+            "Getting ready",
+            "Downloading your synced settings",
+            "Backing up this computer's current settings",
+            "Updating this computer",
+        ],
+    );
     step("Getting ready");
     run(None, "gh", &["auth", "setup-git"])?;
     adopt(ctx, &format!("https://github.com/{login}/{REPO}.git"), step)
@@ -1226,14 +1252,20 @@ fn lock_wait(ctx: &Ctx) -> Result<std::fs::File, String> {
 }
 
 /// Commits this computer's current files (and theme) so nothing local is ever overwritten unsaved.
-fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<(), String> {
+/// Returns this computer's new name when it had to differ from the hostname, which another
+/// computer already uses.
+fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String>, String> {
     let mut data = ctx.load_data();
+    let mut renamed = None;
     if data
         .computers
         .get(&ctx.host)
         .is_none_or(|c| c.name.is_empty())
     {
         let name = data.fresh_name(&ctx.host, &ctx.hostname);
+        if name != ctx.hostname {
+            renamed = Some(name.clone());
+        }
         data.computers.entry(ctx.host.clone()).or_default().name = name;
     }
     // Repos made by older versions get the current ignore rules (keyed by machine ID).
@@ -1254,7 +1286,8 @@ fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<(), String> {
     prune_web_apps(ctx, &data);
     ctx.save_data(&data)?;
     stage(ctx, &data, step)?;
-    commit(ctx)
+    commit(ctx)?;
+    Ok(renamed)
 }
 
 /// Every computer writes its own entry in the shared choices file, so two computers syncing
@@ -1317,7 +1350,12 @@ pub fn sync(
         ],
     );
     step("Saving this computer's changes");
-    save_local(ctx, step).map_err(fail)?;
+    if let Some(name) = save_local(ctx, step).map_err(fail)? {
+        notes.push(format!(
+            "Another computer is already called {}, so this one is {name}. You can rename it in Settings.",
+            ctx.hostname
+        ));
+    }
 
     step("Getting changes from your other computers");
     let tracked = ctx.git(&["rev-parse", "--abbrev-ref", "@{u}"]).is_ok();
@@ -1703,12 +1741,19 @@ pub fn background(ctx: &Ctx) {
         Ok(report) => {
             state.remove("failures");
             state.remove("conflict");
-            let waiting = report.waiting.join(", ");
+            // Apps, and plugins other computers have, that wait for a yes here.
+            let data = ctx.load_data();
+            let plugins = data.missing_plugins(&ctx.host);
+            let mut names = report.waiting.clone();
+            names.extend(plugins.iter().map(|id| ctx.plugin(id).name));
+            let waiting = names.join(", ");
             if !waiting.is_empty() && state.get("waiting") != Some(&waiting) {
-                notify(
-                    "Apps are ready to install",
-                    &format!("{waiting}. Open Omarchy Sync to install them."),
-                );
+                let what = match (report.waiting.is_empty(), plugins.is_empty()) {
+                    (false, true) => "Apps are ready to install",
+                    (true, false) => "Plugins are ready to add",
+                    _ => "Apps and plugins are ready to add",
+                };
+                notify(what, &format!("{waiting}. Open Omarchy Sync to add them."));
             }
             state.insert("waiting".into(), waiting);
         }
@@ -2142,6 +2187,16 @@ mod tests {
         assert_eq!(m.apps, vec!["b".to_string(), "c".to_string()]);
         assert_eq!(m.computers["x"].plugins, vec!["clock".to_string()]);
         assert_eq!(m.computers["y"].plugins, vec!["dock".to_string()]);
+    }
+
+    #[test]
+    fn names_are_used_once() {
+        let mut d = Data::default();
+        d.computers.entry("a".into()).or_default().name = "omarchy".into();
+        assert!(name_taken(&d, "b", " Omarchy "));
+        assert!(!name_taken(&d, "a", "omarchy"));
+        assert!(!name_taken(&d, "b", "laptop"));
+        assert_eq!(d.fresh_name("b", "omarchy"), "omarchy 2");
     }
 
     #[test]

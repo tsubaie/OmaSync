@@ -2,7 +2,7 @@ import { Check, Package } from 'lucide-react';
 import { api, type SetupState } from '../api';
 import type { SyncState } from '../state';
 import appIcon from '../assets/app-icon.png';
-import { Group, Link, Push, Row, Tile } from '../ui';
+import { Group, Link, Progress, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
 
 /** What step 1 installs, named so nobody has to trust an unnamed "helper". */
@@ -26,28 +26,12 @@ function action(s: SyncState, st: SetupState): [string, () => void] {
   if (st.found) {
     return [
       'Use My Synced Settings',
-      () =>
-        s.act(
-          'Getting ready',
-          () => api.join(() => {}),
-          async () => {
-            await s.probe();
-            await s.sync();
-          },
-        ),
+      () => s.act('Getting ready', (onStep) => api.join(onStep), s.finishSetup, 'starts'),
     ];
   }
   return [
     'Start Syncing',
-    () =>
-      s.act(
-        'Getting ready',
-        () => api.start(() => {}),
-        async () => {
-          await s.probe();
-          await s.sync();
-        },
-      ),
+    () => s.act('Getting ready', (onStep) => api.start(onStep), s.finishSetup, 'starts'),
   ];
 }
 
@@ -145,10 +129,13 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
       )}
       <div className="actions">
         {s.busy ? (
-          <output className="loading">
-            <span className="dot" />
-            {s.busy}…
-          </output>
+          <div className="working">
+            <output className="loading">
+              <span className="dot" />
+              {s.busy}…
+            </output>
+            <Progress steps={s.steps} plan={s.plan} percent={s.percent} />
+          </div>
         ) : (
           <>
             {s.signingIn && !st.signed_in && (

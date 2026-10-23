@@ -95,7 +95,8 @@ export function useSync() {
     } finally {
       working.current = false;
       setBusy(null);
-      if (round !== 'starts') {
+      // A round that something carries on from keeps its steps on screen.
+      if (round === 'whole') {
         setSteps([]);
         setPlan([]);
       }
@@ -128,6 +129,17 @@ export function useSync() {
     }
   }
 
+  /** After setup: straight into the first sync, carrying on setup's progress in one round. */
+  async function finishSetup() {
+    try {
+      const st = await api.probe();
+      setSetup(st);
+      if (st.ready) await sync('Ask', undefined, true);
+    } catch (e) {
+      fail(e);
+    }
+  }
+
   async function probe() {
     try {
       const s = await run('Getting ready', () => api.probe());
@@ -143,7 +155,8 @@ export function useSync() {
   }
 
   /** Syncs (or undoes a change, then syncs), then shows the fresh state. */
-  async function sync(prefer: Prefer = 'Ask', undoSha?: string) {
+  /** `continues`: carry on the progress of setup, which ends by syncing. */
+  async function sync(prefer: Prefer = 'Ask', undoSha?: string, continues = false) {
     if (working.current) return;
     setNotice(null);
     setTab('sync');
@@ -153,7 +166,7 @@ export function useSync() {
       report = await run(
         undoSha ? 'Undoing' : 'Starting',
         (onStep) => (undoSha ? api.undo(undoSha, onStep) : api.syncNow(prefer, onStep)),
-        'starts',
+        continues ? 'continues' : 'starts',
       );
       if (report) {
         // Success is a small toast; anything worth reading (apps installed or not) stays on screen.
@@ -173,11 +186,12 @@ export function useSync() {
 
   async function act<T>(
     label: string,
-    work: () => Promise<T>,
+    work: (onStep: (s: string) => void) => Promise<T>,
     after?: (result: T) => Promise<void> | void,
+    round: 'whole' | 'starts' = 'whole',
   ) {
     try {
-      const result = await run(label, work);
+      const result = await run(label, work, round);
       if (result !== undefined && after) await after(result);
     } catch (e) {
       fail(e);
@@ -319,6 +333,7 @@ export function useSync() {
     setDismissedPlugins,
     fail,
     probe,
+    finishSetup,
     refresh,
     sync,
     act,
