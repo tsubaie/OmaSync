@@ -1,0 +1,21 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install chezmoi for the two-computer test
+        run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
+      - run: cargo test -- --include-ignored
+      - run: cargo build --release
+      - uses: actions/upload-artifact@v4
+        with:
+          name: omarchy-sync
+          path: target/release/omarchy-sync
