@@ -16,6 +16,7 @@ const scenario = new URLSearchParams(location.search).get('scenario') ?? 'synced
 const theme = new URLSearchParams(location.search).get('theme');
 const LATTE = [
   'background = "#eff1f5"',
+  'dark_background = "#e3e4e8"',
   'foreground = "#4c4f69"',
   'accent = "#1e66f5"',
   'lighter_background = "#ccd0da"',

@@ -32,6 +32,25 @@ const SECTIONS: { id: TabId; name: string; icon: LucideIcon; heading?: string; e
   { id: 'settings', name: 'Settings', icon: Settings, end: true },
 ];
 
+/**
+ * The logo: two arrows turning into each other, drawn as vectors so they stay sharp, and the
+ * name as text in the app's typeface. The narrow sidebar shows only the arrows.
+ */
+function Brand() {
+  const arrow = 'M6 74V23Q6 8.5 20.5 8.5H57V-2L80 17.25 57 36.5V26H24V74Z';
+  return (
+    <div className="brand">
+      <svg className="mark" viewBox="-3 -3 106 106" aria-hidden="true">
+        <path className="one" d={arrow} />
+        <path className="two" d={arrow} transform="rotate(180 50 50)" />
+      </svg>
+      <span className="name">
+        Omarchy <span className="sync">Sync</span>
+      </span>
+    </div>
+  );
+}
+
 const PANES = {
   sync: SyncPane,
   history: HistoryPane,
@@ -77,21 +96,24 @@ export function App() {
       disabledKeys={s.overview ? [] : SECTIONS.filter((x) => x.id !== 'sync').map((x) => x.id)}
       onSelectionChange={(k) => s.setTab(k as TabId)}
     >
-      <TabList className="sidebar" aria-label="Sections">
-        {SECTIONS.map((sec) => (
-          <Tab
-            key={sec.id}
-            id={sec.id}
-            className={`nav ${sec.end ? 'end' : ''}`}
-            data-heading={sec.heading}
-            aria-label={sec.name}
-          >
-            {/* Plain line icons in the text colour, as macOS sidebars draw them. */}
-            <sec.icon size={16} strokeWidth={1.75} aria-hidden="true" />
-            <span className="label">{sec.name}</span>
-          </Tab>
-        ))}
-      </TabList>
+      <div className="sidebar">
+        <Brand />
+        <TabList className="sections" aria-label="Sections">
+          {SECTIONS.map((sec) => (
+            <Tab
+              key={sec.id}
+              id={sec.id}
+              className={`nav ${sec.end ? 'end' : ''}`}
+              data-heading={sec.heading}
+              aria-label={sec.name}
+            >
+              {/* Plain line icons in the text colour, as macOS sidebars draw them. */}
+              <sec.icon size={16} strokeWidth={1.75} aria-hidden="true" />
+              <span className="label">{sec.name}</span>
+            </Tab>
+          ))}
+        </TabList>
+      </div>
       {SECTIONS.map((sec) => {
         const Pane = PANES[sec.id];
         return (
