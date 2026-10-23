@@ -788,7 +788,9 @@ impl Ctx {
 
 pub fn run(dir: Option<&Path>, prog: &str, args: &[&str]) -> Result<String, String> {
     let mut cmd = Command::new(prog);
-    cmd.args(args).stdin(Stdio::null()).env("LC_ALL", "C");
+    // English messages to read, in UTF-8: under plain "C", Qt-based tools (omarchy plugin)
+    // complain and fail, and file names with non-English letters come out escaped.
+    cmd.args(args).stdin(Stdio::null()).env("LC_ALL", "C.UTF-8");
     if let Some(d) = dir {
         cmd.current_dir(d);
     }
@@ -829,7 +831,7 @@ fn git_progress(ctx: &Ctx, args: &[&str], step: &dyn Fn(&str)) -> Result<String,
     let mut child = Command::new("git")
         .args(args)
         .current_dir(&ctx.src)
-        .env("LC_ALL", "C")
+        .env("LC_ALL", "C.UTF-8")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -2374,10 +2376,18 @@ fn to_targets(ctx: &Ctx, paths: Vec<String>) -> Vec<String> {
 
 /// Paths from `git status --porcelain -z`.
 pub fn parse_status(s: &str) -> Vec<String> {
-    s.split('\0')
-        .filter(|e| e.len() > 3)
-        .map(|e| e[3..].to_string())
-        .collect()
+    let mut paths = Vec::new();
+    let mut entries = s.split('\0');
+    while let Some(e) = entries.next() {
+        if e.len() > 3 {
+            paths.push(e[3..].to_string());
+            // A rename or copy ("R  new", then the old name) is one change, not two.
+            if e.starts_with(['R', 'C']) {
+                entries.next();
+            }
+        }
+    }
+    paths
 }
 
 /// Latest commit time per author from `git log --format=%an%x09%ct` (newest first).
@@ -2899,6 +2909,18 @@ mod tests {
         assert_eq!(
             transfer_percent("remote: Enumerating objects: 5, done."),
             None
+        );
+    }
+
+    #[test]
+    fn a_rename_is_one_change() {
+        let status = "R  dot_config/hypr/new.lua\0dot_config/hypr/old.lua\0 M dot_config/omarchy/private_shell.json\0";
+        assert_eq!(
+            parse_status(status),
+            vec![
+                "dot_config/hypr/new.lua".to_string(),
+                "dot_config/omarchy/private_shell.json".to_string()
+            ]
         );
     }
 

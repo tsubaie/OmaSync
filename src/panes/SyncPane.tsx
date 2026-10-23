@@ -43,7 +43,8 @@ function status(s: SyncState): [string, string, LucideIcon, string] {
       'bad',
     ];
   }
-  const n = ov.unshared.length;
+  // Counted as the list below shows them (one row per kind of setting), so the two always agree.
+  const n = byFolder(ov.unshared, s.catalog).length;
   const changed = plural(n, 'change');
   const updates = plural(ov.incoming, 'update');
   if (n === 0 && ov.incoming === 0)
