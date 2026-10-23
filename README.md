@@ -20,6 +20,12 @@
   <img src="docs/screenshots/hero.png" width="900" alt="Omarchy Sync: this computer and Desktop, joined through your private sync space, with everything in step." />
 </p>
 
+Install on Omarchy with one line, then open **Omarchy Sync** from the launcher (Super + Space):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tsubaie/OmaSync/main/install.sh | sh
+```
+
 ---
 
 **Contents:** [Why](#why-omarchy-sync) · [Tour](#a-quick-tour) · [Install](#install) · [Getting started](#getting-started) · [Everyday use](#everyday-use) · [What syncs](#what-syncs) · [How it works](#how-it-works) · [Privacy](#privacy-and-safety) · [FAQ](#questions) · [Development](#development)
