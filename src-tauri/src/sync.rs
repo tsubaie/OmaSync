@@ -1268,6 +1268,9 @@ pub struct Conflict {
     pub by: Option<(String, i64)>,
     /// Each clashing file as it is here and on the other computer, to compare and choose.
     pub versions: Vec<Versions>,
+    /// Files (under home) that combined without a clash but came out broken, which is why they
+    /// need a choice too.
+    pub broken: Vec<String>,
 }
 
 /// One clashing file's two versions. `None` when that computer removed it; `binary` when its
@@ -1412,6 +1415,83 @@ fn versions(ctx: &Ctx, source: &str) -> Versions {
     }
 }
 
+/// A clash to show: the files with both their versions, and the other computer that made the
+/// newest change to them (from GitHub's side).
+fn clash(ctx: &Ctx, files: Vec<String>, broken: Vec<String>) -> SyncError {
+    let mut args = vec!["log", "-1", "--format=%an%x09%ct", "@{u}", "--"];
+    args.extend(files.iter().map(|f| f.as_str()));
+    let data = ctx.load_data();
+    let by = ctx
+        .git(&args)
+        .ok()
+        .and_then(|l| parse_log(&l).into_iter().next())
+        .map(|(author, t)| (data.resolve(&author), t));
+    let versions = files.iter().map(|f| versions(ctx, f)).collect();
+    SyncError::Conflict(Conflict {
+        files: to_targets(ctx, files),
+        by,
+        versions,
+        broken: to_targets(ctx, broken),
+    })
+}
+
+/// Whether a settings file still reads as its format: JSON, TOML, YAML or Lua (checked with
+/// luac, where installed). Other files have no strict format, so they always pass.
+pub fn well_formed(target: &str, text: &str) -> bool {
+    match target.rsplit('.').next().unwrap_or_default() {
+        "json" => serde_json::from_str::<serde_json::Value>(text).is_ok(),
+        "toml" => text.parse::<toml::Table>().is_ok(),
+        "yaml" | "yml" => serde_yaml::from_str::<serde_yaml::Value>(text).is_ok(),
+        "lua" => {
+            let file =
+                std::env::temp_dir().join(format!("omarchy-sync-{}.lua", std::process::id()));
+            if std::fs::write(&file, text).is_err() {
+                return true;
+            }
+            let checked = Command::new("luac")
+                .arg("-p")
+                .arg(&file)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            let _ = std::fs::remove_file(&file);
+            // No luac here: nothing to check with, so it passes.
+            checked.map_or(true, |s| s.success())
+        }
+        _ => true,
+    }
+}
+
+/// Files both computers changed since `before` parted from GitHub's history that git just
+/// combined into something that no longer reads as their format, though each computer's own
+/// version did (a file that was already broken on one side isn't combining's doing).
+fn broken_by_combining(ctx: &Ctx, before: &str) -> Vec<String> {
+    let Ok(base) = ctx.git(&["merge-base", before, "@{u}"]) else {
+        return Vec::new();
+    };
+    let changed = |to: &str| -> BTreeSet<String> {
+        ctx.git(&["diff", "--name-only", &base, to])
+            .unwrap_or_default()
+            .lines()
+            .map(String::from)
+            .collect()
+    };
+    let (here, there) = (changed(before), changed("@{u}"));
+    here.intersection(&there)
+        .filter(|f| *f != ".chezmoidata.yaml")
+        .filter(|f| {
+            let target = source_to_target(f);
+            let reads = |rev: &str| {
+                ctx.git(&["show", &format!("{rev}:{f}")])
+                    .is_ok_and(|text| well_formed(&target, &text))
+            };
+            reads(before) && reads("@{u}") && !reads("HEAD")
+        })
+        .cloned()
+        .collect()
+}
+
 /// Settles a clash with the person's choice for each clashing file, then syncs as usual.
 /// Both computers' changes are joined (a merge), so each side's own version stays in the
 /// history; every clashing file then becomes exactly the version chosen for it.
@@ -1437,34 +1517,38 @@ pub fn resolve(
         step("Getting changes from your other computers");
         git_progress(ctx, &["fetch", "--progress"], step).map_err(fail)?;
         step("Keeping the versions you chose");
-        if ctx.git(&["merge", "--no-ff", "--no-edit", "@{u}"]).is_err() {
-            if !ctx.merging() {
-                return Err(fail("couldn't join the two computers' changes".into()));
-            }
+        // Joined without committing yet, so every chosen file (clashing or combined) can be set
+        // to its chosen version first.
+        let _ = ctx.git(&["merge", "--no-ff", "--no-commit", "@{u}"]);
+        if ctx.merging() {
             let mut kept = Vec::new();
-            for source in ctx.conflicted() {
-                let settled = if source == ".chezmoidata.yaml" {
-                    settle_data_merge(ctx)
-                } else {
-                    match choices.get(&source) {
-                        Some(keep) => keep_version(ctx, &source, *keep).map(|()| {
-                            let whose = if *keep == Keep::Mine {
-                                "this computer's"
-                            } else {
-                                "the other computer's"
-                            };
-                            kept.push(format!(
-                                "{}: kept {whose} version",
-                                label(&source_to_target(&source))
-                            ));
-                        }),
-                        None => Err(format!("no choice for {}", source_to_target(&source))),
-                    }
-                };
-                if let Err(e) = settled {
-                    let _ = ctx.git(&["merge", "--abort"]);
-                    return Err(fail(e));
+            let mut settled: Result<(), String> = settle_data_revs(ctx);
+            for (source, keep) in choices {
+                if settled.is_err() {
+                    break;
                 }
+                settled = keep_version(ctx, source, *keep);
+                let whose = if *keep == Keep::Mine {
+                    "this computer's"
+                } else {
+                    "the other computer's"
+                };
+                kept.push(format!(
+                    "{}: kept {whose} version",
+                    label(&source_to_target(source))
+                ));
+            }
+            if settled.is_ok()
+                && let Some(left) = ctx
+                    .conflicted()
+                    .into_iter()
+                    .find(|f| f != ".chezmoidata.yaml" && !choices.contains_key(f))
+            {
+                settled = Err(format!("no choice for {}", source_to_target(&left)));
+            }
+            if let Err(e) = settled {
+                let _ = ctx.git(&["merge", "--abort"]);
+                return Err(fail(e));
             }
             let message = format!(
                 "Sync from {}\n\nSettled changes made on two computers.\n{}",
@@ -1482,31 +1566,63 @@ pub fn resolve(
     sync(ctx, Prefer::Ask, install, step)
 }
 
-/// Makes a clashing file exactly one side's version; if that side removed it, it's removed.
+/// Makes a file exactly one side's version during a merge (this computer's is HEAD, the other's
+/// MERGE_HEAD), whether git marked it as clashing or combined it; if that side removed it, it's
+/// removed. (`checkout --ours` only touches files git marked as clashing.)
 fn keep_version(ctx: &Ctx, source: &str, keep: Keep) -> Result<(), String> {
-    let side = if keep == Keep::Mine {
-        "--ours"
+    let rev = if keep == Keep::Mine {
+        "HEAD"
     } else {
-        "--theirs"
+        "MERGE_HEAD"
     };
-    if ctx.git(&["checkout", side, "--", source]).is_ok() {
+    let from = format!("--source={rev}");
+    if ctx
+        .git(&["restore", &from, "--staged", "--worktree", "--", source])
+        .is_ok()
+    {
         ctx.git(&["add", "--", source]).map(|_| ())
     } else {
-        ctx.git(&["rm", "-q", "--", source]).map(|_| ())
+        ctx.git(&["rm", "-q", "--ignore-unmatch", "--", source])
+            .map(|_| ())
     }
 }
 
-/// The shared choices file during a merge: stage 2 is this computer's, stage 3 the other's.
-fn settle_data_merge(ctx: &Ctx) -> Result<(), String> {
-    const FILE: &str = ".chezmoidata.yaml";
-    let side = |n: u8| -> Data {
-        ctx.git(&["show", &format!(":{n}:{FILE}")])
-            .ok()
-            .and_then(|t| serde_yaml::from_str(&t).ok())
-            .unwrap_or_default()
-    };
-    ctx.save_data(&Data::merge(&side(1), &side(3), &side(2)))?;
-    ctx.git(&["add", FILE]).map(|_| ())
+/// The shared choices file during a merge, always rebuilt from both computers' versions (git
+/// may have combined it line by line, or clashed on it).
+fn settle_data_revs(ctx: &Ctx) -> Result<(), String> {
+    let base = ctx.git(&["merge-base", "HEAD", "MERGE_HEAD"])?;
+    let read = |rev: &str| data_at(ctx, rev);
+    ctx.save_data(&Data::merge(
+        &read(&base),
+        &read("MERGE_HEAD"),
+        &read("HEAD"),
+    ))?;
+    ctx.git(&["add", ".chezmoidata.yaml"]).map(|_| ())
+}
+
+/// The shared choices as they were at a revision (empty where unreadable).
+fn data_at(ctx: &Ctx, rev: &str) -> Data {
+    ctx.git(&["show", &format!("{rev}:.chezmoidata.yaml")])
+        .ok()
+        .and_then(|t| serde_yaml::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+/// After combining, the shared choices file must still read; if git's line-by-line combining
+/// broke it, it's rebuilt from both computers' versions, never read as empty.
+fn repair_data(ctx: &Ctx, before: &str) -> Result<(), String> {
+    let text = std::fs::read_to_string(ctx.data_path()).unwrap_or_default();
+    if serde_yaml::from_str::<Data>(&text).is_ok() {
+        return Ok(());
+    }
+    let base = ctx.git(&["merge-base", before, "@{u}"])?;
+    ctx.save_data(&Data::merge(
+        &data_at(ctx, &base),
+        &data_at(ctx, "@{u}"),
+        &data_at(ctx, before),
+    ))?;
+    ctx.git(&["commit", "-q", "-am", &format!("Sync from {}", ctx.host)])
+        .map(|_| ())
 }
 
 /// Syncs, and records how it went for the bar indicator (see `write_status`).
@@ -1691,6 +1807,7 @@ fn sync_inner(
             Prefer::Ask => {}
         }
         args.push("@{u}");
+        let before = ctx.git(&["rev-parse", "HEAD"]).map_err(fail)?;
         let replayed = if caught_up {
             Ok(String::new())
         } else {
@@ -1703,22 +1820,19 @@ fn sync_inner(
             if !settle_data(ctx).map_err(fail)? {
                 let files = ctx.conflicted();
                 let _ = ctx.git(&["rebase", "--abort"]);
-                // The newest change to these files on GitHub names the other computer.
-                let mut args = vec!["log", "-1", "--format=%an%x09%ct", "@{u}", "--"];
-                args.extend(files.iter().map(|f| f.as_str()));
-                let data = ctx.load_data();
-                let by = ctx
-                    .git(&args)
-                    .ok()
-                    .and_then(|l| parse_log(&l).into_iter().next())
-                    .map(|(author, t)| (data.resolve(&author), t));
-                let versions = files.iter().map(|f| versions(ctx, f)).collect();
-                return Err(SyncError::Conflict(Conflict {
-                    files: to_targets(ctx, files),
-                    by,
-                    versions,
-                }));
+                return Err(clash(ctx, files, Vec::new()));
             }
+        }
+        // Combined without a clash, but a file both computers changed may have come out
+        // broken (a lost comma in JSON, say): then this computer goes back to where it was and
+        // the person chooses, as for a clash.
+        if !caught_up {
+            let broken = broken_by_combining(ctx, &before);
+            if !broken.is_empty() {
+                ctx.git(&["reset", "-q", "--hard", &before]).map_err(fail)?;
+                return Err(clash(ctx, broken.clone(), broken));
+            }
+            repair_data(ctx, &before).map_err(fail)?;
         }
     }
 
@@ -3071,6 +3185,22 @@ mod tests {
     }
 
     #[test]
+    fn settings_files_are_checked_by_format() {
+        assert!(well_formed("a.json", r#"{"a": 1}"#));
+        assert!(!well_formed("a.json", r#"{"a": 1,}"#));
+        assert!(well_formed("a.toml", "a = 1"));
+        assert!(!well_formed("a.toml", "a = 1\na = 2"));
+        assert!(well_formed("a.yaml", "a: 1"));
+        assert!(!well_formed("a.yaml", "a: [1"));
+        assert!(well_formed("ghostty/config", "anything = goes"));
+        // Lua is checked with luac where it's installed.
+        if Command::new("luac").arg("-v").output().is_ok() {
+            assert!(well_formed("a.lua", "local a = 1"));
+            assert!(!well_formed("a.lua", "local a = "));
+        }
+    }
+
+    #[test]
     fn a_rename_is_one_change() {
         let status = "R  dot_config/hypr/new.lua\0dot_config/hypr/old.lua\0 M dot_config/omarchy/private_shell.json\0";
         assert_eq!(
@@ -3139,6 +3269,13 @@ mod tests {
         };
 
         let a = computer("a", "a1", "screen-a");
+        let alacritty = a.home.join(".config/alacritty");
+        std::fs::create_dir_all(&alacritty).unwrap();
+        std::fs::write(
+            alacritty.join("alacritty.toml"),
+            "a = 1\n\nb = 2\n\nc = 3\n",
+        )
+        .unwrap();
         let dock = a.home.join(PLUGIN_DIR).join("dock");
         std::fs::create_dir_all(&dock).unwrap();
         std::fs::write(dock.join("manifest.json"), r#"{"name":"Dock"}"#).unwrap();
@@ -3318,6 +3455,28 @@ mod tests {
         enter(&a);
         ok(sync(&a, Prefer::Ask, false, &quiet));
         assert_eq!(read(&a, "bindings.lua"), "a4");
+
+        // Both add the same setting in different parts of a TOML file: git combines them
+        // without a clash, but the result has it twice, which isn't valid TOML. B goes back to
+        // where it was and is asked, with the file marked as broken by combining.
+        let toml = |ctx: &Ctx| ctx.home.join(".config/alacritty/alacritty.toml");
+        std::fs::write(toml(&a), "a = 1\nx = \"a\"\n\nb = 2\n\nc = 3\n").unwrap();
+        ok(sync(&a, Prefer::Ask, false, &quiet));
+        enter(&b);
+        let mine = "a = 1\n\nb = 2\n\nc = 3\nx = \"b\"\n";
+        std::fs::write(toml(&b), mine).unwrap();
+        let clash = match sync(&b, Prefer::Ask, false, &quiet) {
+            Err(SyncError::Conflict(c)) => c,
+            other => panic!("expected the broken file to be shown, got {other:?}"),
+        };
+        assert_eq!(clash.broken, vec![".config/alacritty/alacritty.toml"]);
+        assert_eq!(std::fs::read_to_string(toml(&b)).unwrap(), mine);
+        let choices = BTreeMap::from([(clash.versions[0].source.clone(), Keep::Mine)]);
+        ok(resolve(&b, &choices, false, &quiet));
+        assert_eq!(std::fs::read_to_string(toml(&b)).unwrap(), mine);
+        enter(&a);
+        ok(sync(&a, Prefer::Ask, false, &quiet));
+        assert_eq!(std::fs::read_to_string(toml(&a)).unwrap(), mine);
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

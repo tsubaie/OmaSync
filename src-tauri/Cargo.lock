@@ -2317,6 +2317,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",
+ "toml 0.8.2",
 ]
 
 [[package]]

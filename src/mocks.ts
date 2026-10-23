@@ -191,6 +191,7 @@ const conflict: Problem = {
   kind: 'Conflict',
   files: ['.config/hypr/bindings.lua', '.config/ghostty/config'],
   by: ['bbbb33334444', now - 300],
+  broken: [],
   versions: [
     {
       path: '.config/hypr/bindings.lua',

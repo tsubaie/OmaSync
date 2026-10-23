@@ -99,7 +99,13 @@ export type Versions = {
   theirs: string | null;
   binary: boolean;
 };
-export type Conflict = { files: string[]; by: [string, number] | null; versions: Versions[] };
+export type Conflict = {
+  files: string[];
+  by: [string, number] | null;
+  versions: Versions[];
+  /** Files that combined without a clash but came out broken, which is why they need a choice. */
+  broken: string[];
+};
 export type Keep = 'Mine' | 'Theirs';
 /** What a failed command throws. */
 export type Problem =

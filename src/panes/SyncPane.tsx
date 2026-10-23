@@ -213,6 +213,12 @@ function ConflictGroup({ s }: { s: SyncState }) {
           <div className="text">
             <div>{byFolder([v.path], s.catalog)[0][0]}</div>
             <div className="detail">~/{v.path}</div>
+            {s.conflict!.broken.includes(v.path) && (
+              <div className="detail warn">
+                Each computer changed a different part of it, but together they don't make a working
+                file, so choose one.
+              </div>
+            )}
           </div>
           <Compare v={v} other={other} />
           <RadioGroup

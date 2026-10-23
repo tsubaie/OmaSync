@@ -59,7 +59,8 @@ export function useSync() {
 
   function fail(e: unknown) {
     const p = e as Problem;
-    if (p?.kind === 'Conflict') setConflict({ files: p.files, by: p.by, versions: p.versions });
+    if (p?.kind === 'Conflict')
+      setConflict({ files: p.files, by: p.by, versions: p.versions, broken: p.broken });
     else if (p?.kind === 'Failed') setNotice({ good: false, text: p.message, details: p.details });
     else
       setNotice({
