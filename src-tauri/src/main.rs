@@ -352,14 +352,20 @@ fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
 /// empty folder in a terminal window.
 #[tauri::command]
 fn set_app_script(app: String, command: String) -> Result<Data> {
-    let command = command.trim().to_string();
+    // One step per line; Windows line ends become plain ones.
+    let command = command.replace("\r\n", "\n").trim().to_string();
     if !sync::is_package_name(&app) {
         return Err(format!("not an app: {app}").into());
     }
-    if command.is_empty() || command.chars().count() > 500 || command.chars().any(char::is_control)
+    if command.is_empty()
+        || command.chars().count() > 4000
+        || command.lines().count() > 50
+        || command
+            .chars()
+            .any(|c| c.is_control() && c != '\n' && c != '\t')
     {
         return Err(
-            "The install command needs 1 to 500 characters, on one line."
+            "The install steps need 1 to 50 lines, up to 4,000 characters."
                 .to_string()
                 .into(),
         );

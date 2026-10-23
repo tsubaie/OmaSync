@@ -243,7 +243,7 @@ function ScriptedApps({ s }: { s: SyncState }) {
   const [confirm, setConfirm] = useState<string | null>(null);
   return (
     <Group
-      title="Apps to Install with Their Command"
+      title="Apps to Install with Their Steps"
       footer="Each runs in a terminal window, so you can see what it does and type your password if it asks."
     >
       {s.scripted.map(({ app, script }) => (
@@ -251,7 +251,7 @@ function ScriptedApps({ s }: { s: SyncState }) {
           key={app}
           lead={<Tile icon={Package} kind="apps" size={24} />}
           title={app}
-          detail={`Runs “${script.command}”`}
+          detail={`Runs ${script.command.split('\n').filter((l) => l.trim()).length === 1 ? 'one step' : `${script.command.split('\n').filter((l) => l.trim()).length} steps`} in a terminal window`}
           end={
             confirm === app ? (
               <div className="actions">

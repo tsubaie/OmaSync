@@ -218,7 +218,7 @@ test('an app from outside the repos syncs only once it has an install command', 
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
   await expect(
-    page.getByText("Not in Arch's repos or the AUR. Add its install command to sync it."),
+    page.getByText("Not in Arch's repos or the AUR. Add its install steps to sync it."),
   ).toBeVisible();
   // Every switch stays locked until it has one, this computer's too.
   const here = page.getByRole('switch', { name: 'tapecalc synced on This Computer' });
@@ -227,21 +227,26 @@ test('an app from outside the repos syncs only once it has an install command', 
   await expect(desk).toBeDisabled();
 
   // One field, empty: the person types the command that installs it.
-  await page.getByRole('button', { name: 'Add an Install Command…' }).click();
-  const command = page.getByRole('textbox', { name: 'Install command' });
+  await page.getByRole('button', { name: 'Add Install Steps…' }).click();
+  const command = page.getByRole('textbox', { name: 'Install steps' });
   await expect(command).toHaveValue('');
-  await expect(page.getByRole('button', { name: 'Save Install Command' })).toBeDisabled();
-  await command.fill('curl -fsSL https://example.com/install.sh | bash');
+  await expect(page.getByRole('button', { name: 'Save Install Steps' })).toBeDisabled();
+  await command.fill('git clone https://example.com/tapecalc\ncd tapecalc\n./install.sh');
   expect(await a11y(page)).toEqual([]);
-  await page.getByRole('button', { name: 'Save Install Command' }).click();
+  await page.getByRole('button', { name: 'Save Install Steps' }).click();
   expect(await calls(page, 'set_app_script')).toEqual([
     {
       cmd: 'set_app_script',
-      args: { app: 'tapecalc', command: 'curl -fsSL https://example.com/install.sh | bash' },
+      args: {
+        app: 'tapecalc',
+        command: 'git clone https://example.com/tapecalc\ncd tapecalc\n./install.sh',
+      },
     },
   ]);
   await expect(
-    page.getByText('Installs with “curl -fsSL https://example.com/install.sh | bash”.'),
+    page.getByText(
+      "Not in Arch's repos or the AUR. Installs with 3 steps, starting “git clone https://example.com/tapecalc”.",
+    ),
   ).toBeVisible();
   await expect(here).toBeEnabled();
   await expect(desk).toBeEnabled();
@@ -249,7 +254,7 @@ test('an app from outside the repos syncs only once it has an install command', 
 
 test('an install command runs only after a warning and a second yes', async ({ page }) => {
   await page.goto('/?scenario=synced');
-  const waiting = page.getByRole('region', { name: 'Apps to Install with Their Command' });
+  const waiting = page.getByRole('region', { name: 'Apps to Install with Their Steps' });
   await expect(waiting.getByText('quicknote', { exact: true })).toBeVisible();
   await waiting.getByRole('button', { name: 'Install…' }).click();
   await expect(waiting.getByText('Run this only if you trust where it came from.')).toBeVisible();

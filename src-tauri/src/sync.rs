@@ -1590,10 +1590,21 @@ pub fn install_with_script(
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     step(&format!("Installing {app} in a terminal window"));
     let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+    // The steps run as one script that stops at the first failing step, so a failed build
+    // never goes on to install.
+    let file = dir.with_extension("sh");
+    std::fs::write(
+        &file,
+        format!(
+            "set -e -o pipefail\ncd {}\n{}\n",
+            quote(&dir.to_string_lossy()),
+            script.command
+        ),
+    )
+    .map_err(|e| e.to_string())?;
     let line = format!(
-        "cd {} && {}; echo $? > {}; echo; read -rp 'Press Enter to close this window. ' _",
-        quote(&dir.to_string_lossy()),
-        script.command,
+        "bash {}; echo $? > {}; echo; read -rp 'Press Enter to close this window. ' _",
+        quote(&file.to_string_lossy()),
         quote(&done.to_string_lossy()),
     );
     Command::new("xdg-terminal-exec")
