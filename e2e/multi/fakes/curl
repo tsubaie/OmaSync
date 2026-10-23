@@ -1,0 +1,4 @@
+#!/bin/bash
+# The AUR has nothing in the tests.
+. "$(dirname "$0")/_record"
+echo '{"results":[]}'

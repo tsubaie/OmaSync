@@ -4,6 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
 // to WebKitGTK, which Tauri uses on Linux.
 export default defineConfig({
   testDir: './e2e',
+  // e2e/multi drives the real app in a container (pnpm test:multi), not a browser.
+  testIgnore: 'multi/**',
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: [['list'], ['html', { open: 'never' }]],

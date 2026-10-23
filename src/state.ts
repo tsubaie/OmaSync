@@ -2,12 +2,14 @@
 // to show and runs one job at a time, with its current step.
 
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   api,
   type Catalog,
   type Conflict,
   type Data,
+  type Keep,
   type Prefer,
   type Problem,
   type Report,
@@ -16,8 +18,18 @@ import {
 } from './api';
 import { applyLook } from './theme';
 
-export type Tab = 'sync' | 'history' | 'omarchy' | 'plugins' | 'apps' | 'data' | 'settings';
-export const TABS: Tab[] = ['sync', 'history', 'omarchy', 'plugins', 'apps', 'data', 'settings'];
+export type Tab =
+  'sync' | 'history' | 'omarchy' | 'plugins' | 'repos' | 'apps' | 'data' | 'settings';
+export const TABS: Tab[] = [
+  'sync',
+  'omarchy',
+  'plugins',
+  'repos',
+  'apps',
+  'data',
+  'history',
+  'settings',
+];
 
 export type Notice = { good: boolean; text: string; details?: string };
 
@@ -57,7 +69,8 @@ export function useSync() {
 
   function fail(e: unknown) {
     const p = e as Problem;
-    if (p?.kind === 'Conflict') setConflict({ files: p.files, by: p.by });
+    if (p?.kind === 'Conflict')
+      setConflict({ files: p.files, by: p.by, versions: p.versions, broken: p.broken });
     else if (p?.kind === 'Failed') setNotice({ good: false, text: p.message, details: p.details });
     else
       setNotice({
@@ -168,7 +181,16 @@ export function useSync() {
 
   /** Syncs (or undoes a change, then syncs), then shows the fresh state. */
   /** `continues`: carry on the progress of setup, which ends by syncing. */
-  async function sync(prefer: Prefer = 'Ask', undoSha?: string, continues = false) {
+  /**
+   * Syncs; or undoes a change, then syncs; or, with `choices`, settles a clash by keeping the
+   * chosen version of each clashing file, then syncs.
+   */
+  async function sync(
+    prefer: Prefer = 'Ask',
+    undoSha?: string,
+    continues = false,
+    choices?: Record<string, Keep>,
+  ) {
     if (working.current) return;
     setNotice(null);
     setTab('sync');
@@ -177,7 +199,12 @@ export function useSync() {
     try {
       report = await run(
         undoSha ? 'Undoing' : 'Starting',
-        (onStep) => (undoSha ? api.undo(undoSha, onStep) : api.syncNow(prefer, onStep)),
+        (onStep) =>
+          choices
+            ? api.resolveConflict(choices, onStep)
+            : undoSha
+              ? api.undo(undoSha, onStep)
+              : api.syncNow(prefer, onStep),
         continues ? 'middle' : 'first',
       );
       if (report) {
@@ -242,6 +269,30 @@ export function useSync() {
   });
   useEffect(() => onStart(), []);
 
+  // Opened again (from the launcher or the bar indicator): show the Sync page, freshly checked.
+  const onShow = useEffectEvent(() => {
+    if (!ready) return;
+    setTab('sync');
+    if (!working.current) refresh();
+  });
+  // The Omarchy theme or background changed: recolour, and list the change to share.
+  const onLook = useEffectEvent(() => {
+    api.look().then(applyLook, fail);
+    if (ready && !working.current) refresh();
+  });
+  useEffect(() => {
+    const stop = listen('look-changed', onLook);
+    return () => {
+      stop.then((unlisten) => unlisten());
+    };
+  }, []);
+  useEffect(() => {
+    const stop = listen('show-sync', onShow);
+    return () => {
+      stop.then((unlisten) => unlisten());
+    };
+  }, []);
+
   // Each minute: move the clock on, and every five quietly look for news from the other computers.
   const onTick = useEffectEvent(() => {
     setNow(Math.floor(Date.now() / 1000));
@@ -261,7 +312,7 @@ export function useSync() {
       if (ready && !conflict) sync();
     }
     // Like the sidebar, only Sync opens before the first check finishes.
-    if (ctrl && ready && e.key >= '1' && e.key <= (status ? '7' : '1')) {
+    if (ctrl && ready && e.key >= '1' && e.key <= (status ? '8' : '1')) {
       e.preventDefault();
       setTab(TABS[Number(e.key) - 1]);
     }
@@ -336,6 +387,7 @@ export function useSync() {
     syncing,
     notice,
     conflict,
+    setConflict,
     confirmUndo,
     setConfirmUndo,
     dismissed,

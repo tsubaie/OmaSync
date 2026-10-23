@@ -7,6 +7,16 @@ export type Look = { colors_toml: string; motion: boolean };
 export type Folder = { path: string; name: string; default: boolean; exists: boolean };
 export type Catalog = { folders: Folder[]; data_label: string };
 export type Plugin = { id: string; name: string; description: string };
+/** An extra package repository another computer has, and the apps here that need it. */
+export type MissingRepo = {
+  name: string;
+  repository: {
+    servers: string[];
+    sig_level: string[];
+    key?: { fingerprint: string; owner: string; armored: string };
+  };
+  apps: string[];
+};
 /** How to install an app from outside the repos: a command, run in an empty folder. */
 export type Script = { command: string };
 
@@ -31,6 +41,12 @@ export type Computer = {
   skip_plugins?: string[];
   manual?: boolean;
   install_without_asking?: boolean;
+  /** Its Omarchy version, as `omarchy version` prints it. */
+  omarchy?: string;
+  /** Omarchy's own settings don't sync there for now: a newer Omarchy runs elsewhere. */
+  paused?: boolean;
+  /** The newer Omarchy major version whose settings it's trying anyway. */
+  tried?: number;
 };
 export type Data = {
   folders: string[];
@@ -49,6 +65,8 @@ export type Entry = {
   when: number;
   labels: string[];
   is_undo: boolean;
+  /** Where two computers' changes were joined after a clash; it can't be undone on its own. */
+  is_merge: boolean;
   first: boolean;
   /** Every file it changed: what Undo puts back. `path` is under home, or the data label. */
   files: { path: string; how: 'Added' | 'Changed' | 'Removed' }[];
@@ -65,6 +83,8 @@ export type Overview = {
     mine: string[];
     /** Those of `mine` from neither Arch's repos nor the AUR. */
     outside: string[];
+    /** Where each app comes from: omarchy, arch, aur, elsewhere, or another repository's name. */
+    source: Record<string, string>;
     about: Record<string, string>;
   };
   incoming_files: string[];
@@ -72,6 +92,9 @@ export type Overview = {
   history: Entry[];
   /** Every computer's plugins. */
   plugins: Plugin[];
+  /** Extra repositories this computer needs for apps it should have. */
+  missing_repos: MissingRepo[];
+  repos_here: MissingRepo[];
 };
 export type Status = {
   overview: Overview;
@@ -86,7 +109,23 @@ export type Status = {
 };
 
 export type Report = { notes: string[]; waiting: string[] };
-export type Conflict = { files: string[]; by: [string, number] | null };
+/** A clashing file as it is here (`mine`) and on the other computer (`theirs`); null when that
+ * side removed it. `source` is its path in the sync folder, which choices are keyed by. */
+export type Versions = {
+  path: string;
+  source: string;
+  mine: string | null;
+  theirs: string | null;
+  binary: boolean;
+};
+export type Conflict = {
+  files: string[];
+  by: [string, number] | null;
+  versions: Versions[];
+  /** Files that combined without a clash but came out broken, which is why they need a choice. */
+  broken: string[];
+};
+export type Keep = 'Mine' | 'Theirs';
 /** What a failed command throws. */
 export type Problem =
   { kind: 'Failed'; message: string; details: string } | ({ kind: 'Conflict' } & Conflict);
@@ -103,6 +142,9 @@ export const api = {
   /** `justSynced`: right after a sync, which already saved and fetched. */
   overview: (onStep: OnStep, justSynced = false) =>
     invoke<Status>('overview', { onStep: steps(onStep), justSynced }),
+  /** Settles a clash with the version chosen for each clashing file, then syncs. */
+  resolveConflict: (choices: Record<string, Keep>, onStep: OnStep) =>
+    invoke<Report>('resolve_conflict', { choices, onStep: steps(onStep) }),
   syncNow: (prefer: Prefer, onStep: OnStep) =>
     invoke<Report>('sync_now', { prefer, onStep: steps(onStep) }),
   undo: (sha: string, onStep: OnStep) => invoke<Report>('undo', { sha, onStep: steps(onStep) }),
@@ -112,6 +154,14 @@ export const api = {
   /** Returns where this computer's previous settings were backed up. */
   join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
   installApps: () => invoke<void>('install_apps'),
+  /** Adds an extra repository this computer needs (asks for the password). */
+  addRepository: (name: string) => invoke<void>('add_repository', { name }),
+  tryOmarchy: () => invoke<Data>('try_omarchy'),
+  putBackOmarchy: () => invoke<void>('put_back_omarchy'),
+  updateOmarchy: () => invoke<void>('update_omarchy'),
+  /** Opens a new GitHub issue: the choice of kind, or a problem report filled in with an error. */
+  report: (message?: string, details?: string) =>
+    invoke<void>('report', { message: message ?? null, details: details ?? null }),
   /** Puts the sync indicator on the Omarchy bar, or takes it off. */
   setBarIndicator: (on: boolean) => invoke<void>('set_bar_indicator', { on }),
   setAppScript: (app: string, command: string) => invoke<Data>('set_app_script', { app, command }),

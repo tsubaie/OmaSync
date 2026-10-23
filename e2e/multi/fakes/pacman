@@ -1,0 +1,13 @@
+#!/bin/bash
+# Stands in for pacman, answering from this computer's lists in $HOME/.e2e: apps (installed by
+# the person) and repo ("repository name" per line, as `pacman -Sl` prints).
+. "$(dirname "$0")/_record"
+lists="$HOME/.e2e"; touch "$lists/apps" "$lists/repo"
+case "$1" in
+  --version) echo "Pacman v7.0.0 (e2e)" ;;
+  -Qq | -Qqe) cat "$lists/apps" ;;
+  -Qqm) ;;
+  -Qi) shift; for p in "$@"; do grep -qx "$p" "$lists/apps" && printf 'Name            : %s\nDescription     : %s from the e2e tests\n\n' "$p" "$p"; done ;;
+  -Sl) cat "$lists/repo" ;;
+  *) ;;
+esac

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Stands in for yay: "installs" by adding the packages to this computer's app list.
+. "$(dirname "$0")/_record"
+[ "$1" = --version ] && { echo "yay v12 (e2e)"; exit 0; }
+for p in "$@"; do case "$p" in -* | pkexec) ;; *) echo "$p" >> "$HOME/.e2e/apps" ;; esac; done

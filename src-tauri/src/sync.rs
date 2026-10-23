@@ -86,6 +86,9 @@ const IGNORE: &str = r#"**/.git
 {{- end }}
 {{- $c := get .computers (env "OMARCHY_SYNC_HOST" | default (include "/etc/machine-id" | trim | trunc 12)) | default dict }}
 {{- $skipFiles := get $c "skip_files" | default list }}
+{{- if get $c "paused" }}
+{{- $skipFiles = concat $skipFiles (list ".config/omarchy" ".config/hypr") }}
+{{- end }}
 {{- range $skipFiles }}
 {{ . }}
 {{- end }}
@@ -164,10 +167,70 @@ pub struct Data {
     /// script someone added to install them (none yet: they can't sync).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub outside: BTreeMap<String, Option<Script>>,
+    /// Extra package repositories (beyond Omarchy's and Arch's) some computer has, by name, so a
+    /// computer without one can add it before installing apps from it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub repositories: BTreeMap<String, Repository>,
+    /// Which extra repository each synced app comes from. Such an app installs only from it,
+    /// never from the AUR instead.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub app_repo: BTreeMap<String, String>,
     /// The layout of this file; older layouts are upgraded when read.
     #[serde(default)]
     pub version: u32,
 }
+
+/// An extra package repository, as the computer that has it uses it.
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+pub struct Repository {
+    pub servers: Vec<String>,
+    /// pacman's signature rules for it, word by word ("Required", "DatabaseTrustedOnly", …).
+    #[serde(default)]
+    pub sig_level: Vec<String>,
+    /// The key that signs it, copied from that computer's pacman keyring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<RepoKey>,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+pub struct RepoKey {
+    /// 40 hex digits, to check against the vendor's website.
+    pub fingerprint: String,
+    /// Whose key it is, as the key says ("Codex Linux Repository").
+    pub owner: String,
+    /// The public key itself (ASCII-armored).
+    pub armored: String,
+}
+
+/// A map changed on two sides of a merge: entries `mine` changed (added, altered or removed)
+/// win; the rest come from `theirs`.
+fn merge_map<T: Clone + PartialEq>(
+    base: &BTreeMap<String, T>,
+    theirs: &BTreeMap<String, T>,
+    mine: &BTreeMap<String, T>,
+) -> BTreeMap<String, T> {
+    let mut out = theirs.clone();
+    for key in base.keys().chain(mine.keys()) {
+        if mine.get(key) != base.get(key) {
+            match mine.get(key) {
+                Some(v) => out.insert(key.clone(), v.clone()),
+                None => out.remove(key),
+            };
+        }
+    }
+    out
+}
+
+/// Repositories every Omarchy computer has; only others are recorded and offered.
+const STANDARD_REPOS: &[&str] = &[
+    "omarchy",
+    "core",
+    "extra",
+    "multilib",
+    "core-testing",
+    "extra-testing",
+    "multilib-testing",
+];
 
 /// How to install an app from outside Arch's repos and the AUR: a command, run in an empty
 /// folder in a terminal window the person can see (it may download a repository itself).
@@ -211,10 +274,35 @@ pub struct Computer {
     /// Installs synced apps during a sync instead of waiting for approval.
     #[serde(default, skip_serializing_if = "is_false")]
     pub install_without_asking: bool,
+    /// The person took the sync indicator off this computer's Omarchy bar (it's on by default).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub no_bar_indicator: bool,
+    /// The Omarchy version here, as `omarchy version` prints it.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub omarchy: String,
+    /// Omarchy's own settings don't sync here for now: a newer Omarchy runs on another computer,
+    /// and settings made for it may not work on this one (see `should_pause`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub paused: bool,
+    /// The newer Omarchy major version whose settings the person chose to try here anyway.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub tried: u32,
 }
 
 fn is_false(b: &bool) -> bool {
     !b
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
+/// Omarchy's own settings, which can change shape between its major versions.
+pub const OMARCHY_OWN: [&str; 2] = [".config/omarchy", ".config/hypr"];
+
+/// The major version in what `omarchy version` prints ("4.0.6-1" is 4); none for a dev copy.
+pub fn major(version: &str) -> Option<u32> {
+    version.split('.').next()?.parse().ok()
 }
 
 impl Data {
@@ -316,10 +404,37 @@ impl Data {
     }
 
     pub fn uses_folder(&self, host: &str, folder: &str) -> bool {
+        let paused = |c: &Computer| {
+            c.paused
+                && OMARCHY_OWN
+                    .iter()
+                    .any(|o| folder == *o || folder.starts_with(&format!("{o}/")))
+        };
         !self
             .computers
             .get(host)
-            .is_some_and(|c| c.skip_files.iter().any(|f| f == folder))
+            .is_some_and(|c| c.skip_files.iter().any(|f| f == folder) || paused(c))
+    }
+
+    /// The newest Omarchy major version among the computers.
+    pub fn newest_omarchy(&self) -> Option<u32> {
+        self.computers
+            .values()
+            .filter_map(|c| major(&c.omarchy))
+            .max()
+    }
+
+    /// Whether Omarchy's own settings should stop syncing here: another computer runs a newer
+    /// major version (the shared settings follow the newest), and the person hasn't chosen to
+    /// try its settings. Each computer only pauses itself; the newest ones carry on.
+    pub fn should_pause(&self, host: &str) -> bool {
+        let Some(c) = self.computers.get(host) else {
+            return false;
+        };
+        match (major(&c.omarchy), self.newest_omarchy()) {
+            (Some(mine), Some(newest)) => newest > mine && c.tried != newest,
+            _ => false,
+        }
     }
 
     #[cfg(test)]
@@ -351,15 +466,7 @@ impl Data {
             out.retain(|x| !(b.contains(x) && !m.contains(x)));
             out
         };
-        let mut outside = theirs.outside.clone();
-        for app in base.outside.keys().chain(mine.outside.keys()) {
-            if mine.outside.get(app) != base.outside.get(app) {
-                match mine.outside.get(app) {
-                    Some(s) => outside.insert(app.clone(), s.clone()),
-                    None => outside.remove(app),
-                };
-            }
-        }
+        let outside = merge_map(&base.outside, &theirs.outside, &mine.outside);
         let mut computers = theirs.computers.clone();
         for id in base.computers.keys().chain(mine.computers.keys()) {
             if mine.computers.get(id) != base.computers.get(id) {
@@ -385,6 +492,8 @@ impl Data {
             },
             computers,
             outside,
+            repositories: merge_map(&base.repositories, &theirs.repositories, &mine.repositories),
+            app_repo: merge_map(&base.app_repo, &theirs.app_repo, &mine.app_repo),
             version: theirs.version.max(mine.version),
         }
     }
@@ -415,7 +524,7 @@ impl Data {
             && !self
                 .computers
                 .get(host)
-                .is_some_and(|c| c.skip_plugins.iter().any(|p| p == plugin))
+                .is_some_and(|c| c.paused || c.skip_plugins.iter().any(|p| p == plugin))
     }
 
     #[cfg(test)]
@@ -614,7 +723,11 @@ impl Ctx {
             .unwrap_or(home.join(".local/share"));
         let hostname = run(None, "uname", &["-n"]).unwrap_or_default();
         let hostname = hostname.split('.').next().unwrap_or("").to_string();
-        let id = std::fs::read_to_string("/etc/machine-id").unwrap_or_default();
+        // OMARCHY_SYNC_HOST stands in for the machine ID where several "computers" share one
+        // machine (the end-to-end tests); the ignore rules read it too. Nothing else sets it.
+        let id = std::env::var("OMARCHY_SYNC_HOST")
+            .or_else(|_| std::fs::read_to_string("/etc/machine-id"))
+            .unwrap_or_default();
         let id: String = id.trim().chars().take(12).collect();
         Ctx {
             // shortcut: assumes chezmoi's default source folder, upgrade to `chezmoi source-path` if anyone sets sourceDir.
@@ -749,6 +862,10 @@ impl Ctx {
         run(Some(&self.src), "git", args)
     }
 
+    fn merging(&self) -> bool {
+        self.src.join(".git/MERGE_HEAD").exists()
+    }
+
     fn rebasing(&self) -> bool {
         let git_dir = self.src.join(".git");
         git_dir.join("rebase-merge").exists() || git_dir.join("rebase-apply").exists()
@@ -785,7 +902,9 @@ impl Ctx {
 
 pub fn run(dir: Option<&Path>, prog: &str, args: &[&str]) -> Result<String, String> {
     let mut cmd = Command::new(prog);
-    cmd.args(args).stdin(Stdio::null()).env("LC_ALL", "C");
+    // English messages to read, in UTF-8: under plain "C", Qt-based tools (omarchy plugin)
+    // complain and fail, and file names with non-English letters come out escaped.
+    cmd.args(args).stdin(Stdio::null()).env("LC_ALL", "C.UTF-8");
     if let Some(d) = dir {
         cmd.current_dir(d);
     }
@@ -826,7 +945,7 @@ fn git_progress(ctx: &Ctx, args: &[&str], step: &dyn Fn(&str)) -> Result<String,
     let mut child = Command::new("git")
         .args(args)
         .current_dir(&ctx.src)
-        .env("LC_ALL", "C")
+        .env("LC_ALL", "C.UTF-8")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -1035,18 +1154,23 @@ pub fn join(ctx: &Ctx, login: &str, step: &dyn Fn(&str)) -> Result<PathBuf, Stri
 fn adopt(ctx: &Ctx, url: &str, step: &dyn Fn(&str)) -> Result<PathBuf, String> {
     step("Downloading your synced settings");
     run(None, "chezmoi", &["init", url])?;
-    let data = ctx.load_data();
+    let mut data = ctx.load_data();
+    // Joining with an older Omarchy than the others: its own settings stay as they are.
+    note_omarchy(&mut data, &ctx.host);
+    let paused = data.should_pause(&ctx.host);
+    data.computers.entry(ctx.host.clone()).or_default().paused = paused;
+    ctx.save_data(&data)?;
     step("Backing up this computer's current settings");
-    let backup = backup(ctx, &data.folders)?;
+    let backup = backup(ctx, &data.folders, &format!("before-first-sync-{}", now()))?;
     step("Updating this computer");
     run(None, "chezmoi", &["apply", "--force"])?;
     Ok(backup)
 }
 
-fn backup(ctx: &Ctx, folders: &[String]) -> Result<PathBuf, String> {
+fn backup(ctx: &Ctx, folders: &[String], name: &str) -> Result<PathBuf, String> {
     let dir = ctx.home.join(".local/share/omarchy-sync/backups");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let file = dir.join(format!("before-first-sync-{}.tar.gz", now()));
+    let file = dir.join(format!("{name}.tar.gz"));
     let existing: Vec<&str> = folders
         .iter()
         .map(|f| f.as_str())
@@ -1257,6 +1381,31 @@ pub struct Conflict {
     pub files: Vec<String>,
     /// The other computer that changed them, and when (unix time).
     pub by: Option<(String, i64)>,
+    /// Each clashing file as it is here and on the other computer, to compare and choose.
+    pub versions: Vec<Versions>,
+    /// Files (under home) that combined without a clash but came out broken, which is why they
+    /// need a choice too.
+    pub broken: Vec<String>,
+}
+
+/// One clashing file's two versions. `None` when that computer removed it; `binary` when its
+/// contents can't be shown (not text, or too big).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Versions {
+    /// Under home, for people.
+    pub path: String,
+    /// In the sync folder, for choosing (what `resolve` takes).
+    pub source: String,
+    pub mine: Option<String>,
+    pub theirs: Option<String>,
+    pub binary: bool,
+}
+
+/// Which version of a clashing file to keep.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+pub enum Keep {
+    Mine,
+    Theirs,
 }
 
 /// What a finished sync has to say: notes for the person, and apps waiting for their approval.
@@ -1305,6 +1454,7 @@ fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String>, String> 
     if std::fs::read_to_string(&ignore).is_ok_and(|current| current != IGNORE) {
         std::fs::write(&ignore, IGNORE).map_err(|e| e.to_string())?;
     }
+    note_omarchy(&mut data, &ctx.host);
     if let Some(t) = ctx.current_theme().filter(|t| is_file_name(t)) {
         data.theme = Some(t);
     }
@@ -1312,6 +1462,8 @@ fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String>, String> 
     if let Some(name) = save_background(ctx) {
         data.background = Some(name);
     }
+    // Extra repositories here, so other computers can add them for apps that come from them.
+    record_repositories(&mut data);
     // Apps here that `yay` couldn't install elsewhere; they sync only once given a script.
     for app in outside_repos(&user_apps_here()) {
         data.outside.entry(app).or_insert(None);
@@ -1363,6 +1515,309 @@ fn settle_data(ctx: &Ctx) -> Result<bool, String> {
     Ok(true)
 }
 
+/// A clashing file as this computer has it and as GitHub has it, for showing side by side.
+fn versions(ctx: &Ctx, source: &str) -> Versions {
+    const LIMIT: usize = 256 * 1024;
+    let read = |rev: &str| ctx.git(&["show", &format!("{rev}:{source}")]).ok();
+    let (mine, theirs) = (read("HEAD"), read("@{u}"));
+    let binary = [&mine, &theirs]
+        .into_iter()
+        .flatten()
+        .any(|t| t.len() > LIMIT || t.contains('\0'));
+    Versions {
+        path: source_to_target(source),
+        source: source.to_string(),
+        mine: if binary { None } else { mine },
+        theirs: if binary { None } else { theirs },
+        binary,
+    }
+}
+
+/// A clash to show: the files with both their versions, and the other computer that made the
+/// newest change to them (from GitHub's side).
+fn clash(ctx: &Ctx, files: Vec<String>, broken: Vec<String>) -> SyncError {
+    let mut args = vec!["log", "-1", "--format=%an%x09%ct", "@{u}", "--"];
+    args.extend(files.iter().map(|f| f.as_str()));
+    let data = ctx.load_data();
+    let by = ctx
+        .git(&args)
+        .ok()
+        .and_then(|l| parse_log(&l).into_iter().next())
+        .map(|(author, t)| (data.resolve(&author), t));
+    let versions = files.iter().map(|f| versions(ctx, f)).collect();
+    SyncError::Conflict(Conflict {
+        files: to_targets(ctx, files),
+        by,
+        versions,
+        broken: to_targets(ctx, broken),
+    })
+}
+
+/// Whether a settings file still reads as its format: JSON, TOML, YAML or Lua (checked with
+/// luac, where installed). Other files have no strict format, so they always pass.
+pub fn well_formed(target: &str, text: &str) -> bool {
+    match target.rsplit('.').next().unwrap_or_default() {
+        "json" => serde_json::from_str::<serde_json::Value>(text).is_ok(),
+        "toml" => text.parse::<toml::Table>().is_ok(),
+        "yaml" | "yml" => serde_yaml::from_str::<serde_yaml::Value>(text).is_ok(),
+        "lua" => {
+            let file =
+                std::env::temp_dir().join(format!("omarchy-sync-{}.lua", std::process::id()));
+            if std::fs::write(&file, text).is_err() {
+                return true;
+            }
+            let checked = Command::new("luac")
+                .arg("-p")
+                .arg(&file)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            let _ = std::fs::remove_file(&file);
+            // No luac here: nothing to check with, so it passes.
+            checked.map_or(true, |s| s.success())
+        }
+        _ => true,
+    }
+}
+
+/// Files both computers changed since `before` parted from GitHub's history that git just
+/// combined into something that no longer reads as their format, though each computer's own
+/// version did (a file that was already broken on one side isn't combining's doing).
+fn broken_by_combining(ctx: &Ctx, before: &str) -> Vec<String> {
+    let Ok(base) = ctx.git(&["merge-base", before, "@{u}"]) else {
+        return Vec::new();
+    };
+    let changed = |to: &str| -> BTreeSet<String> {
+        ctx.git(&["diff", "--name-only", &base, to])
+            .unwrap_or_default()
+            .lines()
+            .map(String::from)
+            .collect()
+    };
+    let (here, there) = (changed(before), changed("@{u}"));
+    here.intersection(&there)
+        .filter(|f| *f != ".chezmoidata.yaml")
+        .filter(|f| {
+            let target = source_to_target(f);
+            let reads = |rev: &str| {
+                ctx.git(&["show", &format!("{rev}:{f}")])
+                    .is_ok_and(|text| well_formed(&target, &text))
+            };
+            reads(before) && reads("@{u}") && !reads("HEAD")
+        })
+        .cloned()
+        .collect()
+}
+
+/// Settles a clash with the person's choice for each clashing file, then syncs as usual.
+/// Both computers' changes are joined (a merge), so each side's own version stays in the
+/// history; every clashing file then becomes exactly the version chosen for it.
+pub fn resolve(
+    ctx: &Ctx,
+    choices: &BTreeMap<String, Keep>,
+    install: bool,
+    step: &dyn Fn(&str),
+) -> Result<Report, SyncError> {
+    let fail = SyncError::Failed;
+    {
+        let _lock = lock_wait(ctx).map_err(fail)?;
+        plan(
+            step,
+            &[
+                "Saving this computer's changes",
+                "Getting changes from your other computers",
+                "Keeping the versions you chose",
+            ],
+        );
+        step("Saving this computer's changes");
+        save_local(ctx, &|_| {}).map_err(fail)?;
+        step("Getting changes from your other computers");
+        git_progress(ctx, &["fetch", "--progress"], step).map_err(fail)?;
+        step("Keeping the versions you chose");
+        // Joined without committing yet, so every chosen file (clashing or combined) can be set
+        // to its chosen version first.
+        let _ = ctx.git(&["merge", "--no-ff", "--no-commit", "@{u}"]);
+        if ctx.merging() {
+            let mut kept = Vec::new();
+            let mut settled: Result<(), String> = settle_data_revs(ctx);
+            for (source, keep) in choices {
+                if settled.is_err() {
+                    break;
+                }
+                settled = keep_version(ctx, source, *keep);
+                let whose = if *keep == Keep::Mine {
+                    "this computer's"
+                } else {
+                    "the other computer's"
+                };
+                kept.push(format!(
+                    "{}: kept {whose} version",
+                    label(&source_to_target(source))
+                ));
+            }
+            if settled.is_ok()
+                && let Some(left) = ctx
+                    .conflicted()
+                    .into_iter()
+                    .find(|f| f != ".chezmoidata.yaml" && !choices.contains_key(f))
+            {
+                settled = Err(format!("no choice for {}", source_to_target(&left)));
+            }
+            if let Err(e) = settled {
+                let _ = ctx.git(&["merge", "--abort"]);
+                return Err(fail(e));
+            }
+            let message = format!(
+                "Sync from {}\n\nSettled changes made on two computers.\n{}",
+                ctx.host,
+                kept.join("\n")
+            );
+            ctx.git(&["commit", "-q", "--no-edit", "-m", &message])
+                .map_err(fail)?;
+        }
+        // Put the chosen versions in place now; the sync below starts by saving this computer's
+        // files, which would otherwise save the clashing ones back over the choice.
+        settle_pause(ctx).map_err(fail)?;
+        run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
+    }
+    // Joined: the rest is an ordinary sync (apply here, share, apps and plugins).
+    sync(ctx, Prefer::Ask, install, step)
+}
+
+/// Makes a file exactly one side's version during a merge (this computer's is HEAD, the other's
+/// MERGE_HEAD), whether git marked it as clashing or combined it; if that side removed it, it's
+/// removed. (`checkout --ours` only touches files git marked as clashing.)
+fn keep_version(ctx: &Ctx, source: &str, keep: Keep) -> Result<(), String> {
+    let rev = if keep == Keep::Mine {
+        "HEAD"
+    } else {
+        "MERGE_HEAD"
+    };
+    let from = format!("--source={rev}");
+    if ctx
+        .git(&["restore", &from, "--staged", "--worktree", "--", source])
+        .is_ok()
+    {
+        ctx.git(&["add", "--", source]).map(|_| ())
+    } else {
+        ctx.git(&["rm", "-q", "--ignore-unmatch", "--", source])
+            .map(|_| ())
+    }
+}
+
+/// The shared choices file during a merge, always rebuilt from both computers' versions (git
+/// may have combined it line by line, or clashed on it).
+fn settle_data_revs(ctx: &Ctx) -> Result<(), String> {
+    let base = ctx.git(&["merge-base", "HEAD", "MERGE_HEAD"])?;
+    let read = |rev: &str| data_at(ctx, rev);
+    ctx.save_data(&Data::merge(
+        &read(&base),
+        &read("MERGE_HEAD"),
+        &read("HEAD"),
+    ))?;
+    ctx.git(&["add", ".chezmoidata.yaml"]).map(|_| ())
+}
+
+/// The shared choices as they were at a revision (empty where unreadable).
+fn data_at(ctx: &Ctx, rev: &str) -> Data {
+    ctx.git(&["show", &format!("{rev}:.chezmoidata.yaml")])
+        .ok()
+        .and_then(|t| serde_yaml::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+/// The saved copy of this computer's Omarchy settings from before it took the shared ones.
+const OMARCHY_BACKUP: &str = "before-other-omarchy-settings";
+
+/// Records this computer's Omarchy version.
+fn note_omarchy(data: &mut Data, host: &str) {
+    if let Ok(v) = run(None, "omarchy", &["version"]) {
+        let v: String = v
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(40)
+            .collect();
+        data.computers.entry(host.into()).or_default().omarchy = v;
+    }
+}
+
+/// Pauses or resumes syncing Omarchy's own settings here, once the other computers' changes
+/// are in and before they're applied. Resuming (after updating Omarchy, or to try the newer
+/// settings) saves this computer's settings first; the shared ones then replace them.
+fn settle_pause(ctx: &Ctx) -> Result<Option<String>, String> {
+    let mut data = ctx.load_data();
+    let newest = data.newest_omarchy();
+    let pause = data.should_pause(&ctx.host);
+    let Some(c) = data.computers.get_mut(&ctx.host) else {
+        return Ok(None);
+    };
+    let before = c.clone();
+    c.paused = pause;
+    // Caught up: nothing left to try.
+    if major(&c.omarchy) == newest {
+        c.tried = 0;
+    }
+    if *c == before {
+        return Ok(None);
+    }
+    let note = if before.paused && !pause {
+        backup(ctx, &OMARCHY_OWN.map(String::from), OMARCHY_BACKUP)?;
+        Some(
+            "This computer now uses the Omarchy settings from your other computers. Its own were saved first."
+                .to_string(),
+        )
+    } else {
+        None
+    };
+    ctx.save_data(&data)?;
+    ctx.git(&["commit", "-q", "-am", &format!("Sync from {}", ctx.host)])?;
+    Ok(note)
+}
+
+/// Puts back the Omarchy settings saved before this computer tried a newer Omarchy's, and
+/// pauses syncing them again.
+pub fn put_back_omarchy(ctx: &Ctx) -> Result<(), String> {
+    let _lock = lock_wait(ctx)?;
+    let file = ctx
+        .home
+        .join(".local/share/omarchy-sync/backups")
+        .join(format!("{OMARCHY_BACKUP}.tar.gz"));
+    let (f, h) = (file.to_string_lossy(), ctx.home.to_string_lossy());
+    // The folders are only cleared once the saved copy is known to read.
+    run(None, "tar", &["-tzf", &f])?;
+    let mut data = ctx.load_data();
+    data.computers.entry(ctx.host.clone()).or_default().tried = 0;
+    let paused = data.should_pause(&ctx.host);
+    data.computers.entry(ctx.host.clone()).or_default().paused = paused;
+    ctx.save_data(&data)?;
+    for own in OMARCHY_OWN {
+        let _ = std::fs::remove_dir_all(ctx.home.join(own));
+    }
+    run(None, "tar", &["-xzf", &f, "-C", &h])?;
+    // The shell keeps plugin code it has loaded (see the bar indicator).
+    let _ = run(None, "omarchy", &["restart", "shell"]);
+    Ok(())
+}
+
+/// After combining, the shared choices file must still read; if git's line-by-line combining
+/// broke it, it's rebuilt from both computers' versions, never read as empty.
+fn repair_data(ctx: &Ctx, before: &str) -> Result<(), String> {
+    let text = std::fs::read_to_string(ctx.data_path()).unwrap_or_default();
+    if serde_yaml::from_str::<Data>(&text).is_ok() {
+        return Ok(());
+    }
+    let base = ctx.git(&["merge-base", before, "@{u}"])?;
+    ctx.save_data(&Data::merge(
+        &data_at(ctx, &base),
+        &data_at(ctx, "@{u}"),
+        &data_at(ctx, before),
+    ))?;
+    ctx.git(&["commit", "-q", "-am", &format!("Sync from {}", ctx.host)])
+        .map(|_| ())
+}
+
 /// Syncs, and records how it went for the bar indicator (see `write_status`).
 pub fn sync(
     ctx: &Ctx,
@@ -1410,7 +1865,10 @@ pub fn write_status(ctx: &Ctx, state: &str, text: &str) {
     }
 }
 
-/// The optional bar indicator: a small Omarchy shell plugin, kept with the app.
+/// The bar indicator: a small Omarchy shell plugin, kept with the app. The shell keeps a
+/// widget's code by file name, so the widget's file name carries a number that goes up
+/// whenever it changes (Indicator2, Indicator3: QML only loads names that are valid types,
+/// with no hyphens); an older file is replaced, not edited.
 pub const BAR_PLUGIN: &str = "io.github.tsubaie.omarchy-sync";
 const BAR_FILES: &[(&str, &str)] = &[
     (
@@ -1418,8 +1876,8 @@ const BAR_FILES: &[(&str, &str)] = &[
         include_str!("../../packaging/bar-plugin/manifest.json"),
     ),
     (
-        "BarWidget.qml",
-        include_str!("../../packaging/bar-plugin/BarWidget.qml"),
+        "Indicator2.qml",
+        include_str!("../../packaging/bar-plugin/Indicator2.qml"),
     ),
 ];
 
@@ -1431,25 +1889,53 @@ pub fn bar_indicator(ctx: &Ctx) -> bool {
         .exists()
 }
 
+/// Puts the indicator on the bar unless the person took it off this computer, and brings an
+/// installed one up to this version. Cheap when it's already current.
+pub fn ensure_bar_indicator(ctx: &Ctx) -> Result<(), String> {
+    let off = ctx
+        .load_data()
+        .computers
+        .get(&ctx.host)
+        .is_some_and(|c| c.no_bar_indicator);
+    let dir = ctx.home.join(PLUGIN_DIR).join(BAR_PLUGIN);
+    let current = BAR_FILES
+        .iter()
+        .all(|(name, text)| std::fs::read_to_string(dir.join(name)).is_ok_and(|t| t == *text));
+    if off || current || !has("omarchy-shell") {
+        return Ok(());
+    }
+    set_bar_indicator(ctx, true)
+}
+
 /// Puts the indicator on the bar, or takes it off, through Omarchy's own plugin commands.
 pub fn set_bar_indicator(ctx: &Ctx, on: bool) -> Result<(), String> {
     let dir = ctx.home.join(PLUGIN_DIR).join(BAR_PLUGIN);
     if on {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        // Older widget files go, so only this version's is left.
+        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if !BAR_FILES.iter().any(|(n, _)| *n == name) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
         for (name, text) in BAR_FILES {
             std::fs::write(dir.join(name), text).map_err(|e| e.to_string())?;
         }
         run(None, "omarchy-shell", &["shell", "rescanPlugins"])?;
         // The shell scans in the background, so the new plugin may take a moment to be known.
-        let mut last = String::new();
+        let mut enabled = Err(String::new());
         for _ in 0..20 {
-            match run(None, "omarchy", &["plugin", "enable", BAR_PLUGIN]) {
-                Ok(_) => return Ok(()),
-                Err(e) => last = e,
+            enabled = run(None, "omarchy", &["plugin", "enable", BAR_PLUGIN]);
+            if enabled.is_ok() {
+                break;
             }
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
-        Err(last)
+        enabled?;
+        // The shell caches each plugin folder's files from when it first read them, so a new
+        // or changed widget file only loads after a restart (about a second; the bar redraws).
+        run(None, "omarchy", &["restart", "shell"]).map(|_| ())
     } else {
         // Already off (or never on) is fine: the goal is that it's gone.
         let _ = run(None, "omarchy", &["plugin", "disable", BAR_PLUGIN]);
@@ -1500,38 +1986,51 @@ fn sync_inner(
     step("Getting changes from your other computers");
     let tracked = ctx.git(&["rev-parse", "--abbrev-ref", "@{u}"]).is_ok();
     if tracked {
-        let mut args = vec!["pull", "--rebase", "--progress"];
+        git_progress(ctx, &["fetch", "--progress"], step).map_err(fail)?;
+        // Already holding everything from GitHub (say, just after settling a clash, which joins
+        // both computers' changes): nothing to replay, and replaying would bring the clash back.
+        let caught_up = ctx
+            .git(&["merge-base", "--is-ancestor", "@{u}", "HEAD"])
+            .is_ok();
+        let mut args = vec!["rebase", "-q"];
         // During a rebase, "theirs" is this computer's commits and "ours" is what came from GitHub.
         match prefer {
             Prefer::ThisComputer => args.extend(["-X", "theirs"]),
             Prefer::OtherComputer => args.extend(["-X", "ours"]),
             Prefer::Ask => {}
         }
-        if let Err(e) = git_progress(ctx, &args, step) {
+        args.push("@{u}");
+        let before = ctx.git(&["rev-parse", "HEAD"]).map_err(fail)?;
+        let replayed = if caught_up {
+            Ok(String::new())
+        } else {
+            ctx.git(&args)
+        };
+        if let Err(e) = replayed {
             if !ctx.rebasing() {
                 return Err(fail(e));
             }
             if !settle_data(ctx).map_err(fail)? {
                 let files = ctx.conflicted();
                 let _ = ctx.git(&["rebase", "--abort"]);
-                // The newest change to these files on GitHub names the other computer.
-                let mut args = vec!["log", "-1", "--format=%an%x09%ct", "@{u}", "--"];
-                args.extend(files.iter().map(|f| f.as_str()));
-                let data = ctx.load_data();
-                let by = ctx
-                    .git(&args)
-                    .ok()
-                    .and_then(|l| parse_log(&l).into_iter().next())
-                    .map(|(author, t)| (data.resolve(&author), t));
-                return Err(SyncError::Conflict(Conflict {
-                    files: to_targets(ctx, files),
-                    by,
-                }));
+                return Err(clash(ctx, files, Vec::new()));
             }
+        }
+        // Combined without a clash, but a file both computers changed may have come out
+        // broken (a lost comma in JSON, say): then this computer goes back to where it was and
+        // the person chooses, as for a clash.
+        if !caught_up {
+            let broken = broken_by_combining(ctx, &before);
+            if !broken.is_empty() {
+                ctx.git(&["reset", "-q", "--hard", &before]).map_err(fail)?;
+                return Err(clash(ctx, broken.clone(), broken));
+            }
+            repair_data(ctx, &before).map_err(fail)?;
         }
     }
 
     step("Updating this computer");
+    notes.extend(settle_pause(ctx).map_err(fail)?);
     run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
     let data = ctx.load_data();
     // The Current theme switch governs applying it too.
@@ -1588,13 +2087,256 @@ fn sync_inner(
 /// Synced apps this computer should have but doesn't.
 /// Synced apps this computer wants and `yay` can install (not ones from outside the repos).
 pub fn missing_apps(data: &Data, host: &str, installed: &BTreeSet<String>) -> Vec<String> {
+    let here = repos_here();
     data.apps
         .iter()
         .filter(|a| {
-            data.wants_app(host, a) && !installed.contains(*a) && !data.outside.contains_key(*a)
+            data.wants_app(host, a)
+                && !installed.contains(*a)
+                && !data.outside.contains_key(*a)
+                // From an extra repository this computer doesn't have: never from the AUR
+                // instead; it waits for the repository (see missing_repos).
+                && data.app_repo.get(*a).is_none_or(|r| here.contains(r))
         })
         .cloned()
         .collect()
+}
+
+/// The package repositories this computer uses.
+pub fn repos_here() -> BTreeSet<String> {
+    run(None, "pacman-conf", &["--repo-list"])
+        .unwrap_or_default()
+        .lines()
+        .map(String::from)
+        .collect()
+}
+
+/// An extra repository this computer needs for apps it should have.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct MissingRepo {
+    pub name: String,
+    pub repository: Repository,
+    pub apps: Vec<String>,
+}
+
+/// Extra repositories this computer lacks for synced apps it wants and doesn't have yet.
+pub fn missing_repos(
+    data: &Data,
+    host: &str,
+    installed: &BTreeSet<String>,
+    here: &BTreeSet<String>,
+) -> Vec<MissingRepo> {
+    let mut needed: BTreeMap<&String, Vec<String>> = BTreeMap::new();
+    for app in data
+        .apps
+        .iter()
+        .filter(|a| data.wants_app(host, a) && !installed.contains(*a))
+    {
+        if let Some(repo) = data.app_repo.get(app).filter(|r| !here.contains(*r)) {
+            needed.entry(repo).or_default().push(app.clone());
+        }
+    }
+    needed
+        .into_iter()
+        .filter_map(|(name, apps)| {
+            Some(MissingRepo {
+                name: name.clone(),
+                repository: data.repositories.get(name)?.clone(),
+                apps,
+            })
+        })
+        .collect()
+}
+
+/// The extra repositories this computer has that are shared, with the person's apps from each.
+pub fn repos_with_apps(data: &Data, here: &BTreeSet<String>) -> Vec<MissingRepo> {
+    data.repositories
+        .iter()
+        .filter(|(name, _)| here.contains(*name))
+        .map(|(name, repository)| MissingRepo {
+            name: name.clone(),
+            repository: repository.clone(),
+            apps: data
+                .app_repo
+                .iter()
+                .filter(|(_, r)| *r == name)
+                .map(|(app, _)| app.clone())
+                .collect(),
+        })
+        .collect()
+}
+
+/// This computer's extra repositories as pacman uses them (servers and signature rules), with
+/// the key that signs each, and which of the person's apps come from one.
+fn record_repositories(data: &mut Data) {
+    let extra: Vec<String> = repos_here()
+        .into_iter()
+        .filter(|r| !STANDARD_REPOS.contains(&r.as_str()))
+        .collect();
+    if extra.is_empty() {
+        return;
+    }
+    for name in &extra {
+        let conf = run(None, "pacman-conf", &[&format!("--repo={name}")]).unwrap_or_default();
+        let field = |key: &str| -> Vec<String> {
+            conf.lines()
+                .filter_map(|l| l.strip_prefix(key))
+                .map(|v| v.trim().to_string())
+                .collect()
+        };
+        let repository = Repository {
+            servers: field("Server = "),
+            sig_level: field("SigLevel = "),
+            key: repo_key(name),
+        };
+        if !repository.servers.is_empty() {
+            data.repositories.insert(name.clone(), repository);
+        }
+    }
+    let mine = user_apps_here();
+    for (app, repo) in sources(mine.iter(), &[], &BTreeMap::new()) {
+        if extra.contains(&repo) {
+            data.app_repo.insert(app, repo);
+        }
+    }
+}
+
+/// The key that signed a repository's package list, copied from pacman's keyring. The keyring
+/// is root's, so its public half is read from a copy in a temporary folder.
+fn repo_key(name: &str) -> Option<RepoKey> {
+    let db = run(None, "pacman-conf", &["DBPath"]).unwrap_or("/var/lib/pacman/".into());
+    let sig = Path::new(db.trim())
+        .join("sync")
+        .join(format!("{name}.db.sig"));
+    let packets = run(None, "gpg", &["--list-packets", &sig.to_string_lossy()]).ok()?;
+    let fingerprint = packets
+        .split_whitespace()
+        .skip_while(|w| *w != "fpr")
+        .nth(2)?
+        .trim_end_matches(')')
+        .to_uppercase();
+    if fingerprint.len() != 40 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let dir = std::env::temp_dir().join(format!("omarchy-sync-keys-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).ok()?;
+    let ring = ["pubring.gpg", "pubring.kbx"]
+        .iter()
+        .find(|f| std::fs::copy(Path::new("/etc/pacman.d/gnupg").join(f), dir.join(f)).is_ok());
+    let home = dir.to_string_lossy().into_owned();
+    let gpg = |args: &[&str]| {
+        let mut all = vec!["--homedir", home.as_str(), "--no-autostart", "--batch"];
+        all.extend_from_slice(args);
+        run(None, "gpg", &all).ok()
+    };
+    let key = ring.and_then(|_| {
+        let armored = gpg(&["--export", "--armor", &fingerprint])?;
+        let owner = gpg(&["--list-keys", "--with-colons", &fingerprint])?
+            .lines()
+            .find_map(|l| {
+                l.strip_prefix("uid:")
+                    .map(|u| u.split(':').nth(8).unwrap_or("").to_string())
+            })
+            .unwrap_or_default();
+        armored
+            .starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----")
+            .then(|| RepoKey {
+                fingerprint: fingerprint.clone(),
+                owner,
+                armored,
+            })
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    key
+}
+
+/// Adds an extra repository on this computer, as recorded from another one: its settings file
+/// in /etc/pacman.d, an Include for it in pacman.conf, its key imported and trusted, and the
+/// package lists refreshed. One password prompt (pkexec); every value is checked first.
+pub fn add_repository(data: &Data, name: &str) -> Result<(), String> {
+    let repo = data
+        .repositories
+        .get(name)
+        .ok_or_else(|| format!("no repository called {name}"))?;
+    let plain = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+    };
+    if !plain(name) || STANDARD_REPOS.contains(&name) {
+        return Err(format!("not a repository that can be added: {name}"));
+    }
+    if repos_here().contains(name) {
+        return Ok(());
+    }
+    const LEVELS: &[&str] = &[
+        "Never",
+        "Optional",
+        "Required",
+        "TrustedOnly",
+        "TrustAll",
+        "PackageNever",
+        "PackageOptional",
+        "PackageRequired",
+        "PackageTrustedOnly",
+        "PackageTrustAll",
+        "DatabaseNever",
+        "DatabaseOptional",
+        "DatabaseRequired",
+        "DatabaseTrustedOnly",
+        "DatabaseTrustAll",
+    ];
+    let servers_ok = !repo.servers.is_empty()
+        && repo.servers.iter().all(|s| {
+            s.starts_with("https://") && !s.chars().any(|c| c.is_whitespace() || c.is_control())
+        });
+    if !servers_ok || !repo.sig_level.iter().all(|l| LEVELS.contains(&l.as_str())) {
+        return Err(format!("the settings recorded for {name} don't look right"));
+    }
+    let dir = std::env::temp_dir().join(format!("omarchy-sync-repo-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut conf = format!("[{name}]\n");
+    if !repo.sig_level.is_empty() {
+        conf.push_str(&format!("SigLevel = {}\n", repo.sig_level.join(" ")));
+    }
+    for server in &repo.servers {
+        conf.push_str(&format!("Server = {server}\n"));
+    }
+    let target = format!("/etc/pacman.d/omarchy-sync-{name}.conf");
+    let include = format!("Include = {target}");
+    let mut script = format!(
+        "set -e\ninstall -m 644 '{}' '{target}'\ngrep -qxF '{include}' /etc/pacman.conf || printf '\\n%s\\n' '{include}' >> /etc/pacman.conf\n",
+        dir.join("repo.conf").display()
+    );
+    std::fs::write(dir.join("repo.conf"), conf).map_err(|e| e.to_string())?;
+    if let Some(key) = &repo.key {
+        let fpr_ok =
+            key.fingerprint.len() == 40 && key.fingerprint.bytes().all(|b| b.is_ascii_hexdigit());
+        if !fpr_ok
+            || !key
+                .armored
+                .starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----")
+        {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(format!("the key recorded for {name} doesn't look right"));
+        }
+        std::fs::write(dir.join("repo.key"), &key.armored).map_err(|e| e.to_string())?;
+        script.push_str(&format!(
+            "pacman-key --add '{}'\npacman-key --lsign-key {}\n",
+            dir.join("repo.key").display(),
+            key.fingerprint
+        ));
+    }
+    script.push_str("pacman -Sy --noconfirm\n");
+    std::fs::write(dir.join("add.sh"), &script).map_err(|e| e.to_string())?;
+    let result = run(
+        None,
+        "pkexec",
+        &["bash", &dir.join("add.sh").to_string_lossy()],
+    )
+    .map(|_| ());
+    let _ = std::fs::remove_dir_all(&dir);
+    result
 }
 
 /// Synced apps from outside the repos that this computer wants, with their install scripts.
@@ -1659,6 +2401,48 @@ pub fn outside_repos(mine: &[String]) -> Vec<String> {
         .filter(|a| k.get(*a) == Some(&false))
         .cloned()
         .collect()
+}
+
+/// Where apps come from. pacman takes a package from the first repository in pacman.conf that
+/// has it (on Omarchy: omarchy, then Arch's core, extra and multilib), and yay turns to the AUR
+/// only when none does; apps from none of these install with their steps.
+pub fn sources<'a>(
+    apps: impl Iterator<Item = &'a String>,
+    outside_here: &[String],
+    outside_synced: &BTreeMap<String, Option<Script>>,
+) -> BTreeMap<String, String> {
+    sources_with(apps, outside_here, outside_synced, &BTreeMap::new())
+}
+
+/// `sources`, where an app that comes from an extra repository this computer doesn't have
+/// (`app_repo`, recorded by another computer) shows that repository rather than the AUR.
+pub fn sources_with<'a>(
+    apps: impl Iterator<Item = &'a String>,
+    outside_here: &[String],
+    outside_synced: &BTreeMap<String, Option<Script>>,
+    app_repo: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
+    let mut repo_of: BTreeMap<&str, &str> = BTreeMap::new();
+    let listing = run(None, "pacman", &["-Sl"]).unwrap_or_default();
+    // `pacman -Sl` lists repositories in pacman.conf's order; the first one listing a package wins.
+    for line in listing.lines() {
+        let mut parts = line.split(' ');
+        if let (Some(repo), Some(name)) = (parts.next(), parts.next()) {
+            repo_of.entry(name).or_insert(repo);
+        }
+    }
+    apps.map(|app| {
+        let source = match repo_of.get(app.as_str()) {
+            Some(&"omarchy") => "omarchy",
+            Some(&("core" | "extra" | "multilib")) => "arch",
+            Some(repo) => repo,
+            None if outside_here.contains(app) || outside_synced.contains_key(app) => "elsewhere",
+            None if app_repo.contains_key(app) => app_repo[app].as_str(),
+            None => "aur",
+        };
+        (app.clone(), source.to_string())
+    })
+    .collect()
 }
 
 /// A pacman package name: lowercase letters, digits and @._+-, not starting with - or a dot.
@@ -1743,6 +2527,8 @@ pub struct Entry {
     /// Plain names of what changed, e.g. "Keyboard shortcuts".
     pub labels: Vec<String>,
     pub is_undo: bool,
+    /// Where two computers' changes were joined after a clash; it can't be undone on its own.
+    pub is_merge: bool,
     /// The very first save, which has nothing before it to go back to.
     pub first: bool,
     /// Every file it changed: what Undo would put back.
@@ -1839,6 +2625,7 @@ pub fn parse_history(log: &str) -> Vec<Entry> {
                 when: when.parse().ok()?,
                 labels,
                 is_undo: subject.starts_with(UNDO_PREFIX),
+                is_merge: parents.contains(' '),
                 first: parents.is_empty(),
                 files,
             })
@@ -2077,6 +2864,10 @@ pub struct Overview {
     pub history: Vec<Entry>,
     /// Every computer's plugins, named.
     pub plugins: Vec<Plugin>,
+    /// Extra repositories this computer needs for apps it should have, waiting to be added.
+    pub missing_repos: Vec<MissingRepo>,
+    /// Shared extra repositories this computer already has.
+    pub repos_here: Vec<MissingRepo>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -2086,6 +2877,8 @@ pub struct Apps {
     pub mine: Vec<String>,
     /// Those of `mine` that came from neither Arch's repos nor the AUR.
     pub outside: Vec<String>,
+    /// Where each app comes from: omarchy, arch, aur, elsewhere, or another repository's name.
+    pub source: BTreeMap<String, String>,
     pub about: BTreeMap<String, String>,
 }
 
@@ -2146,8 +2939,15 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
         .map(|id| ctx.plugin(id))
         .collect();
     plugins.sort_by_key(|p| p.name.to_lowercase());
+    let here = repos_here();
+    let mut unshared = to_targets(ctx, parse_status(&status));
+    for change in look_changes(ctx, &data) {
+        if !unshared.contains(&change) {
+            unshared.push(change);
+        }
+    }
     Ok(Overview {
-        unshared: to_targets(ctx, parse_status(&status)),
+        unshared,
         incoming,
         online,
         computers: computers(&parse_log(&log), &data, &ctx.host),
@@ -2166,6 +2966,8 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
             })
             .collect(),
         plugins,
+        missing_repos: missing_repos(&data, &ctx.host, &installed(), &here),
+        repos_here: repos_with_apps(&data, &here),
     })
 }
 
@@ -2258,10 +3060,14 @@ fn apps(data: &Data) -> Apps {
         parse_info(&run(None, "pacman", &args).unwrap_or_default())
     };
     let outside = outside_repos(&mine);
+    // Every app shown: this computer's and the synced ones it may not have yet.
+    let all = mine.iter().chain(data.apps.iter());
+    let source = sources_with(all, &outside, &data.outside, &data.app_repo);
     Apps {
         installed,
         mine,
         outside,
+        source,
         about,
     }
 }
@@ -2278,6 +3084,27 @@ pub fn user_apps<'a>(
 }
 
 /// Maps paths inside the sync folder to paths under home.
+/// The theme and background in use here when they differ from the shared ones. Neither shows
+/// in git until a sync records it, so a change made in Omarchy is listed from here.
+fn look_changes(ctx: &Ctx, data: &Data) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(theme) = ctx.current_theme().filter(|t| is_file_name(t))
+        && data.uses_theme(&ctx.host)
+        && data.theme.as_ref() != Some(&theme)
+    {
+        out.push(format!(".config/omarchy/themes/{theme}"));
+    }
+    if let Some(name) = ctx
+        .current_background()
+        .and_then(|p| Some(p.file_name()?.to_string_lossy().into_owned()))
+        .filter(|n| is_file_name(n))
+        && data.background.as_ref() != Some(&name)
+    {
+        out.push(format!(".background/{name}"));
+    }
+    out
+}
+
 fn to_targets(ctx: &Ctx, paths: Vec<String>) -> Vec<String> {
     let mut out = Vec::new();
     let mut files = Vec::new();
@@ -2304,10 +3131,18 @@ fn to_targets(ctx: &Ctx, paths: Vec<String>) -> Vec<String> {
 
 /// Paths from `git status --porcelain -z`.
 pub fn parse_status(s: &str) -> Vec<String> {
-    s.split('\0')
-        .filter(|e| e.len() > 3)
-        .map(|e| e[3..].to_string())
-        .collect()
+    let mut paths = Vec::new();
+    let mut entries = s.split('\0');
+    while let Some(e) = entries.next() {
+        if e.len() > 3 {
+            paths.push(e[3..].to_string());
+            // A rename or copy ("R  new", then the old name) is one change, not two.
+            if e.starts_with(['R', 'C']) {
+                entries.next();
+            }
+        }
+    }
+    paths
 }
 
 /// Latest commit time per author from `git log --format=%an%x09%ct` (newest first).
@@ -2833,6 +3668,130 @@ mod tests {
     }
 
     #[test]
+    fn an_older_omarchy_pauses_its_own_settings_until_tried_or_updated() {
+        let on = |v: &str| Computer {
+            omarchy: v.into(),
+            ..Default::default()
+        };
+        let mut d = Data {
+            folders: vec![".config/hypr".into(), ".config/alacritty".into()],
+            ..Default::default()
+        };
+        d.computers.insert("old".into(), on("4.0.6-1"));
+        d.computers.insert("new".into(), on("5.1.0"));
+        d.computers.insert("dev".into(), on("dev (abc123)"));
+        assert_eq!((major("4.0.6-1"), major("dev (abc123)")), (Some(4), None));
+        // The newest computers carry on; an older one pauses, and so would a 4.5 next to a 4.0
+        // only if the major version differed.
+        assert!(d.should_pause("old") && !d.should_pause("new") && !d.should_pause("dev"));
+        d.computers.get_mut("old").unwrap().paused = true;
+        assert_eq!(d.active_folders("old"), [".config/alacritty"]);
+        assert_eq!(d.active_folders("new").len(), 2);
+        // Trying Omarchy 5's settings resumes it, until an Omarchy 6 arrives.
+        d.computers.get_mut("old").unwrap().tried = 5;
+        assert!(!d.should_pause("old"));
+        d.computers.get_mut("new").unwrap().omarchy = "6.0.0".into();
+        assert!(d.should_pause("old"));
+    }
+
+    #[test]
+    fn apps_from_an_extra_repository_wait_for_it() {
+        let mut d = Data {
+            apps: vec!["chatgpt-bin".into(), "firefox".into()],
+            ..Default::default()
+        };
+        d.app_repo
+            .insert("chatgpt-bin".into(), "openai-chatgpt".into());
+        d.repositories.insert(
+            "openai-chatgpt".into(),
+            Repository {
+                servers: vec!["https://example.com/arch".into()],
+                ..Default::default()
+            },
+        );
+        let none = BTreeSet::new();
+        let missing = missing_repos(&d, "b", &none, &BTreeSet::from(["core".into()]));
+        assert_eq!(
+            (
+                missing.len(),
+                missing[0].name.as_str(),
+                missing[0].apps.clone()
+            ),
+            (1, "openai-chatgpt", vec!["chatgpt-bin".to_string()])
+        );
+        // Once the repository is here, nothing waits for it.
+        let here = BTreeSet::from(["openai-chatgpt".to_string()]);
+        assert!(missing_repos(&d, "b", &none, &here).is_empty());
+        assert_eq!(repos_with_apps(&d, &here)[0].apps, missing[0].apps);
+        // A repository recorded on one computer survives a merge with another's changes.
+        let base = Data::default();
+        let theirs = Data {
+            apps: vec!["yazi".into()],
+            ..Default::default()
+        };
+        let m = Data::merge(&base, &theirs, &d);
+        assert!(m.repositories.contains_key("openai-chatgpt"));
+        assert_eq!(
+            m.app_repo.get("chatgpt-bin").map(String::as_str),
+            Some("openai-chatgpt")
+        );
+    }
+
+    #[test]
+    fn a_tampered_repository_is_refused_before_anything_runs() {
+        let mut d = Data::default();
+        let repo = |server: &str, level: &str| Repository {
+            servers: vec![server.into()],
+            sig_level: vec![level.into()],
+            key: None,
+        };
+        d.repositories
+            .insert("plain-http".into(), repo("http://example.com", "Required"));
+        d.repositories.insert(
+            "odd-level".into(),
+            repo("https://example.com", "Required; rm -rf"),
+        );
+        d.repositories
+            .insert("bad name!".into(), repo("https://example.com", "Required"));
+        d.repositories
+            .insert("core".into(), repo("https://example.com", "Required"));
+        for name in ["plain-http", "odd-level", "bad name!", "core", "unknown"] {
+            assert!(
+                add_repository(&d, name).is_err(),
+                "{name} should be refused"
+            );
+        }
+    }
+
+    #[test]
+    fn settings_files_are_checked_by_format() {
+        assert!(well_formed("a.json", r#"{"a": 1}"#));
+        assert!(!well_formed("a.json", r#"{"a": 1,}"#));
+        assert!(well_formed("a.toml", "a = 1"));
+        assert!(!well_formed("a.toml", "a = 1\na = 2"));
+        assert!(well_formed("a.yaml", "a: 1"));
+        assert!(!well_formed("a.yaml", "a: [1"));
+        assert!(well_formed("ghostty/config", "anything = goes"));
+        // Lua is checked with luac where it's installed.
+        if Command::new("luac").arg("-v").output().is_ok() {
+            assert!(well_formed("a.lua", "local a = 1"));
+            assert!(!well_formed("a.lua", "local a = "));
+        }
+    }
+
+    #[test]
+    fn a_rename_is_one_change() {
+        let status = "R  dot_config/hypr/new.lua\0dot_config/hypr/old.lua\0 M dot_config/omarchy/private_shell.json\0";
+        assert_eq!(
+            parse_status(status),
+            vec![
+                "dot_config/hypr/new.lua".to_string(),
+                "dot_config/omarchy/private_shell.json".to_string()
+            ]
+        );
+    }
+
+    #[test]
     fn labels_and_time() {
         assert_eq!(label(".config/hypr/bindings.lua"), "Keyboard shortcuts");
         assert_eq!(label(".config/hyprx/a"), ".config/hyprx/a");
@@ -2889,6 +3848,13 @@ mod tests {
         };
 
         let a = computer("a", "a1", "screen-a");
+        let alacritty = a.home.join(".config/alacritty");
+        std::fs::create_dir_all(&alacritty).unwrap();
+        std::fs::write(
+            alacritty.join("alacritty.toml"),
+            "a = 1\n\nb = 2\n\nc = 3\n",
+        )
+        .unwrap();
         let dock = a.home.join(PLUGIN_DIR).join("dock");
         std::fs::create_dir_all(&dock).unwrap();
         std::fs::write(dock.join("manifest.json"), r#"{"name":"Dock"}"#).unwrap();
@@ -2929,6 +3895,15 @@ mod tests {
 
         assert!(a.src.join(".background/hills.jpg").exists());
         assert!(!a.src.join("dot_config/omarchy/backgrounds").exists());
+        // A theme picked in Omarchy shows as not shared yet, before any sync records it.
+        let state = a.home.join(".local/state/omarchy/current");
+        assert!(look_changes(&a, &a.load_data()).is_empty());
+        std::fs::write(state.join("theme.name"), "old").unwrap();
+        assert_eq!(
+            look_changes(&a, &a.load_data()),
+            [".config/omarchy/themes/old"]
+        );
+        std::fs::write(state.join("theme.name"), "mine").unwrap();
         enter(&b);
         assert!(adopt(&b, &remote, &quiet).unwrap().exists());
         ok(sync(&b, Prefer::Ask, false, &quiet));
@@ -3041,6 +4016,55 @@ mod tests {
         ok(sync(&b, Prefer::Ask, false, &quiet));
         assert_eq!(read(&b, "bindings.lua"), "b2");
         assert!(history(&b).last().unwrap().first);
+
+        // A second clash, settled by looking at both versions: B keeps A's, and B's own
+        // version stays in the history.
+        enter(&a);
+        write(&a, "bindings.lua", "a4");
+        ok(sync(&a, Prefer::Ask, false, &quiet));
+        enter(&b);
+        write(&b, "bindings.lua", "b4");
+        let clash = match sync(&b, Prefer::Ask, false, &quiet) {
+            Err(SyncError::Conflict(c)) => c,
+            _ => panic!("expected a conflict"),
+        };
+        let v = &clash.versions[0];
+        assert_eq!(
+            (v.mine.as_deref(), v.theirs.as_deref(), v.binary),
+            (Some("b4"), Some("a4"), false)
+        );
+        let choices = BTreeMap::from([(v.source.clone(), Keep::Theirs)]);
+        ok(resolve(&b, &choices, false, &quiet));
+        assert_eq!(read(&b, "bindings.lua"), "a4");
+        // The whole history, as History shows it (a single file's log hides the side that lost).
+        let kept = b.git(&["log", "-p"]).unwrap_or_default();
+        assert!(kept.contains("+b4"), "B's own version is in the history");
+        assert!(history(&b).iter().any(|e| e.is_merge));
+        enter(&a);
+        ok(sync(&a, Prefer::Ask, false, &quiet));
+        assert_eq!(read(&a, "bindings.lua"), "a4");
+
+        // Both add the same setting in different parts of a TOML file: git combines them
+        // without a clash, but the result has it twice, which isn't valid TOML. B goes back to
+        // where it was and is asked, with the file marked as broken by combining.
+        let toml = |ctx: &Ctx| ctx.home.join(".config/alacritty/alacritty.toml");
+        std::fs::write(toml(&a), "a = 1\nx = \"a\"\n\nb = 2\n\nc = 3\n").unwrap();
+        ok(sync(&a, Prefer::Ask, false, &quiet));
+        enter(&b);
+        let mine = "a = 1\n\nb = 2\n\nc = 3\nx = \"b\"\n";
+        std::fs::write(toml(&b), mine).unwrap();
+        let clash = match sync(&b, Prefer::Ask, false, &quiet) {
+            Err(SyncError::Conflict(c)) => c,
+            other => panic!("expected the broken file to be shown, got {other:?}"),
+        };
+        assert_eq!(clash.broken, vec![".config/alacritty/alacritty.toml"]);
+        assert_eq!(std::fs::read_to_string(toml(&b)).unwrap(), mine);
+        let choices = BTreeMap::from([(clash.versions[0].source.clone(), Keep::Mine)]);
+        ok(resolve(&b, &choices, false, &quiet));
+        assert_eq!(std::fs::read_to_string(toml(&b)).unwrap(), mine);
+        enter(&a);
+        ok(sync(&a, Prefer::Ask, false, &quiet));
+        assert_eq!(std::fs::read_to_string(toml(&a)).unwrap(), mine);
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

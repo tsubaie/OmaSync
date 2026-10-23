@@ -1,0 +1,15 @@
+name: Suggest something
+description: An idea that would make Omarchy Sync better.
+labels: [suggestion]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would it help?
+      description: What you're trying to do, and what gets in the way today.

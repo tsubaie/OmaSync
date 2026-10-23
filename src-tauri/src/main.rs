@@ -7,6 +7,7 @@ mod sync;
 use serde::Serialize;
 use sync::{Ctx, Data, Overview, Prefer, Report, SetupState, SyncError};
 use tauri::ipc::Channel;
+use tauri::{Emitter, Manager};
 
 fn main() {
     // The systemd timer runs the same binary headless.
@@ -15,12 +16,26 @@ fn main() {
         return;
     }
     tauri::Builder::default()
+        // One window only: opening Omarchy Sync again (from the launcher or the bar indicator)
+        // brings the open window forward on its Sync page, where anything waiting is listed.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+            let _ = app.emit("show-sync", ());
+        }))
+        .setup(|app| {
+            watch_look(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             look,
             folders,
             probe,
             overview,
             sync_now,
+            resolve_conflict,
             undo,
             install_helpers,
             sign_in,
@@ -30,6 +45,11 @@ fn main() {
             install_plugins,
             set_app_script,
             set_bar_indicator,
+            add_repository,
+            try_omarchy,
+            put_back_omarchy,
+            update_omarchy,
+            report,
             remove_app_script,
             install_with_script,
             choices_changed,
@@ -110,10 +130,6 @@ fn output(prog: &str, args: &[&str]) -> Option<String> {
 
 #[tauri::command]
 fn look() -> Look {
-    let ctx = Ctx::load();
-    let state = std::env::var("XDG_STATE_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or(ctx.home.join(".local/state"));
     let hypr_off = output("hyprctl", &["getoption", "animations:enabled", "-j"])
         .is_some_and(|s| s.contains("\"bool\":false") || s.contains("\"int\":0"));
     let gnome_off = output(
@@ -122,10 +138,40 @@ fn look() -> Look {
     )
     .is_some_and(|s| s.trim() == "false");
     Look {
-        colors_toml: std::fs::read_to_string(state.join("omarchy/current/theme/colors.toml"))
-            .unwrap_or_default(),
+        colors_toml: colors_toml(&Ctx::load()),
         motion: !(hypr_off || gnome_off),
     }
+}
+
+fn colors_toml(ctx: &Ctx) -> String {
+    let state = std::env::var("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or(ctx.home.join(".local/state"));
+    std::fs::read_to_string(state.join("omarchy/current/theme/colors.toml")).unwrap_or_default()
+}
+
+/// Tells the page when the Omarchy theme or background changes, so it recolours itself and
+/// lists the change to share, like other apps that follow the desktop theme.
+fn watch_look(app: tauri::AppHandle) {
+    std::thread::spawn(move || {
+        let ctx = Ctx::load();
+        let now = || {
+            (
+                ctx.current_theme(),
+                colors_toml(&ctx),
+                ctx.current_background(),
+            )
+        };
+        let mut last = now();
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let seen = now();
+            if seen != last {
+                last = seen;
+                let _ = app.emit("look-changed", ());
+            }
+        }
+    });
 }
 
 #[derive(Serialize)]
@@ -189,6 +235,8 @@ async fn overview(on_step: Channel<String>, just_synced: bool) -> Result<Status>
         let manual = data.computers.get(&ctx.host).is_some_and(|c| c.manual);
         // Keeps the background timer matching this computer's choice (cheap when it already does).
         let schedule_error = sync::schedule(ctx, !manual).err();
+        // On by default; a failure here only means no indicator, so it doesn't stop the check.
+        let _ = sync::ensure_bar_indicator(ctx);
         let overview = sync::overview(ctx, &steps(on_step), just_synced)?;
         Ok(Status {
             overview,
@@ -212,6 +260,18 @@ fn install_without_asking(ctx: &Ctx) -> bool {
 #[tauri::command]
 async fn sync_now(prefer: Prefer, on_step: Channel<String>) -> Result<Report> {
     blocking(move |ctx| sync::sync(ctx, prefer, install_without_asking(ctx), &steps(on_step)))
+        .await
+        .map_err(Problem::from)
+}
+
+/// Settles a clash with the version chosen for each clashing file (by its sync-folder path),
+/// then syncs. Files that aren't clashing are simply not looked up.
+#[tauri::command]
+async fn resolve_conflict(
+    choices: std::collections::BTreeMap<String, sync::Keep>,
+    on_step: Channel<String>,
+) -> Result<Report> {
+    blocking(move |ctx| sync::resolve(ctx, &choices, install_without_asking(ctx), &steps(on_step)))
         .await
         .map_err(Problem::from)
 }
@@ -324,9 +384,27 @@ async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> 
     Ok(data)
 }
 
+/// Adds an extra package repository on this computer, as another computer has it (after the
+/// person confirmed); only one this computer needs and lacks, by its recorded name.
+#[tauri::command]
+async fn add_repository(name: String) -> Result<()> {
+    blocking(move |ctx| {
+        let data = ctx.load_data();
+        let needed = sync::missing_repos(&data, &ctx.host, &sync::installed(), &sync::repos_here());
+        if !needed.iter().any(|r| r.name == name) {
+            return Err(format!("{name} isn't a repository this computer needs"));
+        }
+        sync::add_repository(&data, &name)
+    })
+    .await
+    .map_err(Problem::from)
+}
+
 /// Shows the sync indicator on the Omarchy bar, or takes it off.
 #[tauri::command]
 async fn set_bar_indicator(on: bool) -> Result<()> {
+    // Remembered per computer, so the app doesn't put it back.
+    edit(|d, host| d.computers.entry(host.into()).or_default().no_bar_indicator = !on)?;
     blocking(move |ctx| sync::set_bar_indicator(ctx, on))
         .await
         .map_err(Problem::from)
@@ -457,6 +535,45 @@ async fn set_folder(path: String, on: bool) -> Result<Data> {
     Ok(data)
 }
 
+/// Tries the newer Omarchy's settings on this paused computer; the sync that follows saves its
+/// own first (see `sync::settle_pause`).
+#[tauri::command]
+fn try_omarchy() -> Result<Data> {
+    edit(|d, host| {
+        if d.should_pause(host)
+            && let Some(newest) = d.newest_omarchy()
+        {
+            d.computers.entry(host.into()).or_default().tried = newest;
+        }
+    })
+}
+
+#[tauri::command]
+async fn put_back_omarchy() -> Result<()> {
+    let ctx = Ctx::load();
+    if ctx
+        .load_data()
+        .computers
+        .get(&ctx.host)
+        .is_none_or(|c| c.tried == 0)
+    {
+        return Err("This computer isn't trying another Omarchy's settings."
+            .to_string()
+            .into());
+    }
+    Ok(blocking(sync::put_back_omarchy).await?)
+}
+
+/// Omarchy's own updater, in a terminal where it can ask for the password.
+#[tauri::command]
+fn update_omarchy() -> Result<()> {
+    std::process::Command::new("xdg-terminal-exec")
+        .args(["omarchy", "update"])
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("xdg-terminal-exec: {e}").into())
+}
+
 #[tauri::command]
 fn folder_here(path: String, on: bool) -> Result<Data> {
     let path = known_folder(&path)?;
@@ -524,6 +641,60 @@ async fn open_sync_space() -> Result<()> {
     })
     .await
     .map_err(Problem::from)
+}
+
+/// Where problems and ideas are reported.
+const ISSUES: &str = "https://github.com/tsubaie/OmaSync/issues/new";
+
+/// Opens a new GitHub issue in the browser: with no message, the choice of kind (problem,
+/// suggestion, something else); with an error's message and details, a problem report filled
+/// in with them. The person reads it on GitHub and sends it themselves. The home folder in the
+/// details becomes `~`, and the text is trimmed to what fits in a web address.
+#[tauri::command]
+fn report(message: Option<String>, details: Option<String>) -> Result<()> {
+    let clean = |s: &str, max: usize| -> String {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let s = if home.len() > 1 {
+            s.replace(&home, "~")
+        } else {
+            s.to_string()
+        };
+        s.chars()
+            .filter(|c| !c.is_control() || *c == '\n')
+            .take(max)
+            .collect()
+    };
+    let url = match message {
+        None => format!("{ISSUES}/choose"),
+        Some(message) => {
+            let message = clean(&message, 500);
+            let title: String = message.chars().take(100).collect();
+            format!(
+                "{ISSUES}?template=bug.yml&title={}&what-happened={}&details={}&version={}",
+                encode(&title),
+                encode(&message),
+                encode(&clean(&details.unwrap_or_default(), 4000)),
+                encode(env!("CARGO_PKG_VERSION")),
+            )
+        }
+    };
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string().into())
+}
+
+/// Percent-encodes text for a web address's query.
+fn encode(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// Stops syncing this computer. Returns where the local sync folder was moved.

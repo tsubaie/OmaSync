@@ -1,0 +1,9 @@
+name: Something else
+description: A question, or anything that isn't a problem or an idea.
+body:
+  - type: textarea
+    id: message
+    attributes:
+      label: What's on your mind?
+    validations:
+      required: true

@@ -1,7 +1,7 @@
 // Small building blocks in the style of macOS System Settings, on React Aria Components
 // (keyboard, focus and screen-reader behaviour come from React Aria; the look is styles.css).
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Check, Circle, RefreshCw, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { Button, Switch, Tooltip, TooltipTrigger } from 'react-aria-components';
 import { progress } from './format';
@@ -217,6 +217,51 @@ export function Caution({ children }: { children: ReactNode }) {
     <div className="caution" role="note">
       <TriangleAlert size={16} aria-hidden="true" />
       <p>{children}</p>
+    </div>
+  );
+}
+
+/**
+ * Switches for each computer, for one app or plugin, when there are too many computers for a
+ * column each: a summary ("On 5 of 6 computers") that opens to one switch per line.
+ */
+export function ComputerList({
+  subject,
+  computers,
+  disabled,
+  onChange,
+}: {
+  /** What the switches are for, for their labels ("firefox"). */
+  subject: string;
+  computers: { id: string; name: string; on: boolean }[];
+  disabled?: boolean;
+  onChange: (id: string, on: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const count = computers.filter((c) => c.on).length;
+  return (
+    <div className="computer-list">
+      <div className="inline">
+        <span className="detail">
+          On {count} of {computers.length} computers
+        </span>
+        <Link onPress={() => setOpen(!open)}>{open ? 'Done' : 'Choose Computers…'}</Link>
+      </div>
+      {open && (
+        <ul>
+          {computers.map((c) => (
+            <li key={c.id}>
+              <span>{c.name}</span>
+              <Toggle
+                on={c.on}
+                label={`${subject} synced on ${c.name}`}
+                disabled={disabled}
+                onChange={(on) => onChange(c.id, on)}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

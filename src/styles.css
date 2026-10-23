@@ -200,6 +200,33 @@ output {
 .nav[data-disabled] {
   opacity: 0.4;
 }
+/* Beside Settings, on its right: report a problem or suggest something. */
+.sidebar {
+  position: relative;
+}
+.report {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  opacity: 0.75;
+  outline: none;
+  z-index: 1;
+}
+.report[data-hovered] {
+  opacity: 1;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+.report[data-focus-visible] {
+  box-shadow: var(--focus);
+}
 /* Settings sits at the very bottom of the sidebar. */
 .nav.end {
   margin-top: auto;
@@ -573,6 +600,93 @@ output {
   font-size: 11px;
   color: var(--quiet);
 }
+/* A clashing file, both versions side by side; the lines that differ are tinted. */
+.row.clash {
+  display: grid;
+  gap: 10px;
+}
+.compare {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 11.5px;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.compare th {
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  color: var(--ink);
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.compare td {
+  padding: 2px 10px;
+  vertical-align: top;
+  border-left: 0.5px solid var(--line);
+}
+.compare td:first-child {
+  border-left: 0;
+}
+.compare code {
+  font-family: ui-monospace, 'JetBrains Mono', monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.compare tr.changed td {
+  background: color-mix(in srgb, var(--warn) 16%, transparent);
+}
+.compare tr.changed td.gap {
+  background: color-mix(in srgb, var(--warn) 6%, transparent);
+}
+/* Which version to keep: two equal choices, neither marked as recommended. */
+.keep {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.keep .choice-radio {
+  justify-self: start;
+}
+.choice-radio {
+  padding: 5px 12px;
+  border-radius: 980px;
+  font-size: 12.5px;
+  cursor: default;
+  box-shadow: inset 0 0 0 0.5px var(--line);
+  outline: none;
+}
+.choice-radio[data-hovered] {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+.choice-radio[data-selected] {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: none;
+}
+.choice-radio[data-focus-visible] {
+  box-shadow: var(--focus);
+}
+
+/* Commands to run by hand, to read and copy. */
+.commands {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  justify-items: start;
+}
+.commands pre {
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 11.5px;
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
 /* A warning before something risky: tinted in the warning colour, never hidden. */
 .caution {
   display: flex;
@@ -592,6 +706,24 @@ output {
 }
 .caution p {
   margin: 0;
+}
+/* Where an app comes from: a small quiet tag after its name; the AUR, a last resort, in the
+   warning colour. */
+.source {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 17px;
+  vertical-align: 1px;
+  color: var(--quiet);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.source.aur {
+  color: var(--warn);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--warn) 50%, transparent);
 }
 .script-form {
   display: grid;
@@ -748,16 +880,30 @@ kbd {
 .device.empty[data-focus-visible] .screen {
   box-shadow: var(--focus);
 }
-/* Stacked like cards when there are several other computers. */
-.device .screen.stack::before {
-  content: '';
+/* Stacked like cards when there are several other computers: two more peek out behind. */
+.device .screen.stack {
+  box-shadow:
+    7px -7px 0 -4px color-mix(in srgb, var(--card), var(--ink) 20%),
+    14px -14px 0 -8px color-mix(in srgb, var(--card), var(--ink) 11%),
+    var(--shadow-md),
+    var(--highlight);
+}
+.device .count {
   position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: inherit;
-  transform: translate(6px, -6px) scale(0.92);
-  z-index: -1;
-  opacity: 0.6;
+  top: -8px;
+  left: -8px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  background: var(--ink);
+  color: var(--card);
+  box-shadow: 0 0 0 2px var(--card);
 }
 .device .badge-dot {
   position: absolute;
@@ -982,6 +1128,24 @@ kbd {
   display: grid;
   grid-template-columns: 1fr repeat(var(--n), 104px);
 }
+/* Many computers: one column for the app, its computers as a list it opens. */
+.matrix.many {
+  grid-template-columns: 1fr;
+}
+.computer-list ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-width: 360px;
+}
+.computer-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 12.5px;
+  border-top: 0.5px solid var(--line);
+}
 /* Switches sit at the right edge of their column, as in System Settings. */
 .matrix > .cell,
 .matrix.head > span:not(:first-child) {
@@ -1099,6 +1263,11 @@ kbd {
   }
   .nav {
     justify-content: center;
+  }
+  /* No room beside Settings: it sits just above it. */
+  .report {
+    right: 19px;
+    bottom: 56px;
   }
   .brand {
     justify-content: center;

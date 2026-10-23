@@ -30,17 +30,28 @@ On Omarchy, `webkit2gtk-4.1` is already installed. Elsewhere, install [Tauri's L
 
 Run the same gates CI runs before you open a pull request:
 
-| Command             | What it checks                                                                                                                  |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `pnpm audit:static` | Oxlint, TypeScript, Prettier, Knip (unused code and dependencies), dependency-cruiser                                           |
-| `pnpm test`         | Unit tests, including WCAG contrast for every bundled Omarchy theme                                                             |
-| `pnpm audit:rust`   | `cargo fmt`, Clippy with warnings as errors, and the Rust tests, including a real two-computer sync (needs `chezmoi` and `git`) |
-| `pnpm test:e2e`     | The page in WebKit with Rust mocked, plus axe accessibility checks on every pane                                                |
-| `pnpm audit:all`    | All of the above                                                                                                                |
+| Command             | What it checks                                                                                                                                                       |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm audit:static` | Oxlint, TypeScript, Prettier, Knip (unused code and dependencies), dependency-cruiser                                                                                |
+| `pnpm test`         | Unit tests, including WCAG contrast for every bundled Omarchy theme                                                                                                  |
+| `pnpm audit:rust`   | `cargo fmt`, Clippy with warnings as errors, and the Rust tests, including a real two-computer sync (needs `chezmoi` and `git`)                                      |
+| `pnpm test:e2e`     | The page in WebKit with Rust mocked, plus axe accessibility checks on every pane                                                                                     |
+| `pnpm audit:all`    | All of the above                                                                                                                                                     |
+| `pnpm test:multi`   | The real app (built, driven through WebDriver) on several computers in a Docker container, syncing through a local repository. Needs Docker; not part of `audit:all` |
 
 Playwright's WebKit build only runs on Ubuntu-like systems. On Arch, run the end-to-end tests in Chromium with `E2E_BROWSER=chromium pnpm test:e2e`; CI runs them in WebKit.
 
+Pull requests run these on GitHub Actions; that's the normal place to run the slower ones.
+
 The Rust tests never touch your real settings: the two-computer test points `HOME` and every `XDG_*` folder at a temporary directory.
+
+## Decisions to keep
+
+- **Undo is shared.** History's Undo reverses a sync on every computer. Anything that should only affect this computer (Put Back My Settings, the first-sync backup) uses a local copy instead.
+- **Omarchy's own settings follow the newest major version.** An older computer pauses them rather than receiving settings it may not understand; it can try them with a saved copy to go back to.
+- **No AUR fallback** for apps that come from their maker's repository, and nothing that changes what the system trusts (a repository, install steps) runs without a clear question first.
+- **A file that no longer reads after combining is a clash**, never applied.
+- **Check with tools that exist** (serde, toml, serde_yaml, `luac -p`) rather than hand-written parsers.
 
 ## Writing for the interface
 

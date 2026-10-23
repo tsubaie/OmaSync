@@ -68,15 +68,14 @@ export function palette(toml: string): Record<string, Rgb> {
   // macOS designs each appearance on its own: light windows put white cards on a soft grey,
   // dark ones lift cards a step lighter than the window.
   const light = luminance(bg) > 0.4;
-  // Selection, buttons and switches use Omarchy's green (on trial; Apple's blue was #0058d0
-  // dark and #0064e1 light, with white text): bright with dark text in the dark appearance,
-  // deeper with white text in the light one.
-  const accent = hex(light ? '#3f6d1f' : '#9ece6a')!;
+  // Selection, buttons and switches use the Omarchy theme's own accent, so the app matches the
+  // desktop; the text on it is whichever reads best (checked for every bundled theme).
+  const accent = get('accent', '#89b4fa');
   const card = light ? mix(bg, WHITE, 0.75) : mix(bg, ink, 0.06);
   // The sidebar: the theme's own darker shade, a step below the window.
   const sidebar = get('dark_background', '#161622');
   const surfaces = [bg, card, sidebar];
-  const onAccent = light ? WHITE : hex('#16161e')!;
+  const onAccent = bestOn(accent, bg, ink);
   const p: Record<string, Rgb> = {
     bg,
     card,

@@ -62,12 +62,13 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
     'true',
   );
   for (const [key, name] of [
-    ['2', 'History'],
-    ['3', 'Configurations'],
-    ['4', 'Plugins'],
+    ['2', 'Configurations'],
+    ['3', 'Plugins'],
+    ['4', 'Repositories'],
     ['5', 'Installed Apps'],
     ['6', 'App Data'],
-    ['7', 'Settings'],
+    ['7', 'History'],
+    ['8', 'Settings'],
   ]) {
     await page.keyboard.press(`Control+${key}`);
     await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
@@ -96,17 +97,48 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
   ).toBeVisible();
 });
 
-test('a conflict offers two equal choices naming the other computer', async ({ page }) => {
+test('a conflict shows both versions and keeps the one chosen for each setting', async ({
+  page,
+}) => {
   await page.goto('/?scenario=conflict');
   await page.getByRole('button', { name: 'Sync Now' }).click();
   await expect(page.getByText('The same setting was changed on two computers.')).toBeVisible();
-  await expect(page.getByRole('button', { name: "Keep This Computer's Version" })).toBeVisible();
-  await page.getByRole('button', { name: "Keep Desktop's Version" }).click();
-  expect((await calls(page, 'sync_now')).map((c) => c.args.prefer)).toEqual([
-    'Ask',
-    'OtherComputer',
-  ]);
+  // Both versions side by side, with the differing lines marked.
+  const keys = page.getByRole('table', { name: 'Both versions of .config/hypr/bindings.lua' });
+  await expect(keys.getByRole('columnheader', { name: 'This Computer' })).toBeVisible();
+  await expect(keys.getByRole('columnheader', { name: 'Desktop' })).toBeVisible();
+  await expect(keys.locator('tr.changed')).toHaveCount(2);
   expect(await a11y(page)).toEqual([]);
+
+  // One choice per setting; keeping waits until every setting has one.
+  // The button says how many settings still need a choice.
+  await expect(page.getByRole('button', { name: 'Choose 2 More' })).toBeDisabled();
+  await page
+    .getByRole('radiogroup', { name: 'Which version of .config/hypr/bindings.lua to keep' })
+    .getByText("Keep Desktop's Version")
+    .click();
+  await expect(page.getByRole('button', { name: 'Choose 1 More' })).toBeDisabled();
+  await page
+    .getByRole('radiogroup', { name: 'Which version of .config/ghostty/config to keep' })
+    .getByText("Keep This Computer's Version")
+    .click();
+  await page.getByRole('button', { name: 'Keep Chosen Versions' }).click();
+  expect(await calls(page, 'resolve_conflict')).toEqual([
+    expect.objectContaining({
+      args: expect.objectContaining({
+        choices: { 'dot_config/hypr/bindings.lua': 'Theirs', 'dot_config/ghostty/config': 'Mine' },
+      }),
+    }),
+  ]);
+});
+
+test('cancelling a clash changes nothing and leaves it for the next sync', async ({ page }) => {
+  await page.goto('/?scenario=conflict');
+  await page.getByRole('button', { name: 'Sync Now' }).click();
+  await expect(page.getByText('Changed on Both Computers')).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await expect(page.getByText('Changed on Both Computers')).toBeHidden();
+  expect(await calls(page, 'resolve_conflict')).toEqual([]);
 });
 
 test('undo asks before changing every computer', async ({ page }) => {
@@ -130,7 +162,7 @@ test('undo asks before changing every computer', async ({ page }) => {
 test('settings names this computer and shows the sync space', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+7');
+  await page.keyboard.press('Control+8');
   await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
   await expect(page.getByText('github.com/someone/omarchy-sync')).toBeVisible();
   expect(await a11y(page)).toEqual([]);
@@ -163,8 +195,11 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
   const rows = page.locator('.matrix:not(.head) .text > div:first-child');
-  await expect(rows).toHaveText(['brave-bin', 'quicknote', 'spotify', 'tapecalc', 'yazi']);
+  await expect(rows).toHaveText([/^brave-bin/, /^quicknote/, /^spotify/, /^tapecalc/, /^yazi/]);
   await expect(page.getByText('Only on this computer').first()).toBeVisible();
+  // Each app says where it comes from; the AUR is the last resort.
+  await expect(page.locator('.source.aur')).toHaveText('AUR');
+  await expect(page.locator('.source.omarchy')).toHaveText('Omarchy');
   const desk = page.getByRole('switch', { name: 'spotify synced on Desktop' });
   await expect(desk).not.toBeChecked();
   // Switching Desktop on shares it, and this computer (which has it) comes along.
@@ -172,7 +207,7 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await page.keyboard.press('Space');
   await expect(desk).toBeChecked();
   await expect(page.getByRole('switch', { name: 'spotify synced on This Computer' })).toBeChecked();
-  await expect(rows).toHaveText(['brave-bin', 'quicknote', 'spotify', 'tapecalc', 'yazi']);
+  await expect(rows).toHaveText([/^brave-bin/, /^quicknote/, /^spotify/, /^tapecalc/, /^yazi/]);
   const banner = page.getByText('Your other computers get this change the next time you sync.');
   await expect(banner).toBeVisible();
   // Every computer switched off again: nothing is left to share, so the banner goes away.
@@ -269,14 +304,90 @@ test('an install command runs only after a warning and a second yes', async ({ p
   ]);
 });
 
-test('the bar indicator is off until it is switched on in Settings', async ({ page }) => {
+test('the bar indicator is on by default and flips off at once', async ({ page }) => {
   await page.goto('/?scenario=synced');
-  await page.keyboard.press('Control+7');
+  await page.keyboard.press('Control+8');
   const bar = page.getByRole('switch', { name: 'Show in the bar' });
-  await expect(bar).not.toBeChecked();
+  await expect(bar).toBeChecked();
   await bar.focus();
   await page.keyboard.press('Space');
+  await expect(bar).not.toBeChecked();
   expect(await calls(page, 'set_bar_indicator')).toEqual([
-    { cmd: 'set_bar_indicator', args: { on: true } },
+    { cmd: 'set_bar_indicator', args: { on: false } },
   ]);
+});
+
+test('problems and ideas can be reported from beside Settings', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('button', { name: 'Report a Problem or Suggest Something' }).click();
+  expect(await calls(page, 'report')).toEqual([
+    { cmd: 'report', args: { message: null, details: null } },
+  ]);
+});
+
+test("an app from its maker's repository waits until the repository is added", async ({ page }) => {
+  await page.goto('/?scenario=repo');
+  // The Sync page points to the Repositories section, where they are added.
+  await page.getByRole('button', { name: 'Show Repositories' }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Repositories' })).toBeVisible();
+  const group = page.getByRole('region', { name: 'Repositories to Add' });
+  await expect(group.getByText('Needed for chatgpt-bin.', { exact: false })).toBeVisible();
+  await group.getByRole('button', { name: 'Add Repository…' }).click();
+  // Nothing runs until the person has seen whose repository it is and its key, and agreed.
+  await expect(group.getByText('Add it only if you trust Codex Linux Repository.')).toBeVisible();
+  await expect(group.locator('code')).toHaveText(
+    '3BFA 0E4A E8B8 CC16 A2D9 BA68 4A3B 4A56 6C46 60E4',
+  );
+  expect(await calls(page, 'add_repository')).toEqual([]);
+  expect(await a11y(page)).toEqual([]);
+  await group.getByRole('button', { name: 'Add It' }).click();
+  expect(await calls(page, 'add_repository')).toEqual([
+    { cmd: 'add_repository', args: { name: 'openai-chatgpt' } },
+  ]);
+  // Or by hand: the same steps as terminal commands.
+  await group.getByRole('button', { name: 'Show Commands' }).click();
+  await expect(group.locator('.commands code')).toContainText(
+    'sudo pacman-key --lsign-key 3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4',
+  );
+  // Until then the app is off and locked here.
+  await page.getByRole('tab', { name: 'Installed Apps' }).click();
+  await expect(
+    page.getByText('Needs the openai-chatgpt repository on this computer first'),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('switch', { name: 'chatgpt-bin synced on This Computer' }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('switch', { name: 'chatgpt-bin synced on This Computer' }),
+  ).not.toBeChecked();
+});
+
+test('an older Omarchy keeps its own settings, can try the newer ones, and put them back', async ({
+  page,
+}) => {
+  await page.goto('/?scenario=older');
+  const paused = page.getByRole('region', { name: 'Omarchy Settings Paused' });
+  await expect(
+    paused.getByText('This computer has Omarchy 4.0.6-1; Desktop has Omarchy 5.1.0.'),
+  ).toBeVisible();
+  await paused.getByRole('button', { name: 'Try Their Settings Anyway…' }).click();
+  // Nothing changes until the person has read how to go back.
+  await expect(paused.getByText("This computer's Omarchy settings are saved first.")).toBeVisible();
+  expect(await calls(page, 'try_omarchy')).toEqual([]);
+  expect(await a11y(page)).toEqual([]);
+  await paused.getByRole('button', { name: 'Try Them' }).click();
+  expect(await calls(page, 'try_omarchy')).toHaveLength(1);
+  const trying = page.getByRole('region', { name: 'Trying Newer Omarchy Settings' });
+  await trying.getByRole('button', { name: 'Put Back My Settings' }).click();
+  expect(await calls(page, 'put_back_omarchy')).toHaveLength(1);
+  await expect(page.getByRole('region', { name: 'Omarchy Settings Paused' })).toBeVisible();
+});
+
+test('the newer computer says which one to update', async ({ page }) => {
+  await page.goto('/?scenario=newer');
+  const older = page.getByRole('region', { name: 'Older Omarchy Elsewhere' });
+  await expect(older.getByText('Omarchy 4.0.6-1.', { exact: false })).toBeVisible();
+  await expect(
+    older.getByText('Update the older computers, not this one', { exact: false }),
+  ).toBeVisible();
 });

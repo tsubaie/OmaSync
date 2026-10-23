@@ -1,0 +1,3 @@
+# Sourced by every fake: appends "tool args…" to this computer's call log, which the tests read.
+mkdir -p "$HOME/.e2e"
+printf '%s %s\n' "$(basename "$0")" "$*" >> "$HOME/.e2e/calls.log"

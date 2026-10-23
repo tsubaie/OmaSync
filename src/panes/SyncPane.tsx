@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Button } from 'react-aria-components';
+import { Button, Radio, RadioGroup } from 'react-aria-components';
 import {
   Check,
   Cloud,
@@ -13,8 +13,8 @@ import {
   WifiOff,
   type LucideIcon,
 } from 'lucide-react';
-import { api } from '../api';
-import { ago, byFolder, plural, shortList } from '../format';
+import { api, type Keep, type Versions } from '../api';
+import { ago, byFolder, diffLines, plural, shortList } from '../format';
 import type { SyncState } from '../state';
 import { Caution, Group, Link, OmarchyLogo, Progress, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
@@ -43,7 +43,8 @@ function status(s: SyncState): [string, string, LucideIcon, string] {
       'bad',
     ];
   }
-  const n = ov.unshared.length;
+  // Counted as the list below shows them (one row per kind of setting), so the two always agree.
+  const n = byFolder(ov.unshared, s.catalog).length;
   const changed = plural(n, 'change');
   const updates = plural(ov.incoming, 'update');
   if (n === 0 && ov.incoming === 0)
@@ -83,12 +84,18 @@ function Device({
   s: SyncState;
 }) {
   const seen = when ? ago(when, s.now) : 'Not synced yet';
-  const label = more ? `${name} +${more}` : name;
+  // Several other computers show as one stack: how many, and when the latest synced.
+  const label = more ? `${more + 1} Other Computers` : name;
   return (
     // Its name and time are visible text, so screen readers need no extra label.
     <div className={`device ${here ? 'here' : ''}`}>
       <span className={`screen ${more ? 'stack' : ''}`}>
         <OmarchyLogo size={32} />
+        {more ? (
+          <span className="count" aria-hidden="true">
+            {more + 1}
+          </span>
+        ) : null}
         {Badge && (
           <span className="badge-dot">
             <Badge size={13} strokeWidth={3} />
@@ -159,28 +166,93 @@ function Hero({ s }: { s: SyncState }) {
   );
 }
 
-function ConflictGroup({ s }: { s: SyncState }) {
-  const [id, when] = s.conflict!.by ?? [];
-  const name = id && s.nameOf(id);
-  // Two equal choices: neither is styled as the recommended one.
+/** One clashing file: both versions side by side, the lines that differ marked. */
+function Compare({ v, other }: { v: Versions; other: string }) {
+  if (v.binary)
+    return <p className="detail">This file can't be shown, but you can still choose.</p>;
+  const rows = diffLines(v.mine ?? '', v.theirs ?? '');
   return (
-    <Group title="Changed on Both Computers">
-      {byFolder(s.conflict!.files, s.catalog).map(([label, files]) => (
-        <Row key={label} title={label} detail={files.join(', ')} />
+    <table className="compare" aria-label={`Both versions of ${v.path}`}>
+      <thead>
+        <tr>
+          <th scope="col">This Computer{v.mine === null ? ' (removed it)' : ''}</th>
+          <th scope="col">
+            {other}
+            {v.theirs === null ? ' (removed it)' : ''}
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i} className={r.changed ? 'changed' : ''}>
+            <td className={r.mine === null ? 'gap' : ''}>
+              <code>{r.mine ?? ''}</code>
+            </td>
+            <td className={r.theirs === null ? 'gap' : ''}>
+              <code>{r.theirs ?? ''}</code>
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/**
+ * Settings changed on both computers: each shown both ways, with a choice of which to keep.
+ * Nothing is lost either way: the version not kept stays in History.
+ */
+function ConflictGroup({ s }: { s: SyncState }) {
+  const [choices, setChoices] = useState<Record<string, Keep>>({});
+  const [id, when] = s.conflict!.by ?? [];
+  const other = id ? s.nameOf(id) : 'The other computer';
+  const versions = s.conflict!.versions;
+  const left = versions.filter((v) => !choices[v.source]).length;
+  return (
+    <Group
+      title="Changed on Both Computers"
+      footer={`${other} changed ${when ? ago(when, s.now) : 'these too'}. Highlighted lines are the ones that differ. The version you don't keep stays in History.`}
+    >
+      {versions.map((v) => (
+        <div className="row clash" key={v.source}>
+          <div className="text">
+            <div>{byFolder([v.path], s.catalog)[0][0]}</div>
+            <div className="detail">~/{v.path}</div>
+            {s.conflict!.broken.includes(v.path) && (
+              <div className="detail warn">
+                Each computer changed a different part of it, but together they don't make a working
+                file, so choose one.
+              </div>
+            )}
+          </div>
+          <Compare v={v} other={other} />
+          <RadioGroup
+            className="keep"
+            aria-label={`Which version of ${v.path} to keep`}
+            orientation="horizontal"
+            value={choices[v.source] ?? null}
+            onChange={(keep) => setChoices((c) => ({ ...c, [v.source]: keep as Keep }))}
+          >
+            {/* Each choice sits under the version it keeps. */}
+            <Radio className="choice-radio" value="Mine">
+              Keep This Computer's Version
+            </Radio>
+            <Radio className="choice-radio" value="Theirs">
+              Keep {other}'s Version
+            </Radio>
+          </RadioGroup>
+        </div>
       ))}
-      <div className="row choices">
-        <div className="choice">
-          <Push onPress={() => s.sync('ThisComputer')}>Keep This Computer's Version</Push>
-          <span className="sub">What you have here now</span>
-        </div>
-        <div className="choice">
-          <Push onPress={() => s.sync('OtherComputer')}>
-            {name ? `Keep ${name}'s Version` : "Keep the Other Computer's Version"}
-          </Push>
-          <span className="sub">
-            {when ? `Changed there ${ago(when, s.now)}` : 'Changed on another computer'}
-          </span>
-        </div>
+      <div className="row actions">
+        {/* Leaves everything as it is; the next sync asks again. */}
+        <Link onPress={() => s.setConflict(null)}>Cancel</Link>
+        <Push
+          prominent
+          disabled={left > 0 || !s.idle}
+          onPress={() => s.sync('Ask', undefined, false, choices)}
+        >
+          {left > 0 ? `Choose ${left} More` : 'Keep Chosen Versions'}
+        </Push>
       </div>
     </Group>
   );
@@ -287,6 +359,117 @@ function ScriptedApps({ s }: { s: SyncState }) {
   );
 }
 
+const has = (list: unknown[]) => (list.length === 1 ? 'has' : 'have');
+
+const major = (version?: string) => {
+  const n = Number.parseInt(version ?? '', 10);
+  return Number.isNaN(n) ? null : n;
+};
+
+/**
+ * Computers on different Omarchy major versions. The shared Omarchy settings follow the newest;
+ * an older computer keeps its own until it's updated, and can try the newer ones with a way back.
+ */
+function OmarchyVersions({ s }: { s: SyncState }) {
+  const [confirm, setConfirm] = useState(false);
+  const computers = Object.entries(s.data?.computers ?? {});
+  const me = s.data?.computers[s.host];
+  const mine = major(me?.omarchy);
+  const newest = Math.max(0, ...computers.map(([, c]) => major(c.omarchy) ?? 0));
+  if (!me || mine === null || newest === 0) return null;
+  const ahead = computers.filter(([, c]) => major(c.omarchy) === newest);
+  const behind = computers.filter(
+    ([id, c]) => id !== s.host && (major(c.omarchy) ?? newest) < newest,
+  );
+  const names = (list: typeof computers) => shortList(list.map(([id]) => s.nameOf(id)));
+
+  if (mine < newest && me.tried === newest && !me.paused) {
+    return (
+      <Group title="Trying Newer Omarchy Settings">
+        <Row
+          title={`This computer has Omarchy ${me.omarchy} and uses the settings from Omarchy ${newest}.`}
+          detail="If something doesn't work, put back the settings it had before. Updating Omarchy here keeps the newer ones for good."
+          end={
+            <Push
+              disabled={!s.idle}
+              onPress={() =>
+                s.act(
+                  'Putting back your Omarchy settings',
+                  () => api.putBackOmarchy(),
+                  () => s.sync(),
+                )
+              }
+            >
+              Put Back My Settings
+            </Push>
+          }
+        />
+      </Group>
+    );
+  }
+  if (mine < newest) {
+    return (
+      <Group
+        title="Omarchy Settings Paused"
+        footer="Apps, app data, terminals and the background still sync."
+      >
+        <Row
+          title={`This computer has Omarchy ${me.omarchy}; ${names(ahead)} ${has(ahead)} Omarchy ${ahead[0][1].omarchy}.`}
+          detail="Settings made for a newer Omarchy may not work on an older one, so this computer keeps its own Omarchy settings for now. Update Omarchy here and they sync again by themselves."
+          end={
+            <Push disabled={!s.idle} onPress={() => api.updateOmarchy().catch(s.fail)}>
+              Update Omarchy
+            </Push>
+          }
+        >
+          <div className="inline">
+            {confirm ? (
+              <>
+                <Link onPress={() => setConfirm(false)}>Cancel</Link>
+                <Push
+                  onPress={() => {
+                    setConfirm(false);
+                    void s.edit(() => api.tryOmarchy()).then(() => s.sync());
+                  }}
+                >
+                  Try Them
+                </Push>
+              </>
+            ) : (
+              <Link onPress={() => setConfirm(true)}>Try Their Settings Anyway…</Link>
+            )}
+          </div>
+          {confirm && (
+            <Caution>
+              <b>This computer's Omarchy settings are saved first.</b> If something doesn't work
+              after the sync, Put Back My Settings restores them exactly and pauses again.
+            </Caution>
+          )}
+        </Row>
+      </Group>
+    );
+  }
+  if (behind.length === 0) return null;
+  return (
+    <Group
+      title="Older Omarchy Elsewhere"
+      footer="Your Omarchy settings follow the newest Omarchy. Update the older computers, not this one; their Omarchy settings sync again once they're updated."
+    >
+      {behind.map(([id, c]) => (
+        <Row
+          key={id}
+          title={s.nameOf(id)}
+          detail={`Omarchy ${c.omarchy}. ${
+            c.tried === newest
+              ? 'It is trying the newer settings.'
+              : 'It keeps its own Omarchy settings until it is updated.'
+          }`}
+        />
+      ))}
+    </Group>
+  );
+}
+
 export function SyncPane({ s }: { s: SyncState }) {
   const ov = s.overview;
   if (s.conflict) {
@@ -313,6 +496,7 @@ export function SyncPane({ s }: { s: SyncState }) {
       <NoticeLine s={s} />
       {ov && (
         <>
+          <OmarchyVersions s={s} />
           {showWaiting && (
             // Installing changes the system, so it waits for a yes unless this computer opted out of asking.
             <Group title="Apps Waiting to Install" footer="Omarchy will ask for your password.">
@@ -333,6 +517,20 @@ export function SyncPane({ s }: { s: SyncState }) {
                   Install
                 </Push>
               </div>
+            </Group>
+          )}
+          {ov.missing_repos.length > 0 && (
+            <Group title="Repositories to Add">
+              <Row
+                lead={<Tile icon={Package} kind="apps" size={24} />}
+                title={
+                  ov.missing_repos.length === 1
+                    ? '1 repository'
+                    : `${ov.missing_repos.length} repositories`
+                }
+                detail={`Needed for ${shortList(ov.missing_repos.flatMap((r) => r.apps))}.`}
+                end={<Push onPress={() => s.setTab('repos')}>Show Repositories</Push>}
+              />
             </Group>
           )}
           {s.scripted.length > 0 && s.idle && <ScriptedApps s={s} />}

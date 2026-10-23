@@ -3,7 +3,25 @@ import { Search } from 'lucide-react';
 import { Input, Label, SearchField, Text, TextArea, TextField } from 'react-aria-components';
 import { api } from '../api';
 import type { SyncState } from '../state';
-import { Caution, Group, Link, Push, Row, Toggle } from '../ui';
+import { Caution, ComputerList, Group, Link, Push, Row, Toggle } from '../ui';
+
+/** Where an app comes from, as a short tag and what it means. */
+function source(from: string | undefined): [string, string] {
+  if (from === 'omarchy') return ['Omarchy', "From Omarchy's own repository."];
+  if (from === 'arch') return ['Arch', "From Arch Linux's official repositories."];
+  if (from === 'aur')
+    return [
+      'AUR',
+      "From the Arch User Repository: made by the community, used only when Omarchy and Arch don't have it.",
+    ];
+  if (from === 'elsewhere') return ['No repository', 'Installs with the steps you add.'];
+  return from
+    ? [
+        from,
+        `From the ${from} repository, which each computer needs added (the Sync page offers it).`,
+      ]
+    : ['', ''];
+}
 
 /** Install steps in a few words: the only one, or how many and the first. */
 const steps = (command: string) => {
@@ -60,6 +78,8 @@ export function AppsPane({ s }: { s: SyncState }) {
   // This computer's column is simply "Sync"; the others are named after their computer.
   const column = (c: string) => (c === host ? 'Sync' : s.nameOf(c));
   const columns = { '--n': computers.length } as React.CSSProperties;
+  // Past three computers a column each gets too narrow: each app lists its computers instead.
+  const many = computers.length > 3;
   const apps = [...new Set([...data.apps, ...ov.apps.mine])].toSorted();
   // Sync All leaves out apps that can't sync yet (no install steps).
   const needsScript = (a: string) =>
@@ -73,7 +93,7 @@ export function AppsPane({ s }: { s: SyncState }) {
     <>
       <Group
         title="Your Apps"
-        footer="Switch an app on for a computer to have it there; it installs after you approve it. Switching it off never uninstalls it."
+        footer="Switch an app on for a computer to have it there; it installs after you approve it. Switching it off never uninstalls it. Apps come from Omarchy's repository first, then Arch's, and the AUR only when neither has them."
       >
         {apps.length > 6 && (
           <div className="row">
@@ -94,7 +114,7 @@ export function AppsPane({ s }: { s: SyncState }) {
           <Row title={`No apps match “${query.trim()}”.`} />
         ) : (
           <>
-            {computers.length > 1 && (
+            {computers.length > 1 && !many && (
               <div className="row matrix head" style={columns} aria-hidden="true">
                 <span>App</span>
                 {computers.map((c) => (
@@ -109,10 +129,21 @@ export function AppsPane({ s }: { s: SyncState }) {
               // Not in Arch's repos or the AUR: it syncs only with its install steps.
               const outside = ov.apps.outside.includes(app) || app in (data.outside ?? {});
               const script = data.outside?.[app] ?? null;
+              const [tag, meaning] = source(ov.apps.source[app]);
+              // Needs an extra repository this computer doesn't have yet: off and locked here
+              // until it's added (it never comes from the AUR instead).
+              const repo = ov.missing_repos.find((r) => r.apps.includes(app))?.name;
               return (
-                <div className="row matrix" style={columns} key={app}>
+                <div className={`row matrix ${many ? 'many' : ''}`} style={columns} key={app}>
                   <div className="text">
-                    <div>{app}</div>
+                    <div>
+                      {app}
+                      {tag && (
+                        <span className={`source ${ov.apps.source[app]}`} title={meaning}>
+                          {tag}
+                        </span>
+                      )}
+                    </div>
                     {missingHere ? (
                       <div className="detail warn">
                         {script
@@ -121,6 +152,11 @@ export function AppsPane({ s }: { s: SyncState }) {
                       </div>
                     ) : (
                       <div className="detail">{synced ? about : 'Only on this computer'}</div>
+                    )}
+                    {repo && (
+                      <div className="detail warn">
+                        Needs the {repo} repository on this computer first (see Sync).
+                      </div>
                     )}
                     {outside && (
                       <div className="detail">
@@ -148,17 +184,30 @@ export function AppsPane({ s }: { s: SyncState }) {
                       <ScriptForm s={s} app={app} onDone={() => setEditing(null)} />
                     )}
                   </div>
-                  {computers.map((c) => (
-                    <div className="cell" key={c}>
-                      <span className="cell-label">{column(c)}</span>
-                      <Toggle
-                        on={s.wants(c, app)}
-                        label={`${app} synced on ${name(c)}`}
-                        disabled={!s.idle || (outside && !script)}
-                        onChange={(on) => s.edit(() => api.setApp(c, app, on))}
-                      />
-                    </div>
-                  ))}
+                  {many ? (
+                    <ComputerList
+                      subject={app}
+                      computers={computers.map((c) => ({
+                        id: c,
+                        name: name(c),
+                        on: s.wants(c, app) && !(repo && c === host),
+                      }))}
+                      disabled={!s.idle || (outside && !script) || !!repo}
+                      onChange={(c, on) => s.edit(() => api.setApp(c, app, on))}
+                    />
+                  ) : (
+                    computers.map((c) => (
+                      <div className="cell" key={c}>
+                        <span className="cell-label">{column(c)}</span>
+                        <Toggle
+                          on={s.wants(c, app) && !(repo && c === host)}
+                          label={`${app} synced on ${name(c)}`}
+                          disabled={!s.idle || (outside && !script) || (!!repo && c === host)}
+                          onChange={(on) => s.edit(() => api.setApp(c, app, on))}
+                        />
+                      </div>
+                    ))
+                  )}
                 </div>
               );
             })}
