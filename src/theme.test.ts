@@ -4,13 +4,13 @@ import { contrast, hex, palette } from './theme';
 
 describe('palette', () => {
   it('reads the theme and falls back to Catppuccin', () => {
-    // Selection and buttons use Apple's blue whatever the theme's accent, with white text on it.
+    // Selection and buttons use Omarchy's green whatever the theme's accent.
     const p = palette('accent = "#ff0000"\n');
-    expect(p.accent).toEqual(hex('#0058d0'));
+    expect(p.accent).toEqual(hex('#9ece6a'));
     expect(palette('background = "#eff1f5"\nforeground = "#4c4f69"\n').accent).toEqual(
-      hex('#0064e1'),
+      hex('#3f6d1f'),
     );
-    expect(p['on-accent']).toEqual([1, 1, 1]);
+    expect(p['on-accent']).toEqual(hex('#16161e'));
     expect(p.bg).toEqual(hex('#1e1e2e'));
     expect(hex('#12345')).toBeNull();
     expect(contrast([0, 0, 0], [1, 1, 1])).toBeCloseTo(21, 1);
