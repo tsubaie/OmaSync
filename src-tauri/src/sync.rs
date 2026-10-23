@@ -211,6 +211,9 @@ pub struct Computer {
     /// Installs synced apps during a sync instead of waiting for approval.
     #[serde(default, skip_serializing_if = "is_false")]
     pub install_without_asking: bool,
+    /// The person took the sync indicator off this computer's Omarchy bar (it's on by default).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub no_bar_indicator: bool,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -1410,7 +1413,10 @@ pub fn write_status(ctx: &Ctx, state: &str, text: &str) {
     }
 }
 
-/// The optional bar indicator: a small Omarchy shell plugin, kept with the app.
+/// The bar indicator: a small Omarchy shell plugin, kept with the app. The shell keeps a
+/// widget's code by file name, so the widget's file name carries a number that goes up
+/// whenever it changes (Indicator2, Indicator3: QML only loads names that are valid types,
+/// with no hyphens); an older file is replaced, not edited.
 pub const BAR_PLUGIN: &str = "io.github.tsubaie.omarchy-sync";
 const BAR_FILES: &[(&str, &str)] = &[
     (
@@ -1418,8 +1424,8 @@ const BAR_FILES: &[(&str, &str)] = &[
         include_str!("../../packaging/bar-plugin/manifest.json"),
     ),
     (
-        "BarWidget.qml",
-        include_str!("../../packaging/bar-plugin/BarWidget.qml"),
+        "Indicator2.qml",
+        include_str!("../../packaging/bar-plugin/Indicator2.qml"),
     ),
 ];
 
@@ -1431,25 +1437,53 @@ pub fn bar_indicator(ctx: &Ctx) -> bool {
         .exists()
 }
 
+/// Puts the indicator on the bar unless the person took it off this computer, and brings an
+/// installed one up to this version. Cheap when it's already current.
+pub fn ensure_bar_indicator(ctx: &Ctx) -> Result<(), String> {
+    let off = ctx
+        .load_data()
+        .computers
+        .get(&ctx.host)
+        .is_some_and(|c| c.no_bar_indicator);
+    let dir = ctx.home.join(PLUGIN_DIR).join(BAR_PLUGIN);
+    let current = BAR_FILES
+        .iter()
+        .all(|(name, text)| std::fs::read_to_string(dir.join(name)).is_ok_and(|t| t == *text));
+    if off || current || !has("omarchy-shell") {
+        return Ok(());
+    }
+    set_bar_indicator(ctx, true)
+}
+
 /// Puts the indicator on the bar, or takes it off, through Omarchy's own plugin commands.
 pub fn set_bar_indicator(ctx: &Ctx, on: bool) -> Result<(), String> {
     let dir = ctx.home.join(PLUGIN_DIR).join(BAR_PLUGIN);
     if on {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        // Older widget files go, so only this version's is left.
+        for e in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if !BAR_FILES.iter().any(|(n, _)| *n == name) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
         for (name, text) in BAR_FILES {
             std::fs::write(dir.join(name), text).map_err(|e| e.to_string())?;
         }
         run(None, "omarchy-shell", &["shell", "rescanPlugins"])?;
         // The shell scans in the background, so the new plugin may take a moment to be known.
-        let mut last = String::new();
+        let mut enabled = Err(String::new());
         for _ in 0..20 {
-            match run(None, "omarchy", &["plugin", "enable", BAR_PLUGIN]) {
-                Ok(_) => return Ok(()),
-                Err(e) => last = e,
+            enabled = run(None, "omarchy", &["plugin", "enable", BAR_PLUGIN]);
+            if enabled.is_ok() {
+                break;
             }
             std::thread::sleep(std::time::Duration::from_millis(500));
         }
-        Err(last)
+        enabled?;
+        // The shell caches each plugin folder's files from when it first read them, so a new
+        // or changed widget file only loads after a restart (about a second; the bar redraws).
+        run(None, "omarchy", &["restart", "shell"]).map(|_| ())
     } else {
         // Already off (or never on) is fine: the goal is that it's gone.
         let _ = run(None, "omarchy", &["plugin", "disable", BAR_PLUGIN]);
@@ -1659,6 +1693,36 @@ pub fn outside_repos(mine: &[String]) -> Vec<String> {
         .filter(|a| k.get(*a) == Some(&false))
         .cloned()
         .collect()
+}
+
+/// Where apps come from. pacman takes a package from the first repository in pacman.conf that
+/// has it (on Omarchy: omarchy, then Arch's core, extra and multilib), and yay turns to the AUR
+/// only when none does; apps from none of these install with their steps.
+pub fn sources<'a>(
+    apps: impl Iterator<Item = &'a String>,
+    outside_here: &[String],
+    outside_synced: &BTreeMap<String, Option<Script>>,
+) -> BTreeMap<String, String> {
+    let mut repo_of: BTreeMap<&str, &str> = BTreeMap::new();
+    let listing = run(None, "pacman", &["-Sl"]).unwrap_or_default();
+    // `pacman -Sl` lists repositories in pacman.conf's order; the first one listing a package wins.
+    for line in listing.lines() {
+        let mut parts = line.split(' ');
+        if let (Some(repo), Some(name)) = (parts.next(), parts.next()) {
+            repo_of.entry(name).or_insert(repo);
+        }
+    }
+    apps.map(|app| {
+        let source = match repo_of.get(app.as_str()) {
+            Some(&"omarchy") => "omarchy",
+            Some(&("core" | "extra" | "multilib")) => "arch",
+            Some(repo) => repo,
+            None if outside_here.contains(app) || outside_synced.contains_key(app) => "elsewhere",
+            None => "aur",
+        };
+        (app.clone(), source.to_string())
+    })
+    .collect()
 }
 
 /// A pacman package name: lowercase letters, digits and @._+-, not starting with - or a dot.
@@ -2086,6 +2150,8 @@ pub struct Apps {
     pub mine: Vec<String>,
     /// Those of `mine` that came from neither Arch's repos nor the AUR.
     pub outside: Vec<String>,
+    /// Where each app comes from: omarchy, arch, aur, elsewhere, or another repository's name.
+    pub source: BTreeMap<String, String>,
     pub about: BTreeMap<String, String>,
 }
 
@@ -2258,10 +2324,14 @@ fn apps(data: &Data) -> Apps {
         parse_info(&run(None, "pacman", &args).unwrap_or_default())
     };
     let outside = outside_repos(&mine);
+    // Every app shown: this computer's and the synced ones it may not have yet.
+    let all = mine.iter().chain(data.apps.iter());
+    let source = sources(all, &outside, &data.outside);
     Apps {
         installed,
         mine,
         outside,
+        source,
         about,
     }
 }

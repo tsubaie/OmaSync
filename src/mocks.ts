@@ -99,11 +99,14 @@ function place(
   return next;
 }
 
+// On by default, like the real app.
+let barIndicator = true;
+
 const status = (): Status => ({
   host: 'aaaa11112222',
   sync_space: 'https://github.com/someone/omarchy-sync',
   schedule_error: null,
-  bar_indicator: false,
+  bar_indicator: barIndicator,
   data,
   overview: {
     unshared: scenario === 'conflict' ? ['.config/hypr/bindings.lua'] : [],
@@ -118,6 +121,13 @@ const status = (): Status => ({
       mine: ['brave-bin', 'yazi', 'spotify', 'tapecalc'],
       // Installed from its own repository, not Arch's or the AUR.
       outside: ['tapecalc'],
+      source: {
+        'brave-bin': 'omarchy',
+        yazi: 'arch',
+        spotify: 'aur',
+        tapecalc: 'elsewhere',
+        quicknote: 'elsewhere',
+      },
       about: { 'brave-bin': 'Web browser', spotify: 'Music', tapecalc: 'Calculation tape' },
     },
     incoming_files: [],
@@ -232,8 +242,10 @@ mockIPC((cmd, args) => {
       };
       return data;
     }
-    case 'install_with_script':
     case 'set_bar_indicator':
+      barIndicator = !!a.on;
+      return null;
+    case 'install_with_script':
       return null;
     case 'set_app_script':
       data = {

@@ -2,6 +2,7 @@
 // to show and runs one job at a time, with its current step.
 
 import { useEffect, useEffectEvent, useRef, useState } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   api,
@@ -241,6 +242,19 @@ export function useSync() {
     );
   });
   useEffect(() => onStart(), []);
+
+  // Opened again (from the launcher or the bar indicator): show the Sync page, freshly checked.
+  const onShow = useEffectEvent(() => {
+    if (!ready) return;
+    setTab('sync');
+    if (!working.current) refresh();
+  });
+  useEffect(() => {
+    const stop = listen('show-sync', onShow);
+    return () => {
+      stop.then((unlisten) => unlisten());
+    };
+  }, []);
 
   // Each minute: move the clock on, and every five quietly look for news from the other computers.
   const onTick = useEffectEvent(() => {

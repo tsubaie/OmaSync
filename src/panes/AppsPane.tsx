@@ -5,6 +5,21 @@ import { api } from '../api';
 import type { SyncState } from '../state';
 import { Caution, Group, Link, Push, Row, Toggle } from '../ui';
 
+/** Where an app comes from, as a short tag and what it means. */
+function source(from: string | undefined): [string, string] {
+  if (from === 'omarchy') return ['Omarchy', "From Omarchy's own repository."];
+  if (from === 'arch') return ['Arch', "From Arch Linux's official repositories."];
+  if (from === 'aur')
+    return [
+      'AUR',
+      "From the Arch User Repository: made by the community, used only when Omarchy and Arch don't have it.",
+    ];
+  if (from === 'elsewhere') return ['No repository', 'Installs with the steps you add.'];
+  return from
+    ? [from, `From the ${from} repository, which other computers need set up too.`]
+    : ['', ''];
+}
+
 /** Install steps in a few words: the only one, or how many and the first. */
 const steps = (command: string) => {
   const lines = command.split('\n').filter((l) => l.trim());
@@ -73,7 +88,7 @@ export function AppsPane({ s }: { s: SyncState }) {
     <>
       <Group
         title="Your Apps"
-        footer="Switch an app on for a computer to have it there; it installs after you approve it. Switching it off never uninstalls it."
+        footer="Switch an app on for a computer to have it there; it installs after you approve it. Switching it off never uninstalls it. Apps come from Omarchy's repository first, then Arch's, and the AUR only when neither has them."
       >
         {apps.length > 6 && (
           <div className="row">
@@ -109,10 +124,18 @@ export function AppsPane({ s }: { s: SyncState }) {
               // Not in Arch's repos or the AUR: it syncs only with its install steps.
               const outside = ov.apps.outside.includes(app) || app in (data.outside ?? {});
               const script = data.outside?.[app] ?? null;
+              const [tag, meaning] = source(ov.apps.source[app]);
               return (
                 <div className="row matrix" style={columns} key={app}>
                   <div className="text">
-                    <div>{app}</div>
+                    <div>
+                      {app}
+                      {tag && (
+                        <span className={`source ${ov.apps.source[app]}`} title={meaning}>
+                          {tag}
+                        </span>
+                      )}
+                    </div>
                     {missingHere ? (
                       <div className="detail warn">
                         {script

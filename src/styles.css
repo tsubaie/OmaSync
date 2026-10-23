@@ -593,6 +593,24 @@ output {
 .caution p {
   margin: 0;
 }
+/* Where an app comes from: a small quiet tag after its name; the AUR, a last resort, in the
+   warning colour. */
+.source {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 17px;
+  vertical-align: 1px;
+  color: var(--quiet);
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
+.source.aur {
+  color: var(--warn);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--warn) 50%, transparent);
+}
 .script-form {
   display: grid;
   gap: 12px;

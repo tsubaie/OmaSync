@@ -7,6 +7,7 @@ mod sync;
 use serde::Serialize;
 use sync::{Ctx, Data, Overview, Prefer, Report, SetupState, SyncError};
 use tauri::ipc::Channel;
+use tauri::{Emitter, Manager};
 
 fn main() {
     // The systemd timer runs the same binary headless.
@@ -15,6 +16,15 @@ fn main() {
         return;
     }
     tauri::Builder::default()
+        // One window only: opening Omarchy Sync again (from the launcher or the bar indicator)
+        // brings the open window forward on its Sync page, where anything waiting is listed.
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.set_focus();
+            }
+            let _ = app.emit("show-sync", ());
+        }))
         .invoke_handler(tauri::generate_handler![
             look,
             folders,
@@ -189,6 +199,8 @@ async fn overview(on_step: Channel<String>, just_synced: bool) -> Result<Status>
         let manual = data.computers.get(&ctx.host).is_some_and(|c| c.manual);
         // Keeps the background timer matching this computer's choice (cheap when it already does).
         let schedule_error = sync::schedule(ctx, !manual).err();
+        // On by default; a failure here only means no indicator, so it doesn't stop the check.
+        let _ = sync::ensure_bar_indicator(ctx);
         let overview = sync::overview(ctx, &steps(on_step), just_synced)?;
         Ok(Status {
             overview,
@@ -327,6 +339,8 @@ async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> 
 /// Shows the sync indicator on the Omarchy bar, or takes it off.
 #[tauri::command]
 async fn set_bar_indicator(on: bool) -> Result<()> {
+    // Remembered per computer, so the app doesn't put it back.
+    edit(|d, host| d.computers.entry(host.into()).or_default().no_bar_indicator = !on)?;
     blocking(move |ctx| sync::set_bar_indicator(ctx, on))
         .await
         .map_err(Problem::from)

@@ -33,6 +33,8 @@ function NameField({ s }: { s: SyncState }) {
 
 export function SettingsPane({ s }: { s: SyncState }) {
   const [confirm, setConfirm] = useState<string | null>(null);
+  // The bar switch's new position while the bar is being changed.
+  const [barOn, setBarOn] = useState<boolean | null>(null);
   const ov = s.overview;
   if (!ov || !s.data) return null;
   const space = s.syncSpace;
@@ -138,23 +140,28 @@ export function SettingsPane({ s }: { s: SyncState }) {
 
       <Group
         title="Omarchy Bar"
-        footer="A small icon on your bar: dim when everything is in step, turning while syncing, and in the alert colour when something waits for you. Click it to open Omarchy Sync."
+        footer="Omarchy Sync's icon on your bar: spinning in green while syncing, staying green for a few seconds when a sync finishes well, red when syncing fails, and yellow when something waits for you. Click it to open Omarchy Sync."
       >
         <Row
           title="Show in the bar"
-          detail="Adds the Omarchy Sync indicator to your bar; switching it off removes it."
+          detail="On by default. Switching it off removes the indicator from this computer's bar."
           end={
             <Toggle
-              on={s.barIndicator}
+              on={barOn ?? s.barIndicator}
               label="Show in the bar"
               disabled={!s.idle}
-              onChange={(on) =>
+              onChange={(on) => {
+                // Flips at once; the bar catches up in the background.
+                setBarOn(on);
                 s.act(
                   on ? 'Adding to the bar' : 'Removing from the bar',
                   () => api.setBarIndicator(on),
-                  () => s.refresh(),
-                )
-              }
+                  async () => {
+                    await s.refresh();
+                    setBarOn(null);
+                  },
+                );
+              }}
             />
           }
         />

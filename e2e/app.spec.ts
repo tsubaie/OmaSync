@@ -163,8 +163,11 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
   const rows = page.locator('.matrix:not(.head) .text > div:first-child');
-  await expect(rows).toHaveText(['brave-bin', 'quicknote', 'spotify', 'tapecalc', 'yazi']);
+  await expect(rows).toHaveText([/^brave-bin/, /^quicknote/, /^spotify/, /^tapecalc/, /^yazi/]);
   await expect(page.getByText('Only on this computer').first()).toBeVisible();
+  // Each app says where it comes from; the AUR is the last resort.
+  await expect(page.locator('.source.aur')).toHaveText('AUR');
+  await expect(page.locator('.source.omarchy')).toHaveText('Omarchy');
   const desk = page.getByRole('switch', { name: 'spotify synced on Desktop' });
   await expect(desk).not.toBeChecked();
   // Switching Desktop on shares it, and this computer (which has it) comes along.
@@ -172,7 +175,7 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await page.keyboard.press('Space');
   await expect(desk).toBeChecked();
   await expect(page.getByRole('switch', { name: 'spotify synced on This Computer' })).toBeChecked();
-  await expect(rows).toHaveText(['brave-bin', 'quicknote', 'spotify', 'tapecalc', 'yazi']);
+  await expect(rows).toHaveText([/^brave-bin/, /^quicknote/, /^spotify/, /^tapecalc/, /^yazi/]);
   const banner = page.getByText('Your other computers get this change the next time you sync.');
   await expect(banner).toBeVisible();
   // Every computer switched off again: nothing is left to share, so the banner goes away.
@@ -269,14 +272,15 @@ test('an install command runs only after a warning and a second yes', async ({ p
   ]);
 });
 
-test('the bar indicator is off until it is switched on in Settings', async ({ page }) => {
+test('the bar indicator is on by default and flips off at once', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.keyboard.press('Control+7');
   const bar = page.getByRole('switch', { name: 'Show in the bar' });
-  await expect(bar).not.toBeChecked();
+  await expect(bar).toBeChecked();
   await bar.focus();
   await page.keyboard.press('Space');
+  await expect(bar).not.toBeChecked();
   expect(await calls(page, 'set_bar_indicator')).toEqual([
-    { cmd: 'set_bar_indicator', args: { on: true } },
+    { cmd: 'set_bar_indicator', args: { on: false } },
   ]);
 });

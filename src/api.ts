@@ -65,6 +65,8 @@ export type Overview = {
     mine: string[];
     /** Those of `mine` from neither Arch's repos nor the AUR. */
     outside: string[];
+    /** Where each app comes from: omarchy, arch, aur, elsewhere, or another repository's name. */
+    source: Record<string, string>;
     about: Record<string, string>;
   };
   incoming_files: string[];

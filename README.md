@@ -117,7 +117,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 
 **Automatic syncing.** Omarchy Sync syncs every 15 minutes, even with the window closed. It only notifies you when something needs you: a choice between two versions, apps or plugins waiting to be added, or syncing failing twice in a row. Turn it off per computer in **Settings**.
 
-**On your bar.** Turn on **Settings → Show in the bar** for a small indicator: dim when everything is in step, turning while syncing, and in the alert colour when something waits for you, with the reason in its tooltip. Click it to open Omarchy Sync. Switching it off removes it from your bar.
+**On your bar.** Omarchy Sync puts its icon on your Omarchy bar: spinning in green while syncing, green for a few seconds when a sync finishes well, red when syncing fails, and yellow when something waits for you, with the reason in its tooltip. Click it to open Omarchy Sync.
 
 **Choosing what syncs.** **Configurations** and **App Data** list everything that can sync, each with a switch: off stops syncing it everywhere. **Don't Sync on This Computer** leaves only this computer out: it keeps its own version while the others stay in step.
 
