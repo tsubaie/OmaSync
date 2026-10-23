@@ -11,8 +11,8 @@ pub const REPO: &str = "omarchy-sync";
 pub const FOLDERS: &[(&str, &str, bool)] = &[
     (".config/omarchy", "Other Omarchy settings", true),
     // Inside another folder here, but each synced on its own (see NESTED).
-    (".config/omarchy/themes", "Themes", true),
-    (".config/omarchy/extensions", "Menus", true),
+    (".config/omarchy/themes", "Current theme", true),
+    (".config/omarchy/extensions", "Omarchy menu additions", true),
     (".config/omarchy/hooks", "Hooks", true),
     (".config/omarchy/plugins", "Plugins", true),
     (
@@ -101,6 +101,14 @@ const IGNORE: &str = r#"**/.git
 !.config/omarchy/plugins/{{ . }}/**
 {{- end }}
 {{- end }}
+{{- end }}
+.config/omarchy/themes/*
+.config/omarchy/themes/*/**
+{{- /* Only the current theme's own folder (a custom theme, or tweaks to a built-in one). */}}
+{{- $theme := get . "theme" | default "" }}
+{{- if and $theme (has ".config/omarchy/themes" .folders) (not (has ".config/omarchy" $skipFiles)) (not (has ".config/omarchy/themes" $skipFiles)) }}
+!.config/omarchy/themes/{{ $theme }}
+!.config/omarchy/themes/{{ $theme }}/**
 {{- end }}
 .local/share/applications/*
 .local/share/icons/hicolor/256x256/apps/*
@@ -468,6 +476,14 @@ impl Data {
             plugin,
             on,
         );
+    }
+
+    /// Whether the current theme syncs here: its switch is on and not kept separate here.
+    pub fn uses_theme(&self, host: &str) -> bool {
+        const THEMES: &str = ".config/omarchy/themes";
+        self.folders.iter().any(|f| f == THEMES)
+            && self.uses_folder(host, THEMES)
+            && self.uses_folder(host, ".config/omarchy")
     }
 
     /// Synced plugins this computer wants and doesn't have yet, while plugins sync at all.
@@ -949,6 +965,37 @@ fn save_background(ctx: &Ctx) -> Option<String> {
     Some(name)
 }
 
+/// Takes every theme folder but the current one out of the sync folder (older versions synced
+/// them all). Each computer keeps the themes it has.
+fn prune_themes(ctx: &Ctx, data: &Data) {
+    let source = ctx.src.join("dot_config/omarchy/themes");
+    for e in std::fs::read_dir(&source).into_iter().flatten().flatten() {
+        let name = strip_attributes(&e.file_name().to_string_lossy());
+        if data.theme.as_deref() != Some(name.as_str()) {
+            let _ = std::fs::remove_dir_all(e.path()).or_else(|_| std::fs::remove_file(e.path()));
+        }
+    }
+}
+
+/// A chezmoi source name without the attribute prefixes it marks files with.
+fn strip_attributes(name: &str) -> String {
+    let mut name = name.to_string();
+    while let Some(rest) = [
+        "private_",
+        "readonly_",
+        "empty_",
+        "executable_",
+        "literal_",
+        "exact_",
+    ]
+    .iter()
+    .find_map(|p| name.strip_prefix(p))
+    {
+        name = rest.to_string();
+    }
+    name
+}
+
 /// Shows the synced background here when it isn't already, through Omarchy's own command.
 fn apply_background(ctx: &Ctx, data: &Data) -> Result<(), String> {
     let Some(name) = data.background.as_ref().filter(|n| is_file_name(n)) else {
@@ -994,14 +1041,7 @@ fn prune_web_apps(ctx: &Ctx, data: &Data) {
             .src
             .join(dir.replace("/.", "/dot_").replacen('.', "dot_", 1));
         for e in std::fs::read_dir(&source).into_iter().flatten().flatten() {
-            let mut name = e.file_name().to_string_lossy().into_owned();
-            // chezmoi marks file attributes with prefixes on the source name.
-            while let Some(rest) = ["private_", "readonly_", "empty_", "executable_", "literal_"]
-                .iter()
-                .find_map(|p| name.strip_prefix(p))
-            {
-                name = rest.to_string();
-            }
+            let name = strip_attributes(&e.file_name().to_string_lossy());
             if e.path().is_file() && !keep.contains(&name) {
                 let _ = std::fs::remove_file(e.path());
             }
@@ -1138,9 +1178,10 @@ fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<(), String> {
     if std::fs::read_to_string(&ignore).is_ok_and(|current| current != IGNORE) {
         std::fs::write(&ignore, IGNORE).map_err(|e| e.to_string())?;
     }
-    if let Some(t) = ctx.current_theme() {
+    if let Some(t) = ctx.current_theme().filter(|t| is_file_name(t)) {
         data.theme = Some(t);
     }
+    prune_themes(ctx, &data);
     if let Some(name) = save_background(ctx) {
         data.background = Some(name);
     }
@@ -1239,7 +1280,9 @@ pub fn sync(
     step("Updating this computer");
     run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
     let data = ctx.load_data();
+    // The Current theme switch governs applying it too.
     if let Some(theme) = &data.theme
+        && data.uses_theme(&ctx.host)
         && ctx.current_theme().as_ref() != Some(theme)
         && run(None, "omarchy", &["theme", "set", theme]).is_err()
     {
@@ -2363,6 +2406,13 @@ mod tests {
             std::fs::create_dir_all(&state).unwrap();
             std::fs::write(pics.join("hills.jpg"), "jpg").unwrap();
             std::os::unix::fs::symlink(pics.join("hills.jpg"), state.join("background")).unwrap();
+            // Both use the custom theme "mine", so applying it never calls omarchy either.
+            std::fs::write(state.join("theme.name"), "mine").unwrap();
+        }
+        for theme in ["mine", "old"] {
+            let dir = a.home.join(".config/omarchy/themes").join(theme);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(dir.join("colors.toml"), theme).unwrap();
         }
         enter(&a);
         seed(&a).unwrap();
@@ -2377,11 +2427,14 @@ mod tests {
         assert_eq!(read(&b, "bindings.lua"), "a1");
         assert_eq!(read(&b, "monitors.lua"), "screen-b");
 
+        let on_b = |p: &str| b.home.join(p).exists();
         assert_eq!(b.load_data().background.as_deref(), Some("hills.jpg"));
+        // Only the current theme's folder travels.
+        assert!(on_b(".config/omarchy/themes/mine/colors.toml"));
+        assert!(!on_b(".config/omarchy/themes/old"));
         assert!(b.src.join(".background/hills.jpg").exists());
 
         // Only the web app and its icon travel; other shortcuts, caches and icons don't.
-        let on_b = |p: &str| b.home.join(p).exists();
         assert!(on_b(".local/share/applications/Chat App.desktop"));
         assert!(on_b(".local/share/icons/hicolor/256x256/apps/chat.png"));
         assert!(!on_b(".local/share/applications/mpv.desktop"));

@@ -86,7 +86,7 @@ export function OmarchyPane({ s }: { s: SyncState }) {
         s={s}
         pick={OMARCHY}
         title="Omarchy"
-        footer="Only the background you're using syncs, and your other computers switch to it."
+        footer="Only the theme and background you're using sync, and your other computers switch to them."
       />
       <FolderGroup
         s={s}
