@@ -3,7 +3,6 @@ import {
   Check,
   Cloud,
   Download,
-  Monitor,
   Package,
   Plus,
   RefreshCw,
@@ -15,7 +14,7 @@ import {
 import { api } from '../api';
 import { ago, byFolder, plural, shortList } from '../format';
 import type { SyncState } from '../state';
-import { Group, Push, Row, Tile } from '../ui';
+import { Group, OmarchyLogo, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
 
 /** One fixed set of states, each with a headline, a detail line, an icon and its colour. */
@@ -32,7 +31,8 @@ function status(s: SyncState): [string, string, LucideIcon, string] {
   }
   if (!ov) return ['Checking for changes…', '', RefreshCw, 'sync'];
   const mine = ov.computers.find(([name]) => name === host)?.[1];
-  const last = mine ? `Last synced ${ago(mine, s.now)}.` : "This computer hasn't synced yet.";
+  const synced = mine ? `Last synced ${ago(mine, s.now)}.` : "This computer hasn't synced yet.";
+  const last = s.checked ? `${synced} Last checked ${ago(s.checked, s.now)}.` : synced;
   if (!ov.online) {
     return [
       "Can't reach your other computers right now.",
@@ -86,7 +86,7 @@ function Device({
     // Its name and time are visible text, so screen readers need no extra label.
     <div className={`device ${here ? 'here' : ''}`}>
       <span className={`screen ${more ? 'stack' : ''}`}>
-        <Monitor size={30} strokeWidth={1.75} />
+        <OmarchyLogo size={32} />
         {Badge && (
           <span className="badge-dot">
             <Badge size={13} strokeWidth={3} />

@@ -34,7 +34,14 @@ const catalog: Catalog = {
   folders: [
     {
       path: '.config/omarchy',
-      name: 'Omarchy settings, themes and plugins',
+      name: 'Themes, backgrounds, menus and hooks',
+      default: true,
+      exists: true,
+    },
+    { path: '.config/omarchy/plugins', name: 'Plugins', default: true, exists: true },
+    {
+      path: '.config/omarchy/shell.json',
+      name: 'Bar layout and plugin settings',
       default: true,
       exists: true,
     },
@@ -53,7 +60,12 @@ const catalog: Catalog = {
 };
 
 let data: Data = {
-  folders: ['.config/omarchy', '.config/hypr'],
+  folders: [
+    '.config/omarchy',
+    '.config/omarchy/plugins',
+    '.config/omarchy/shell.json',
+    '.config/hypr',
+  ],
   apps: ['brave-bin', 'yazi'],
   computers: {
     aaaa11112222: { name: 'Laptop' },

@@ -47,11 +47,11 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
     'true',
   );
   for (const [key, name] of [
-    ['2', 'Omarchy'],
-    ['3', 'Plugins'],
-    ['4', 'Apps'],
-    ['5', 'App Data'],
-    ['6', 'History'],
+    ['2', 'History'],
+    ['3', 'Configurations'],
+    ['4', 'Plugins'],
+    ['5', 'Installed Apps'],
+    ['6', 'App Data'],
     ['7', 'Settings'],
   ]) {
     await page.keyboard.press(`Control+${key}`);
@@ -59,14 +59,14 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
     expect(await a11y(page), name).toEqual([]);
   }
   // Arrow keys move through the sidebar like a macOS source list.
-  await page.getByRole('tab', { name: 'History' }).focus();
+  await page.getByRole('tab', { name: 'App Data' }).focus();
   await page.keyboard.press('ArrowUp');
-  await expect(page.getByRole('tab', { name: 'App Data' })).toBeFocused();
+  await expect(page.getByRole('tab', { name: 'Installed Apps' })).toBeFocused();
 });
 
 test('switching an app off for a computer saves the choice', async ({ page }) => {
   await page.goto('/?scenario=synced');
-  await page.getByRole('tab', { name: 'Apps' }).click();
+  await page.getByRole('tab', { name: 'Installed Apps' }).click();
   const yazi = page.getByRole('switch', { name: 'yazi on This Computer' });
   await expect(yazi).toBeChecked();
   // Toggle it the way a keyboard user does; it works the same in WebKit and Chromium.

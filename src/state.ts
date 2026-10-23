@@ -15,8 +15,8 @@ import {
 } from './api';
 import { applyLook } from './theme';
 
-export type Tab = 'sync' | 'omarchy' | 'plugins' | 'apps' | 'data' | 'history' | 'settings';
-export const TABS: Tab[] = ['sync', 'omarchy', 'plugins', 'apps', 'data', 'history', 'settings'];
+export type Tab = 'sync' | 'history' | 'omarchy' | 'plugins' | 'apps' | 'data' | 'settings';
+export const TABS: Tab[] = ['sync', 'history', 'omarchy', 'plugins', 'apps', 'data', 'settings'];
 
 export type Notice = { good: boolean; text: string; details?: string };
 
@@ -39,6 +39,8 @@ export function useSync() {
   // Unix seconds, ticking each minute; components read it instead of the clock so rendering stays pure.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
   const lastRefresh = useRef(0);
+  /** When this window last looked for changes, as unix time. */
+  const [checked, setChecked] = useState<number | null>(null);
 
   const ready = !!setup?.ready;
 
@@ -73,11 +75,12 @@ export function useSync() {
 
   async function refresh() {
     try {
-      const st = await run('Checking for changes', () => api.overview());
+      const st = await run('Checking for changes', (onStep) => api.overview(onStep));
       if (!st) return;
       setStatus(st);
       lastRefresh.current = Date.now();
       setNow(Math.floor(Date.now() / 1000));
+      setChecked(Math.floor(Date.now() / 1000));
       if (st.schedule_error) {
         setNotice({
           good: false,
@@ -224,6 +227,7 @@ export function useSync() {
     setSetup,
     setNotice,
     now,
+    checked,
     setup,
     ready,
     tab,

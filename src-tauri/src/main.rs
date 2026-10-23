@@ -184,13 +184,13 @@ struct Status {
 }
 
 #[tauri::command]
-async fn overview() -> Result<Status> {
-    blocking(|ctx| {
+async fn overview(on_step: Channel<String>) -> Result<Status> {
+    blocking(move |ctx| {
         let data = ctx.load_data();
         let manual = data.computers.get(&ctx.host).is_some_and(|c| c.manual);
         // Keeps the background timer matching this computer's choice (cheap when it already does).
         let schedule_error = sync::schedule(ctx, !manual).err();
-        let overview = sync::overview(ctx)?;
+        let overview = sync::overview(ctx, &steps(on_step))?;
         Ok(Status {
             overview,
             data: ctx.load_data(),

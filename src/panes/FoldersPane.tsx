@@ -3,9 +3,10 @@ import { api, type Folder } from '../api';
 import type { SyncState } from '../state';
 import { Group, Link, Row, Tile, Toggle } from '../ui';
 
-/** Folders that make up Omarchy itself; every other folder is an app's data. */
+/** Folders that make up Omarchy itself, and its plugins; every other folder is an app's data. */
 const OMARCHY = ['.config/omarchy', '.config/hypr'];
-const isOmarchy = (f: Folder) => OMARCHY.includes(f.path);
+const PLUGINS = ['.config/omarchy/plugins', '.config/omarchy/shell.json'];
+const isOmarchy = (f: Folder) => OMARCHY.includes(f.path) || PLUGINS.includes(f.path);
 
 function FolderGroup({
   s,
@@ -61,7 +62,7 @@ export function OmarchyPane({ s }: { s: SyncState }) {
   return (
     <FolderGroup
       s={s}
-      pick={isOmarchy}
+      pick={(f) => OMARCHY.includes(f.path)}
       footer="Your display layout (monitors.lua) always stays separate on each computer, because every screen is different."
     />
   );
@@ -72,26 +73,25 @@ export function AppDataPane({ s }: { s: SyncState }) {
 }
 
 export function PluginsPane({ s }: { s: SyncState }) {
-  const synced = s.data?.folders.includes('.config/omarchy');
   const { plugins } = s.catalog;
   return (
-    <Group
-      title="On This Computer"
-      footer={
-        synced
-          ? 'Plugins sync with your Omarchy settings, so new ones appear on your other computers too.'
-          : 'Plugins sync with your Omarchy settings, which are turned off in Omarchy.'
-      }
-    >
-      {plugins.length === 0 && <Row title="No plugins installed." />}
-      {plugins.map((p) => (
-        <Row
-          key={p.name}
-          lead={<Tile icon={Puzzle} kind="plain" size={26} />}
-          title={p.name}
-          detail={p.description}
-        />
-      ))}
-    </Group>
+    <>
+      <FolderGroup
+        s={s}
+        pick={(f) => PLUGINS.includes(f.path)}
+        footer="Plugins are the add-ons themselves. Their settings, and where they sit on the bar, are kept in the bar layout."
+      />
+      <Group title="Installed on This Computer">
+        {plugins.length === 0 && <Row title="No plugins installed." />}
+        {plugins.map((p) => (
+          <Row
+            key={p.name}
+            lead={<Tile icon={Puzzle} kind="plain" size={26} />}
+            title={p.name}
+            detail={p.description}
+          />
+        ))}
+      </Group>
+    </>
   );
 }

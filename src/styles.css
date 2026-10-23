@@ -142,9 +142,20 @@ output {
 .nav[data-focus-visible] {
   box-shadow: var(--focus);
 }
-/* Sections that belong to the one above them, indented as a second level. */
-.nav.child {
-  padding-left: 30px;
+/* A group's quiet heading, as Finder draws one, above its first item (not part of the button). */
+.nav[data-heading] {
+  position: relative;
+  margin-top: 30px;
+}
+.nav[data-heading]::before {
+  content: attr(data-heading);
+  position: absolute;
+  left: 10px;
+  top: -21px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--quiet);
+  pointer-events: none;
 }
 /* Settings sits at the very bottom of the sidebar. */
 .nav.end {
@@ -879,10 +890,14 @@ kbd {
   .window {
     grid-template-columns: 64px 1fr;
   }
-  .nav,
-  .nav.child {
+  .nav {
     justify-content: center;
-    padding-left: 10px;
+  }
+  .nav[data-heading] {
+    margin-top: 14px;
+  }
+  .nav[data-heading]::before {
+    content: none;
   }
   .nav .label {
     position: absolute;

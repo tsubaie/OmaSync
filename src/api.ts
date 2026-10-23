@@ -78,7 +78,7 @@ export const api = {
   look: () => invoke<Look>('look'),
   folders: () => invoke<Catalog>('folders'),
   probe: () => invoke<SetupState>('probe'),
-  overview: () => invoke<Status>('overview'),
+  overview: (onStep: OnStep) => invoke<Status>('overview', { onStep: steps(onStep) }),
   syncNow: (prefer: Prefer, onStep: OnStep) =>
     invoke<Report>('sync_now', { prefer, onStep: steps(onStep) }),
   undo: (sha: string, onStep: OnStep) => invoke<Report>('undo', { sha, onStep: steps(onStep) }),

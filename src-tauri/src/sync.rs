@@ -11,7 +11,14 @@ pub const REPO: &str = "omarchy-sync";
 pub const FOLDERS: &[(&str, &str, bool)] = &[
     (
         ".config/omarchy",
-        "Omarchy settings, themes and plugins",
+        "Themes, backgrounds, menus and hooks",
+        true,
+    ),
+    // Inside .config/omarchy, but synced on their own (see NESTED).
+    (".config/omarchy/plugins", "Plugins", true),
+    (
+        ".config/omarchy/shell.json",
+        "Bar layout and plugin settings",
         true,
     ),
     (
@@ -39,6 +46,9 @@ pub const FOLDERS: &[(&str, &str, bool)] = &[
 /// The data file label shown when only the app list or sync choices changed.
 pub const DATA_LABEL: &str = "Apps and sync choices";
 
+/// Folders inside another synced folder; the ignore rules below leave them out when they're off.
+pub const NESTED: &[&str] = &[".config/omarchy/plugins", ".config/omarchy/shell.json"];
+
 // monitors.lua differs per screen, so it never leaves the computer it was made on.
 const IGNORE: &str = r#"**/.git
 **/.git/**
@@ -46,6 +56,12 @@ const IGNORE: &str = r#"**/.git
 **/*.bak.*
 .config/hypr/monitors.lua
 .config/hypr/monitors.conf
+{{- range list ".config/omarchy/plugins" ".config/omarchy/shell.json" }}
+{{- if not (has . $.folders) }}
+{{ . }}
+{{ . }}/**
+{{- end }}
+{{- end }}
 {{- $c := get .computers (include "/etc/machine-id" | trim | trunc 12) | default dict }}
 {{- range get $c "skip_files" | default list }}
 {{ . }}
@@ -74,6 +90,9 @@ pub struct Data {
     pub theme: Option<String>,
     #[serde(default)]
     pub computers: BTreeMap<String, Computer>,
+    /// The layout of this file; older layouts are upgraded when read.
+    #[serde(default)]
+    pub version: u32,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
@@ -115,6 +134,17 @@ impl Data {
             }
             self.computers.insert(id.to_string(), old);
         }
+    }
+
+    /// Version 1 split plugins and the bar's settings out of `.config/omarchy`; anyone who
+    /// synced that folder keeps syncing both.
+    pub fn upgrade(&mut self) {
+        if self.version < 1 && self.folders.iter().any(|f| f == ".config/omarchy") {
+            for f in NESTED {
+                toggle(&mut self.folders, f, true);
+            }
+        }
+        self.version = 1;
     }
 
     /// The computer ID behind a git author name: an ID, or an older name listed in `aka`.
@@ -241,6 +271,7 @@ impl Ctx {
             .and_then(|s| serde_yaml::from_str(&s).ok())
             .unwrap_or_default();
         data.adopt_legacy(&self.host, &self.hostname);
+        data.upgrade();
         data
     }
 
@@ -963,11 +994,13 @@ pub struct Apps {
     pub about: BTreeMap<String, String>,
 }
 
-pub fn overview(ctx: &Ctx) -> Result<Overview, String> {
+pub fn overview(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Overview, String> {
     // Staging and git status would collide with a background sync mid-commit.
     let _lock = lock_wait(ctx)?;
     let data = ctx.load_data();
+    step("Looking for changes on this computer");
     stage(ctx, &data)?;
+    step("Checking GitHub for your other computers");
     let online = ctx.git(&["fetch", "-q"]).is_ok();
     let incoming = ctx
         .git(&["rev-list", "--count", "HEAD..@{u}"])
@@ -989,12 +1022,14 @@ pub fn overview(ctx: &Ctx) -> Result<Overview, String> {
             incoming_from.push(name.to_string());
         }
     }
+    step("Checking your apps");
+    let apps = apps(&data);
     Ok(Overview {
         unshared: to_targets(ctx, parse_status(&status)),
         incoming,
         online,
         computers: computers(&parse_log(&log), &data, &ctx.host),
-        apps: apps(&data),
+        apps,
         incoming_files: incoming_files
             .lines()
             .filter(|f| !f.starts_with(".chezmoiignore"))
@@ -1215,6 +1250,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn upgrade_keeps_plugins_syncing_once() {
+        let mut d = Data {
+            folders: vec![".config/omarchy".into()],
+            ..Default::default()
+        };
+        d.upgrade();
+        assert!(NESTED.iter().all(|f| d.folders.iter().any(|x| x == f)));
+        // Turned off after the upgrade, they stay off.
+        toggle(&mut d.folders, NESTED[0], false);
+        d.upgrade();
+        assert!(!d.folders.iter().any(|x| x == NESTED[0]));
+        let mut fresh = Data::default();
+        fresh.upgrade();
+        assert!(fresh.folders.is_empty());
+    }
+
+    #[test]
     fn apps_respect_per_computer_skips() {
         let mut d = Data {
             apps: vec!["steam".into(), "spotify".into()],
@@ -1426,7 +1478,7 @@ mod tests {
         ok(sync(&a, Prefer::Ask, false, &quiet));
         enter(&b);
         write(&b, "bindings.lua", "b2");
-        let ov = overview(&b).unwrap();
+        let ov = overview(&b, &|_| {}).unwrap();
         assert_eq!(
             (ov.incoming, ov.unshared.clone()),
             (1, vec![".config/hypr/bindings.lua".to_string()])
@@ -1445,7 +1497,7 @@ mod tests {
         ok(sync(&a, Prefer::Ask, false, &quiet));
         assert_eq!(read(&a, "bindings.lua"), "b2");
         assert_eq!(read(&a, "monitors.lua"), "screen-a");
-        let ov = overview(&a).unwrap();
+        let ov = overview(&a, &|_| {}).unwrap();
         assert_eq!(
             (ov.incoming, ov.unshared.len()),
             (0, 0),

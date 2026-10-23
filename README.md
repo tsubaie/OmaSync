@@ -11,7 +11,8 @@ Your settings are kept in a private `omarchy-sync` repository in your own GitHub
 - **Apps**: choose which apps belong on which computer. New apps wait for your approval before installing (through `yay`, which asks for your password) unless you allow installing without asking. Switching an app off never uninstalls it.
 - **History**: every sync is kept. Undo reverses one change on all computers.
 - **When the same setting changed on two computers**, you choose which version to keep. The buttons name the other computer and say when it changed.
-- **Omarchy, Plugins and App Data**: choose which settings and app folders sync, or keep a separate version of a folder on one computer. Plugins sync with your Omarchy settings.
+- **Configurations, Plugins and App Data**: choose which settings and app folders sync, or keep a separate version of a folder on one computer. Plugins and their bar layout and settings each have their own switch.
+- The Sync pane shows each step while it checks for changes, and when it last synced and last checked.
 - Your active theme follows you. `~/.config/hypr/monitors.lua` never syncs, because every screen is different.
 
 Not synced: deleting a file or uninstalling an app on one computer (do that on each), and the git history inside plugin folders (plugin files sync, their `.git` folders don't).
@@ -48,4 +49,4 @@ MIT, see [LICENSE](LICENSE).
 
 ## Credits
 
-Built with [Tauri](https://tauri.app), [React](https://react.dev) and [React Aria](https://react-spectrum.adobe.com/react-aria/). Icons from [Lucide](https://lucide.dev) (ISC). The [Inter](https://rsms.me/inter/) typeface (SIL Open Font License) stands in for Apple's SF Pro, which may only be used on Apple platforms.
+Built with [Tauri](https://tauri.app), [React](https://react.dev) and [React Aria](https://react-spectrum.adobe.com/react-aria/). Icons from [Lucide](https://lucide.dev) (ISC). The Omarchy logo belongs to the [Omarchy](https://omarchy.org) project. The [Inter](https://rsms.me/inter/) typeface (SIL Open Font License) stands in for Apple's SF Pro, which may only be used on Apple platforms.
