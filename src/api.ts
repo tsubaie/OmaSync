@@ -46,6 +46,8 @@ export type Entry = {
   labels: string[];
   is_undo: boolean;
   first: boolean;
+  /** Every file it changed: what Undo puts back. `path` is under home, or the data label. */
+  files: { path: string; how: 'Added' | 'Changed' | 'Removed' }[];
 };
 export type Overview = {
   /** Paths under home changed here and not shared yet. */

@@ -34,7 +34,7 @@ const catalog: Catalog = {
   folders: [
     {
       path: '.config/omarchy',
-      name: 'Themes, backgrounds, menus and hooks',
+      name: 'Themes, menus and hooks',
       default: true,
       exists: true,
     },
@@ -135,6 +135,10 @@ const status = (): Status => ({
         labels: ['Windows, keyboard shortcuts and input'],
         is_undo: false,
         first: false,
+        files: [
+          { path: '.config/hypr/bindings.lua', how: 'Changed' },
+          { path: '.config/hypr/input.lua', how: 'Added' },
+        ],
       },
       {
         sha: 'b'.repeat(40),
@@ -143,6 +147,7 @@ const status = (): Status => ({
         labels: [],
         is_undo: false,
         first: true,
+        files: [],
       },
     ],
   },

@@ -79,6 +79,8 @@ export function PluginsPane({ s }: { s: SyncState }) {
   const pluginsOn = !!data?.folders.includes('.config/omarchy/plugins');
   const computers = [host, ...Object.keys(data?.computers ?? {}).filter((c) => c !== host)];
   const name = (c: string) => (c === host ? 'This Computer' : s.nameOf(c));
+  // This computer's column is simply "Sync"; the others are named after their computer.
+  const column = (c: string) => (c === host ? 'Sync' : s.nameOf(c));
   const columns = { '--n': computers.length } as React.CSSProperties;
   const onlyOn = (id: string) => {
     const where = [...(mine.includes(id) ? ['this computer'] : []), ...s.whoHas(id)];
@@ -103,7 +105,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
               <div className="row matrix head" style={columns} aria-hidden="true">
                 <span>Plugin</span>
                 {computers.map((c) => (
-                  <span key={c}>Synced on {name(c)}</span>
+                  <span key={c}>{column(c)}</span>
                 ))}
               </div>
               {plugins.map((p) => {
@@ -121,7 +123,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
                     </div>
                     {computers.map((c) => (
                       <div className="cell" key={c}>
-                        <span className="cell-label">Synced on {name(c)}</span>
+                        <span className="cell-label">{column(c)}</span>
                         <Toggle
                           on={s.wantsPlugin(c, p.id)}
                           label={`${p.name} synced on ${name(c)}`}

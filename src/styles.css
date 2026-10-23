@@ -321,6 +321,16 @@ output {
   gap: 10px;
   flex-wrap: wrap;
 }
+/* The files one sync changed, under its History row. */
+.changes {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.changes .label {
+  font-weight: 500;
+}
 .inline {
   display: flex;
   gap: 10px;

@@ -15,6 +15,8 @@ export function ago(unix: number, now: number) {
 export function byFolder(paths: string[], catalog: Catalog): [string, string[]][] {
   const name = (path: string) => {
     if (path === catalog.data_label) return path;
+    // Only the background in use syncs, kept apart from the folders (see save_background).
+    if (path.startsWith('.background/')) return 'Background';
     const match = catalog.folders
       .filter((f) => path === f.path || path.startsWith(`${f.path}/`))
       .toSorted((a, b) => b.path.length - a.path.length)[0];

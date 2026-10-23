@@ -9,11 +9,7 @@ pub const REPO: &str = "omarchy-sync";
 
 /// Folders offered on the "What's synced" tab: (path under home, plain name, on by default).
 pub const FOLDERS: &[(&str, &str, bool)] = &[
-    (
-        ".config/omarchy",
-        "Themes, backgrounds, menus and hooks",
-        true,
-    ),
+    (".config/omarchy", "Themes, menus and hooks", true),
     // Inside .config/omarchy, but synced on their own (see NESTED).
     (".config/omarchy/plugins", "Plugins", true),
     (
@@ -56,6 +52,8 @@ const IGNORE: &str = r#"**/.git
 **/*.bak.*
 .config/hypr/monitors.lua
 .config/hypr/monitors.conf
+.config/omarchy/backgrounds
+.config/omarchy/backgrounds/**
 {{- range list ".config/omarchy/plugins" ".config/omarchy/shell.json" }}
 {{- if not (has . $.folders) }}
 {{ . }}
@@ -122,6 +120,9 @@ pub struct Data {
     pub apps: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<String>,
+    /// The file name of the current background, kept in the sync folder's `.background`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
     #[serde(default)]
     pub computers: BTreeMap<String, Computer>,
     /// Plugins shared between computers; the rest stay on the computer that has them.
@@ -303,6 +304,11 @@ impl Data {
                 mine.theme.clone()
             } else {
                 theirs.theme.clone()
+            },
+            background: if mine.background != base.background {
+                mine.background.clone()
+            } else {
+                theirs.background.clone()
             },
             computers,
             version: theirs.version.max(mine.version),
@@ -672,6 +678,12 @@ impl Ctx {
         state.join("omarchy/current/theme.name")
     }
 
+    /// The image the desktop shows now (Omarchy links it from its state folder).
+    pub fn current_background(&self) -> Option<PathBuf> {
+        let link = self.theme_file().with_file_name("background");
+        std::fs::canonicalize(link).ok().filter(|p| p.is_file())
+    }
+
     pub fn current_theme(&self) -> Option<String> {
         std::fs::read_to_string(self.theme_file())
             .ok()
@@ -838,7 +850,7 @@ fn seed(ctx: &Ctx) -> Result<(), String> {
     };
     data.computers.entry(ctx.host.clone()).or_default().name = ctx.hostname.clone();
     ctx.save_data(&data)?;
-    stage(ctx, &data)?;
+    stage(ctx, &data, &|_| {})?;
     commit(ctx)
 }
 
@@ -881,6 +893,56 @@ fn backup(ctx: &Ctx, folders: &[String]) -> Result<PathBuf, String> {
 // ---------- Syncing ----------
 
 /// Copies this computer's current files into the sync folder (not yet shared).
+/// Only the background in use syncs, kept where chezmoi doesn't look (a name starting with a
+/// dot); the whole backgrounds folder, which older versions synced, leaves the sync folder.
+/// Returns its file name.
+fn save_background(ctx: &Ctx) -> Option<String> {
+    let _ = std::fs::remove_dir_all(ctx.src.join("dot_config/omarchy/backgrounds"));
+    let image = ctx.current_background()?;
+    let name = image.file_name()?.to_string_lossy().into_owned();
+    if !is_file_name(&name) {
+        return None;
+    }
+    let dir = ctx.src.join(".background");
+    let kept = dir.join(&name);
+    let same = std::fs::metadata(&kept).ok().map(|m| m.len())
+        == std::fs::metadata(&image).ok().map(|m| m.len());
+    if !same {
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).ok()?;
+        std::fs::copy(&image, &kept).ok()?;
+    }
+    Some(name)
+}
+
+/// Shows the synced background here when it isn't already, through Omarchy's own command.
+fn apply_background(ctx: &Ctx, data: &Data) -> Result<(), String> {
+    let Some(name) = data.background.as_ref().filter(|n| is_file_name(n)) else {
+        return Ok(());
+    };
+    let synced = ctx.src.join(".background").join(name);
+    let current = ctx.current_background();
+    let size = |p: &Path| std::fs::metadata(p).ok().map(|m| m.len());
+    if !synced.exists()
+        || current.as_ref().is_some_and(|c| {
+            c.file_name().is_some_and(|n| n.to_string_lossy() == *name) && size(c) == size(&synced)
+        })
+    {
+        return Ok(());
+    }
+    let dest = ctx.home.join(".local/share/omarchy-sync/background");
+    let _ = std::fs::remove_dir_all(&dest);
+    std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
+    let image = dest.join(name);
+    std::fs::copy(&synced, &image).map_err(|e| e.to_string())?;
+    run(
+        None,
+        "omarchy",
+        &["theme", "bg", "set", &image.to_string_lossy()],
+    )
+    .map(|_| ())
+}
+
 /// Takes out of the sync folder whatever in the web app folders isn't a web app or its icon
 /// (other shortcuts, caches, and ones older versions synced).
 fn prune_web_apps(ctx: &Ctx, data: &Data) {
@@ -913,7 +975,7 @@ fn prune_web_apps(ctx: &Ctx, data: &Data) {
     }
 }
 
-fn stage(ctx: &Ctx, data: &Data) -> Result<(), String> {
+fn stage(ctx: &Ctx, data: &Data, step: &dyn Fn(&str)) -> Result<(), String> {
     let mut folders = data.active_folders(&ctx.host);
     // The icons travel with the web apps.
     if folders.iter().any(|f| f == APPS_DIR) {
@@ -928,8 +990,28 @@ fn stage(ctx: &Ctx, data: &Data) -> Result<(), String> {
     if paths.is_empty() {
         return Ok(());
     }
-    let mut args = vec!["add"];
+    // Adding whole folders re-reads every file (most of a minute with big plugins), so only
+    // changed files are saved again, then only new ones are added.
+    step("Saving changed settings");
+    run(None, "chezmoi", &["re-add"])?;
+    step("Looking for new files");
+    let mut args = vec!["unmanaged", "--path-style=absolute"];
     args.extend(paths.iter().map(|s| s.as_str()));
+    let new: Vec<String> = match run(None, "chezmoi", &args) {
+        Ok(out) => out
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(String::from)
+            .collect(),
+        // Older chezmoi can't list them: add everything, slowly but completely.
+        Err(_) => paths,
+    };
+    if new.is_empty() {
+        return Ok(());
+    }
+    step(&format!("Saving {}", plural(new.len(), "new file")));
+    let mut args = vec!["add"];
+    args.extend(new.iter().map(|s| s.as_str()));
     run(None, "chezmoi", &args).map(|_| ())
 }
 
@@ -946,8 +1028,17 @@ fn commit(ctx: &Ctx) -> Result<(), String> {
     if ctx.git(&["diff", "--cached", "--quiet"]).is_ok() {
         return Ok(());
     }
-    ctx.git(&["commit", "-q", "-m", &format!("Sync from {}", ctx.host)])
-        .map(|_| ())
+    let staged = ctx.git(&["diff", "--cached", "--name-status"])?;
+    let body = describe(&parse_changes(staged.lines()));
+    ctx.git(&[
+        "commit",
+        "-q",
+        "-m",
+        &format!("Sync from {}", ctx.host),
+        "-m",
+        &body,
+    ])
+    .map(|_| ())
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, Deserialize)]
@@ -998,7 +1089,7 @@ fn lock_wait(ctx: &Ctx) -> Result<std::fs::File, String> {
 }
 
 /// Commits this computer's current files (and theme) so nothing local is ever overwritten unsaved.
-fn save_local(ctx: &Ctx) -> Result<(), String> {
+fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<(), String> {
     let mut data = ctx.load_data();
     if data
         .computers
@@ -1016,12 +1107,15 @@ fn save_local(ctx: &Ctx) -> Result<(), String> {
     if let Some(t) = ctx.current_theme() {
         data.theme = Some(t);
     }
+    if let Some(name) = save_background(ctx) {
+        data.background = Some(name);
+    }
     let me = data.computers.entry(ctx.host.clone()).or_default();
     me.plugins = ctx.local_plugins();
     (me.web_apps, me.web_icons) = ctx.local_web_apps();
     prune_web_apps(ctx, &data);
     ctx.save_data(&data)?;
-    stage(ctx, &data)?;
+    stage(ctx, &data, step)?;
     commit(ctx)
 }
 
@@ -1072,7 +1166,7 @@ pub fn sync(
     let mut notes = Vec::new();
 
     step("Saving this computer's changes");
-    save_local(ctx).map_err(fail)?;
+    save_local(ctx, step).map_err(fail)?;
 
     step("Getting changes from your other computers");
     let tracked = ctx.git(&["rev-parse", "--abbrev-ref", "@{u}"]).is_ok();
@@ -1116,6 +1210,10 @@ pub fn sync(
         && run(None, "omarchy", &["theme", "set", theme]).is_err()
     {
         notes.push(format!("The {theme} theme couldn't be switched on here."));
+    }
+    // After the theme, which brings its own background.
+    if apply_background(ctx, &data).is_err() {
+        notes.push("The synced background couldn't be shown here.".into());
     }
 
     step("Sharing with your other computers");
@@ -1184,6 +1282,60 @@ pub struct Entry {
     pub is_undo: bool,
     /// The very first save, which has nothing before it to go back to.
     pub first: bool,
+    /// Every file it changed: what Undo would put back.
+    pub files: Vec<Change>,
+}
+
+#[derive(Clone, Debug, Serialize, PartialEq)]
+pub struct Change {
+    /// The path under home, or DATA_LABEL for the shared choices.
+    pub path: String,
+    /// "Added", "Changed" or "Removed".
+    pub how: &'static str,
+}
+
+/// Reads `git ... --name-status` lines ("M\tpath", "R100\told\tnew") as changes, skipping
+/// the ignore rules, which aren't anyone's settings.
+fn parse_changes<'a>(lines: impl Iterator<Item = &'a str>) -> Vec<Change> {
+    lines
+        .filter_map(|l| {
+            let mut parts = l.split('\t');
+            let status = parts.next()?;
+            let file = parts.next_back()?;
+            let how = match status.chars().next()? {
+                'A' => "Added",
+                'D' => "Removed",
+                _ => "Changed",
+            };
+            (!file.starts_with(".chezmoiignore")).then(|| Change {
+                path: source_to_target(file),
+                how,
+            })
+        })
+        .collect()
+}
+
+/// A commit message body naming every change in plain words, grouped like the app shows them.
+fn describe(changes: &[Change]) -> String {
+    let mut groups: Vec<(&str, Vec<String>)> = Vec::new();
+    for c in changes {
+        let name = label(&c.path);
+        let file = c.path.rsplit('/').next().unwrap_or(&c.path);
+        let item = if c.path == DATA_LABEL {
+            "updated".to_string()
+        } else {
+            format!("{} {file}", c.how.to_lowercase())
+        };
+        match groups.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, items)) => items.push(item),
+            None => groups.push((name, vec![item])),
+        }
+    }
+    groups
+        .iter()
+        .map(|(name, items)| format!("{name}: {}", items.join(", ")))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 const UNDO_PREFIX: &str = "Undo: ";
@@ -1194,14 +1346,14 @@ pub fn history(ctx: &Ctx) -> Vec<Entry> {
             "log",
             "-n",
             "50",
-            "--name-only",
+            "--name-status",
             "--format=%x1e%H%x09%an%x09%ct%x09%s%x09%P",
         ])
         .unwrap_or_default();
     parse_history(&log)
 }
 
-/// Parses `git log --name-only --format=%x1e%H%x09%an%x09%ct%x09%s%x09%P`.
+/// Parses `git log --name-status --format=%x1e%H%x09%an%x09%ct%x09%s%x09%P`.
 pub fn parse_history(log: &str) -> Vec<Entry> {
     log.split('\x1e')
         .filter_map(|block| {
@@ -1210,9 +1362,10 @@ pub fn parse_history(log: &str) -> Vec<Entry> {
             let [sha, computer, when, subject, parents] = head[..] else {
                 return None;
             };
+            let files = parse_changes(lines.filter(|l| !l.is_empty()));
             let mut labels: Vec<String> = Vec::new();
-            for file in lines.filter(|l| !l.is_empty() && !l.starts_with(".chezmoiignore")) {
-                let name = label(&source_to_target(file)).to_string();
+            for c in &files {
+                let name = label(&c.path).to_string();
                 if !labels.contains(&name) {
                     labels.push(name);
                 }
@@ -1224,6 +1377,7 @@ pub fn parse_history(log: &str) -> Vec<Entry> {
                 labels,
                 is_undo: subject.starts_with(UNDO_PREFIX),
                 first: parents.is_empty(),
+                files,
             })
         })
         .collect()
@@ -1233,6 +1387,9 @@ pub fn parse_history(log: &str) -> Vec<Entry> {
 pub fn source_to_target(path: &str) -> String {
     if path == ".chezmoidata.yaml" {
         return DATA_LABEL.into();
+    }
+    if path.starts_with(".background/") {
+        return path.into();
     }
     const ATTRS: &[&str] = &[
         "private_",
@@ -1261,7 +1418,7 @@ pub fn source_to_target(path: &str) -> String {
 /// Reverses one earlier change. The caller then syncs, which applies it here and shares it.
 pub fn undo(ctx: &Ctx, sha: &str) -> Result<(), String> {
     let _lock = lock_wait(ctx)?;
-    save_local(ctx)?;
+    save_local(ctx, &|_| {})?;
     if ctx.git(&["revert", "--no-commit", sha]).is_err() {
         let _ = ctx.git(&["revert", "--abort"]);
         return Err("can't undo: later changes depend on it".into());
@@ -1458,8 +1615,7 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Overview, String> {
     // Staging and git status would collide with a background sync mid-commit.
     let _lock = lock_wait(ctx)?;
     let data = ctx.load_data();
-    step("Looking for changes on this computer");
-    stage(ctx, &data)?;
+    stage(ctx, &data, step)?;
     step("Checking GitHub for your other computers");
     let online = ctx.git(&["fetch", "-q"]).is_ok();
     let incoming = ctx
@@ -1697,6 +1853,9 @@ pub fn parse_info(s: &str) -> BTreeMap<String, String> {
 
 /// Plain name for a path under home, from FOLDERS.
 pub fn label(path: &str) -> &str {
+    if path.starts_with(".background/") {
+        return "Background";
+    }
     FOLDERS
         .iter()
         .filter(|(f, _, _)| path == *f || path.starts_with(&format!("{f}/")))
@@ -1958,7 +2117,7 @@ mod tests {
             source_to_target("dot_local/share/applications/x.desktop"),
             ".local/share/applications/x.desktop"
         );
-        let log = "\x1eaaa\tlaptop\t200\tUndo: a change from desk\tbbb\n\ndot_config/hypr/bindings.lua\n.chezmoidata.yaml\n\x1ebbb\tdesk\t100\tSync from desk\t\n\ndot_config/hypr/input.lua\ndot_config/hypr/bindings.lua\n";
+        let log = "\x1eaaa\tlaptop\t200\tUndo: a change from desk\tbbb\n\nM\tdot_config/hypr/bindings.lua\nM\t.chezmoidata.yaml\n\x1ebbb\tdesk\t100\tSync from desk\t\n\nA\tdot_config/hypr/input.lua\nD\tdot_config/hypr/bindings.lua\n";
         let h = parse_history(log);
         assert_eq!(h.len(), 2);
         assert_eq!(
@@ -1977,6 +2136,25 @@ mod tests {
                 h[1].labels.len()
             ),
             ("desk", 100, true, 1)
+        );
+        assert_eq!(
+            h[1].files,
+            vec![
+                Change {
+                    path: ".config/hypr/input.lua".into(),
+                    how: "Added"
+                },
+                Change {
+                    path: ".config/hypr/bindings.lua".into(),
+                    how: "Removed"
+                },
+            ]
+        );
+        assert_eq!(
+            describe(&h[0].files),
+            format!(
+                "Windows, keyboard shortcuts and input: changed bindings.lua\n{DATA_LABEL}: updated"
+            )
         );
     }
 
@@ -2101,17 +2279,32 @@ mod tests {
         std::fs::write(apps.join("mimeinfo.cache"), "cache").unwrap();
         std::fs::write(icons.join("chat.png"), "png").unwrap();
         std::fs::write(icons.join("other.png"), "png").unwrap();
+        // The background in use (Omarchy links it from its state folder); B shows the same
+        // image already, so applying it there never calls omarchy during the test.
+        let b = computer("b", "b-old", "screen-b");
+        for ctx in [&a, &b] {
+            let pics = ctx.home.join("Pictures");
+            let state = ctx.home.join(".local/state/omarchy/current");
+            std::fs::create_dir_all(&pics).unwrap();
+            std::fs::create_dir_all(&state).unwrap();
+            std::fs::write(pics.join("hills.jpg"), "jpg").unwrap();
+            std::os::unix::fs::symlink(pics.join("hills.jpg"), state.join("background")).unwrap();
+        }
         enter(&a);
         seed(&a).unwrap();
         a.git(&["remote", "add", "origin", &remote]).unwrap();
         ok(sync(&a, Prefer::Ask, false, &quiet));
 
-        let b = computer("b", "b-old", "screen-b");
+        assert!(a.src.join(".background/hills.jpg").exists());
+        assert!(!a.src.join("dot_config/omarchy/backgrounds").exists());
         enter(&b);
         assert!(adopt(&b, &remote, &quiet).unwrap().exists());
         ok(sync(&b, Prefer::Ask, false, &quiet));
         assert_eq!(read(&b, "bindings.lua"), "a1");
         assert_eq!(read(&b, "monitors.lua"), "screen-b");
+
+        assert_eq!(b.load_data().background.as_deref(), Some("hills.jpg"));
+        assert!(b.src.join(".background/hills.jpg").exists());
 
         // Only the web app and its icon travel; other shortcuts, caches and icons don't.
         let on_b = |p: &str| b.home.join(p).exists();

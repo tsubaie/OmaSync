@@ -102,6 +102,12 @@ test('undo asks before changing every computer', async ({ page }) => {
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Undo on All Computers' })).toBeHidden();
   expect(await calls(page, 'undo')).toEqual([]);
+  // Each sync lists the files it changed, and Undo shows them before going ahead.
+  await page.getByRole('button', { name: 'Show 2 Files' }).click();
+  await expect(page.getByText('Changed bindings.lua, Added input.lua')).toBeVisible();
+  await page.getByRole('button', { name: 'Undo', exact: true }).click();
+  await expect(page.getByText('Undo puts these back as they were before this sync')).toBeVisible();
+  await expect(page.getByText('Changed bindings.lua, Added input.lua')).toBeVisible();
 });
 
 test('settings names this computer and shows the sync space', async ({ page }) => {

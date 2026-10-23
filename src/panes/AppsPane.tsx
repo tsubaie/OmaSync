@@ -12,6 +12,8 @@ export function AppsPane({ s }: { s: SyncState }) {
   if (!ov || !data) return null;
   const computers = [host, ...Object.keys(data.computers ?? {}).filter((c) => c !== host)];
   const name = (c: string) => (c === host ? 'This Computer' : s.nameOf(c));
+  // This computer's column is simply "Sync"; the others are named after their computer.
+  const column = (c: string) => (c === host ? 'Sync' : s.nameOf(c));
   const columns = { '--n': computers.length } as React.CSSProperties;
   const apps = [...new Set([...data.apps, ...ov.apps.mine])].toSorted();
   const unsynced = apps.filter((a) => !data.apps.includes(a));
@@ -47,7 +49,7 @@ export function AppsPane({ s }: { s: SyncState }) {
             <div className="row matrix head" style={columns} aria-hidden="true">
               <span>App</span>
               {computers.map((c) => (
-                <span key={c}>Synced on {name(c)}</span>
+                <span key={c}>{column(c)}</span>
               ))}
             </div>
             {shown.map((app) => {
@@ -66,7 +68,7 @@ export function AppsPane({ s }: { s: SyncState }) {
                   </div>
                   {computers.map((c) => (
                     <div className="cell" key={c}>
-                      <span className="cell-label">Synced on {name(c)}</span>
+                      <span className="cell-label">{column(c)}</span>
                       <Toggle
                         on={s.wants(c, app)}
                         label={`${app} synced on ${name(c)}`}
