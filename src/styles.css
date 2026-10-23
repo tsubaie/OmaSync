@@ -157,6 +157,10 @@ output {
   color: var(--quiet);
   pointer-events: none;
 }
+/* Sections that can't open yet (before the first check) look it. */
+.nav[data-disabled] {
+  opacity: 0.4;
+}
 /* Settings sits at the very bottom of the sidebar. */
 .nav.end {
   margin-top: auto;
@@ -785,7 +789,7 @@ kbd {
 
 .matrix {
   display: grid;
-  grid-template-columns: 1fr 64px repeat(var(--n), 104px);
+  grid-template-columns: 1fr repeat(var(--n), 104px);
 }
 .matrix.head {
   font-size: 11px;

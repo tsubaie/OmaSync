@@ -29,10 +29,8 @@ fn main() {
             install_apps,
             install_plugins,
             choices_changed,
-            set_plugin_sync,
             set_plugin,
             set_app,
-            stop_app,
             add_apps,
             set_folder,
             folder_here,
@@ -298,27 +296,25 @@ fn plugin_id(id: &str) -> Result<()> {
     }
 }
 
-/// Shares a plugin with every computer, or stops sharing it.
+/// Whether one computer gets a plugin; see `Data::place`.
 #[tauri::command]
-async fn set_plugin_sync(plugin: String, on: bool) -> Result<Data> {
+async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> {
     plugin_id(&plugin)?;
+    let mut shared = None;
     let data = edit(|d, host| {
-        sync::toggle(&mut d.plugins, &plugin, on);
-        // This computer's copy is the one shared, so it counts as having it.
-        if on {
-            let ctx = Ctx::load();
-            d.computers.entry(host.into()).or_default().plugins = ctx.local_plugins();
+        let before = d.plugins.contains(&plugin);
+        // This computer's copy may be the one shared, so it counts as having what's here.
+        d.computers.entry(host.into()).or_default().plugins = Ctx::load().local_plugins();
+        d.place_plugin(&computer, &plugin, on);
+        let after = d.plugins.contains(&plugin);
+        if before != after {
+            shared = Some(after);
         }
     })?;
-    blocking(move |ctx| sync::track_plugin(ctx, &plugin, on)).await?;
+    if let Some(on) = shared {
+        blocking(move |ctx| sync::track_plugin(ctx, &plugin, on)).await?;
+    }
     Ok(data)
-}
-
-/// Whether one computer gets a synced plugin.
-#[tauri::command]
-fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> {
-    plugin_id(&plugin)?;
-    edit(|d, _| d.set_plugin(&computer, &plugin, on))
 }
 
 #[tauri::command]
@@ -337,12 +333,8 @@ fn edit(change: impl FnOnce(&mut Data, &str)) -> Result<Data> {
 
 #[tauri::command]
 fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
-    edit(|d, _| d.set_app(&computer, &app, on))
-}
-
-#[tauri::command]
-fn stop_app(app: String) -> Result<Data> {
-    edit(|d, _| sync::toggle(&mut d.apps, &app, false))
+    let installed_here = sync::installed().contains(&app);
+    edit(|d, host| d.place_app(host, installed_here, &computer, &app, on))
 }
 
 #[tauri::command]

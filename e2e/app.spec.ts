@@ -136,25 +136,27 @@ test("another computer's plugin waits for a yes before it's added here", async (
   await expect(waiting).toBeHidden();
 });
 
-test('an app syncs or stops with one switch that stays in its row', async ({ page }) => {
+test('an app is switched on per computer, in place', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
   const rows = page.locator('.matrix:not(.head) .text > div:first-child');
   await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
-  const spotify = page.getByRole('switch', { name: 'Sync spotify' });
-  await expect(spotify).not.toBeChecked();
-  await spotify.focus();
+  await expect(page.getByText('Only on this computer')).toBeVisible();
+  const desk = page.getByRole('switch', { name: 'spotify on Desktop' });
+  await expect(desk).not.toBeChecked();
+  // Switching Desktop on shares it, and this computer (which has it) comes along.
+  await desk.focus();
   await page.keyboard.press('Space');
-  await expect(spotify).toBeChecked();
-  await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
+  await expect(desk).toBeChecked();
   await expect(page.getByRole('switch', { name: 'spotify on This Computer' })).toBeChecked();
+  await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
   const banner = page.getByText('Your other computers get this change the next time you sync.');
   await expect(banner).toBeVisible();
-  // Flipped back, nothing is left to share, so the banner goes away.
+  // Switched back, nothing is left to share, so the banner goes away.
   await page.keyboard.press('Space');
-  await expect(spotify).not.toBeChecked();
+  await expect(desk).not.toBeChecked();
+  await expect(page.getByRole('switch', { name: 'spotify on This Computer' })).not.toBeChecked();
   await expect(banner).toBeHidden();
-  expect((await calls(page, 'add_apps')).length + (await calls(page, 'stop_app')).length).toBe(2);
 });
 
 test('only Sync opens until the first check finishes', async ({ page }) => {
@@ -168,17 +170,15 @@ test('only Sync opens until the first check finishes', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1, name: 'Sync' })).toBeVisible();
 });
 
-test('each plugin has its own Sync switch, like apps', async ({ page }) => {
+test('each plugin is switched on per computer, like apps', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Plugins' }).click();
-  const webcam = page.getByRole('switch', { name: 'Sync Webcam Controls' });
-  await expect(webcam).toBeChecked();
-  await expect(page.getByRole('switch', { name: 'Webcam Controls on Desktop' })).toBeChecked();
-  await webcam.focus();
+  const desk = page.getByRole('switch', { name: 'Webcam Controls on Desktop' });
+  await expect(desk).toBeChecked();
+  await desk.focus();
   await page.keyboard.press('Space');
-  await expect(webcam).not.toBeChecked();
-  await expect(page.getByRole('switch', { name: 'Webcam Controls on Desktop' })).toBeHidden();
-  expect(await calls(page, 'set_plugin_sync')).toEqual([
-    { cmd: 'set_plugin_sync', args: { plugin: 'webcam', on: false } },
+  await expect(desk).not.toBeChecked();
+  expect(await calls(page, 'set_plugin')).toEqual([
+    { cmd: 'set_plugin', args: { computer: 'bbbb33334444', plugin: 'webcam', on: false } },
   ]);
 });

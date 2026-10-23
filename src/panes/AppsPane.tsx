@@ -5,7 +5,7 @@ import { api } from '../api';
 import type { SyncState } from '../state';
 import { Group, Push, Row, Toggle } from '../ui';
 
-/** One list in a fixed order: each app's Sync switch flips in place, and its row never moves. */
+/** One list in a fixed order, one switch per computer; rows never move. */
 export function AppsPane({ s }: { s: SyncState }) {
   const [query, setQuery] = useState('');
   const { overview: ov, data, host } = s;
@@ -23,7 +23,7 @@ export function AppsPane({ s }: { s: SyncState }) {
     <>
       <Group
         title="Your Apps"
-        footer="A synced app is installed on each switched-on computer after you approve it. Switching anything off never uninstalls an app."
+        footer="Switch an app on for a computer to have it there; it installs after you approve it. Switching it off never uninstalls it."
       >
         {apps.length > 6 && (
           <div className="row">
@@ -46,7 +46,6 @@ export function AppsPane({ s }: { s: SyncState }) {
           <>
             <div className="row matrix head" style={columns} aria-hidden="true">
               <span>App</span>
-              <span>Sync</span>
               {computers.map((c) => (
                 <span key={c}>{name(c)}</span>
               ))}
@@ -59,36 +58,21 @@ export function AppsPane({ s }: { s: SyncState }) {
                 <div className="row matrix" style={columns} key={app}>
                   <div className="text">
                     <div>{app}</div>
-                    {about ? (
-                      <div className="detail">{about}</div>
+                    {missingHere ? (
+                      <div className="detail warn">Installs here after you approve it</div>
                     ) : (
-                      missingHere && (
-                        <div className="detail warn">Installs here after you approve it</div>
-                      )
+                      <div className="detail">{synced ? about : 'Only on this computer'}</div>
                     )}
-                  </div>
-                  <div className="cell">
-                    <span className="cell-label">Sync</span>
-                    <Toggle
-                      on={synced}
-                      label={`Sync ${app}`}
-                      disabled={!s.idle}
-                      onChange={(on) => s.edit(() => (on ? api.addApps([app]) : api.stopApp(app)))}
-                    />
                   </div>
                   {computers.map((c) => (
                     <div className="cell" key={c}>
-                      {synced && (
-                        <>
-                          <span className="cell-label">{name(c)}</span>
-                          <Toggle
-                            on={s.wants(c, app)}
-                            label={`${app} on ${name(c)}`}
-                            disabled={!s.idle}
-                            onChange={(on) => s.edit(() => api.setApp(c, app, on))}
-                          />
-                        </>
-                      )}
+                      <span className="cell-label">{name(c)}</span>
+                      <Toggle
+                        on={s.wants(c, app)}
+                        label={`${app} on ${name(c)}`}
+                        disabled={!s.idle}
+                        onChange={(on) => s.edit(() => api.setApp(c, app, on))}
+                      />
                     </div>
                   ))}
                 </div>
@@ -101,7 +85,7 @@ export function AppsPane({ s }: { s: SyncState }) {
         <div className="actions">
           {/* One change for all of them, shared on the next sync. */}
           <Push disabled={!s.idle} onPress={() => s.edit(() => api.addApps(unsynced))}>
-            Sync All {unsynced.length} Apps
+            Sync All {unsynced.length} Apps to Every Computer
           </Push>
         </div>
       )}

@@ -71,7 +71,7 @@ export function AppDataPane({ s }: { s: SyncState }) {
   return <FolderGroup s={s} pick={(f) => !isOmarchy(f)} />;
 }
 
-/** Like Apps: one list in a fixed order, a Sync switch per plugin, then one per computer. */
+/** Like Apps: one list in a fixed order, one switch per computer. */
 export function PluginsPane({ s }: { s: SyncState }) {
   const { data, host } = s;
   const plugins = s.overview?.plugins ?? [];
@@ -80,6 +80,10 @@ export function PluginsPane({ s }: { s: SyncState }) {
   const computers = [host, ...Object.keys(data?.computers ?? {}).filter((c) => c !== host)];
   const name = (c: string) => (c === host ? 'This Computer' : s.nameOf(c));
   const columns = { '--n': computers.length } as React.CSSProperties;
+  const onlyOn = (id: string) => {
+    const where = [...(mine.includes(id) ? ['this computer'] : []), ...s.whoHas(id)];
+    return where.length ? `Only on ${where.join(' and ')}` : '';
+  };
   return (
     <>
       <FolderGroup
@@ -90,7 +94,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
       {pluginsOn && (
         <Group
           title="Your Plugins"
-          footer="A synced plugin is added to each switched-on computer after you approve it. Switching anything off never removes a plugin."
+          footer="Switch a plugin on for a computer to have it there; it's added after you approve it. Switching it off never removes it."
         >
           {plugins.length === 0 ? (
             <Row title="No plugins on any computer yet." />
@@ -98,7 +102,6 @@ export function PluginsPane({ s }: { s: SyncState }) {
             <>
               <div className="row matrix head" style={columns} aria-hidden="true">
                 <span>Plugin</span>
-                <span>Sync</span>
                 {computers.map((c) => (
                   <span key={c}>{name(c)}</span>
                 ))}
@@ -113,31 +116,18 @@ export function PluginsPane({ s }: { s: SyncState }) {
                       {missingHere ? (
                         <div className="detail warn">Added here after you approve it</div>
                       ) : (
-                        p.description && <div className="detail">{p.description}</div>
+                        <div className="detail">{synced ? p.description : onlyOn(p.id)}</div>
                       )}
-                    </div>
-                    <div className="cell">
-                      <span className="cell-label">Sync</span>
-                      <Toggle
-                        on={synced}
-                        label={`Sync ${p.name}`}
-                        disabled={!s.idle}
-                        onChange={(on) => s.edit(() => api.setPluginSync(p.id, on))}
-                      />
                     </div>
                     {computers.map((c) => (
                       <div className="cell" key={c}>
-                        {synced && (
-                          <>
-                            <span className="cell-label">{name(c)}</span>
-                            <Toggle
-                              on={s.wantsPlugin(c, p.id)}
-                              label={`${p.name} on ${name(c)}`}
-                              disabled={!s.idle}
-                              onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
-                            />
-                          </>
-                        )}
+                        <span className="cell-label">{name(c)}</span>
+                        <Toggle
+                          on={s.wantsPlugin(c, p.id)}
+                          label={`${p.name} on ${name(c)}`}
+                          disabled={!s.idle}
+                          onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
+                        />
                       </div>
                     ))}
                   </div>

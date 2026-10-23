@@ -231,6 +231,7 @@ impl Data {
             .is_some_and(|c| c.skip_files.iter().any(|f| f == folder))
     }
 
+    #[cfg(test)]
     pub fn set_app(&mut self, host: &str, app: &str, on: bool) {
         toggle(
             &mut self.computers.entry(host.into()).or_default().skip_apps,
@@ -311,11 +312,96 @@ impl Data {
                 .is_some_and(|c| c.skip_plugins.iter().any(|p| p == plugin))
     }
 
+    #[cfg(test)]
     pub fn set_plugin(&mut self, host: &str, plugin: &str, on: bool) {
         toggle(
             &mut self.computers.entry(host.into()).or_default().skip_plugins,
             plugin,
             !on,
+        );
+    }
+
+    /// Switches an app or plugin on or off for one computer. Switching it on while no computer
+    /// has it on shares it with that computer and with `owners` (where it already is, so their
+    /// copy is the one shared). It stops being shared when nobody is left, or only the one
+    /// computer that has it.
+    fn place(
+        &mut self,
+        shared: fn(&mut Data) -> &mut Vec<String>,
+        skip: fn(&mut Computer) -> &mut Vec<String>,
+        owners: &[String],
+        computer: &str,
+        item: &str,
+        on: bool,
+    ) {
+        let mut ids: Vec<String> = self.computers.keys().cloned().collect();
+        if !ids.iter().any(|id| id == computer) {
+            ids.push(computer.into());
+        }
+        let set = |d: &mut Data, id: &str, on: bool| {
+            toggle(skip(d.computers.entry(id.into()).or_default()), item, !on)
+        };
+        let wants = |d: &mut Data, id: &str| {
+            shared(d).iter().any(|x| x == item)
+                && !skip(d.computers.entry(id.into()).or_default())
+                    .iter()
+                    .any(|x| x == item)
+        };
+        if on && !ids.iter().any(|id| wants(self, id)) {
+            toggle(shared(self), item, true);
+            for id in &ids {
+                set(self, id, id == computer || owners.contains(id));
+            }
+        } else {
+            set(self, computer, on);
+        }
+        let wanting: Vec<String> = ids.iter().filter(|id| wants(self, id)).cloned().collect();
+        if wanting.is_empty() || (wanting.len() == 1 && owners == wanting.as_slice()) {
+            toggle(shared(self), item, false);
+            for id in &ids {
+                set(self, id, true);
+            }
+        }
+    }
+
+    /// `installed_here`: the app is on `host`, which then counts as already having it.
+    pub fn place_app(
+        &mut self,
+        host: &str,
+        installed_here: bool,
+        computer: &str,
+        app: &str,
+        on: bool,
+    ) {
+        let owners = if installed_here {
+            vec![host.to_string()]
+        } else {
+            Vec::new()
+        };
+        self.place(
+            |d| &mut d.apps,
+            |c| &mut c.skip_apps,
+            &owners,
+            computer,
+            app,
+            on,
+        );
+    }
+
+    pub fn place_plugin(&mut self, computer: &str, plugin: &str, on: bool) {
+        let owners: Vec<String> = self
+            .computers
+            .iter()
+            .filter(|(_, c)| c.plugins.iter().any(|p| p == plugin))
+            .map(|(id, _)| id.clone())
+            .collect();
+        self.place(
+            |d| &mut d.plugins,
+            |c| &mut c.skip_plugins,
+            &owners,
+            computer,
+            plugin,
+            on,
         );
     }
 
@@ -1614,6 +1700,32 @@ mod tests {
         d.set_plugin("a", "dock", true);
         d.folders.clear();
         assert!(d.missing_plugins("a").is_empty());
+    }
+
+    #[test]
+    fn one_switch_per_computer_shares_and_stops_sharing() {
+        let mut d = Data::default();
+        for id in ["here", "desk", "lap"] {
+            d.computers.entry(id.into()).or_default();
+        }
+        // Only here: switching Desk on shares it with Desk and here, not Lap.
+        d.place_app("here", true, "desk", "zed", true);
+        assert_eq!(d.apps, vec!["zed".to_string()]);
+        assert!(d.wants_app("here", "zed") && d.wants_app("desk", "zed"));
+        assert!(!d.wants_app("lap", "zed"));
+        d.place_app("here", true, "lap", "zed", true);
+        assert!(d.wants_app("lap", "zed"));
+        // Back to only the computer that has it: no longer shared, nothing left behind.
+        d.place_app("here", true, "lap", "zed", false);
+        assert_eq!(d.apps, vec!["zed".to_string()]);
+        d.place_app("here", true, "desk", "zed", false);
+        assert!(d.apps.is_empty());
+        assert!(d.computers.values().all(|c| c.skip_apps.is_empty()));
+        // A plugin shared from Lap brings Lap along, since its copy is the one shared.
+        d.computers.get_mut("lap").unwrap().plugins = vec!["dock".into()];
+        d.place_plugin("desk", "dock", true);
+        assert!(d.wants_plugin("lap", "dock") && d.wants_plugin("desk", "dock"));
+        assert!(!d.wants_plugin("here", "dock"));
     }
 
     #[test]

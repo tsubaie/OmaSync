@@ -98,14 +98,12 @@ export const api = {
   installApps: () => invoke<void>('install_apps'),
   /** Whether the sync choices differ from what was last shared. */
   choicesChanged: () => invoke<boolean>('choices_changed'),
-  setPluginSync: (plugin: string, on: boolean) => invoke<Data>('set_plugin_sync', { plugin, on }),
   setPlugin: (computer: string, plugin: string, on: boolean) =>
     invoke<Data>('set_plugin', { computer, plugin, on }),
   /** Adds the synced plugins this computer is waiting for. */
   installPlugins: () => invoke<Data>('install_plugins'),
   setApp: (computer: string, app: string, on: boolean) =>
     invoke<Data>('set_app', { computer, app, on }),
-  stopApp: (app: string) => invoke<Data>('stop_app', { app }),
   addApps: (apps: string[]) => invoke<Data>('add_apps', { apps }),
   setFolder: (path: string, on: boolean) => invoke<Data>('set_folder', { path, on }),
   folderHere: (path: string, on: boolean) => invoke<Data>('folder_here', { path, on }),

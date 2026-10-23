@@ -74,6 +74,36 @@ const shared = data;
 const same = (d: Data) =>
   JSON.stringify(d, (_, v) => (Array.isArray(v) ? (v.length ? v.toSorted() : undefined) : v));
 
+/** A copy of Data::place in sync.rs, enough for the tests. */
+function place(
+  d: Data,
+  list: 'apps' | 'plugins',
+  skip: 'skip_apps' | 'skip_plugins',
+  computer: string,
+  item: string,
+  on: boolean,
+  owners: string[],
+): Data {
+  const next: Data = structuredClone(d);
+  const ids = Object.keys(next.computers);
+  const wants = (id: string) =>
+    !!next[list]?.includes(item) && !(next.computers[id][skip] ?? []).includes(item);
+  const set = (id: string, yes: boolean) => {
+    const rest = (next.computers[id][skip] ?? []).filter((x) => x !== item);
+    next.computers[id][skip] = yes ? rest : [...rest, item];
+  };
+  if (on && !ids.some(wants)) {
+    next[list] = [...(next[list] ?? []), item];
+    for (const id of ids) set(id, id === computer || owners.includes(id));
+  } else set(computer, on);
+  const wanting = ids.filter(wants);
+  if (!wanting.length || (wanting.length === 1 && owners.join() === wanting[0])) {
+    next[list] = (next[list] ?? []).filter((x) => x !== item);
+    for (const id of ids) set(id, true);
+  }
+  return next;
+}
+
 const status = (): Status => ({
   host: 'aaaa11112222',
   sync_space: 'https://github.com/someone/omarchy-sync',
@@ -155,16 +185,6 @@ mockIPC((cmd, args) => {
     case 'choices_changed':
       // Like the Rust side: order and empty lists don't count.
       return same(data) !== same(shared);
-    case 'set_plugin_sync': {
-      const set = new Set(data.plugins);
-      if (a.on) set.add(a.plugin as string);
-      else set.delete(a.plugin as string);
-      data = { ...data, plugins: [...set] };
-      return data;
-    }
-    case 'stop_app':
-      data = { ...data, apps: data.apps.filter((x) => x !== a.app) };
-      return data;
     case 'install_plugins': {
       const laptop = data.computers.aaaa11112222;
       data = {
@@ -176,17 +196,24 @@ mockIPC((cmd, args) => {
       };
       return data;
     }
-    case 'set_app': {
-      const skip = new Set(data.computers[a.computer]?.skip_apps ?? []);
-      if (a.on) skip.delete(a.app);
-      else skip.add(a.app);
-      data = {
-        ...data,
-        computers: {
-          ...data.computers,
-          [a.computer]: { ...data.computers[a.computer], skip_apps: [...skip] },
-        },
-      };
+    case 'set_app':
+      data = place(data, 'apps', 'skip_apps', a.computer as string, a.app as string, !!a.on, [
+        'aaaa11112222',
+      ]);
+      return data;
+    case 'set_plugin': {
+      const owners = Object.keys(data.computers).filter((id) =>
+        data.computers[id].plugins?.includes(a.plugin as string),
+      );
+      data = place(
+        data,
+        'plugins',
+        'skip_plugins',
+        a.computer as string,
+        a.plugin as string,
+        !!a.on,
+        owners,
+      );
       return data;
     }
     case 'rename_computer':
