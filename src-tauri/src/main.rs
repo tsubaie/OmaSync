@@ -148,10 +148,8 @@ fn look() -> Look {
 }
 
 fn colors_toml(ctx: &Ctx) -> String {
-    let state = std::env::var("XDG_STATE_HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or(ctx.home.join(".local/state"));
-    std::fs::read_to_string(state.join("omarchy/current/theme/colors.toml")).unwrap_or_default()
+    std::fs::read_to_string(ctx.state_dir().join("omarchy/current/theme/colors.toml"))
+        .unwrap_or_default()
 }
 
 /// Tells the page when the Omarchy theme or background changes, so it recolours itself and

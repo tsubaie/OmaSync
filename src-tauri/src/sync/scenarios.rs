@@ -69,6 +69,11 @@ fn status(lab: &Lab, name: &str) -> String {
 #[ignore]
 fn a_second_computer_gets_the_settings_but_keeps_its_own_screens() {
     let mut lab = pair();
+    // The theme, the background and the bar's status all live in one state folder.
+    let a = lab.ctx("a").clone();
+    assert_eq!(a.state_dir(), a.home.join(".local/state"));
+    assert_eq!(a.current_theme().as_deref(), Some("mine"));
+    assert_eq!(status(&lab, "a"), "synced");
     assert!(lab.ctx("a").src.join(".background/hills.jpg").exists());
     assert!(
         !lab.ctx("a")
