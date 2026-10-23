@@ -134,7 +134,7 @@ output {
   display: flex;
   align-items: center;
   gap: 9px;
-  padding: 4px 8px 18px;
+  padding: 18px 10px 22px;
 }
 :root[style*='color-scheme: light'] .brand {
   --brand: #4f8a2e;
