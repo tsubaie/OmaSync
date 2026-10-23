@@ -117,7 +117,11 @@ If another computer already uses this computer's name (Omarchy names every compu
 
 **Automatic syncing.** Omarchy Sync syncs every 15 minutes, even with the window closed. It only notifies you when something needs you: a choice between two versions, apps or plugins waiting to be added, or syncing failing twice in a row. Turn it off per computer in **Settings**.
 
-**On your bar.** Omarchy Sync puts its icon on your Omarchy bar: spinning in green while syncing, green for a few seconds when a sync finishes well, red when syncing fails, and yellow when something waits for you, with the reason in its tooltip. Click it to open Omarchy Sync.
+**On your bar.** Omarchy Sync puts its icon on your Omarchy bar: spinning in green while syncing, green for a few seconds when a sync finishes well, red when syncing fails, and yellow when something waits for you, with the reason in its tooltip. Click it to open Omarchy Sync. It's on by default; **Settings → Show in the bar** turns it off for this computer.
+
+**One window.** Opening Omarchy Sync again, from the launcher or the bar, brings the open window forward on its Sync page instead of starting a second copy.
+
+**Several computers.** The Sync page shows this computer, your private sync space, and your other computers. When there's more than one other computer, they show as a stack with a count, such as "3 Other Computers". With more than three computers, **Installed Apps** and **Plugins** list the computers under each item instead of one column per computer.
 
 **Different Omarchy versions.** Each computer records its Omarchy version. Omarchy's own settings (`~/.config/omarchy` and `~/.config/hypr`) follow the newest major version, since settings made for Omarchy 5 may not work on Omarchy 4. A computer on an older major version keeps its own Omarchy settings while everything else still syncs, and its Sync page says so and offers **Update Omarchy**. The newer computers say which ones to update, never themselves. When the older computer catches up, it saves its own settings and takes the shared ones. To try the newer settings before updating, choose **Try Their Settings Anyway…**: this computer's settings are saved first, and **Put Back My Settings** restores them exactly and pauses again. That way back stays on this computer only. History's Undo, by contrast, would undo the change on every computer.
 
@@ -131,14 +135,19 @@ If another computer already uses this computer's name (Omarchy names every compu
 - When a synced app or plugin isn't on this computer yet, it waits on the Sync screen with **Install** (or **Add**) and **Not Now**, and you get a notification.
 - To skip the waiting, turn on **Add synced apps and plugins without asking** in Settings.
 - Switching anything off never uninstalls it.
-- Apps from their maker's own repository (like ChatGPT's) never fall back to the AUR. Each computer records its extra repositories and their signing keys, and the **Repositories** section lists them, and a computer without one shows **Repositories to Add** there: the repository's address and its key's owner and fingerprint, added only after you agree, with your password.
+- Each app's row says where it comes from: Arch's repositories, Omarchy's, its maker's own repository, or the AUR (used only as a last resort).
+- Apps from their maker's own repository (like ChatGPT's) never fall back to the AUR. Each computer records its extra repositories and their signing keys. **Apps → Repositories** lists the ones this computer has, and **Repositories to Add** the ones it still needs, with the repository's address and its key's owner and fingerprint. **Add Repository…** adds one only after you agree, with your password, and **Show Commands** gives the same steps to run in a terminal yourself. Until then, the apps that need it stay off and locked on this computer, and the Sync page points to Repositories.
 - Apps that aren't in Arch's repos or the AUR (ones you built from your own repository, say) can't install through `yay`. Their row says so and offers **Add Install Steps…**: the commands that install it, one per line, such as cloning its repository, building it and running its install script. They run in order and stop at the first step that fails. Other computers then offer **Install**, which runs it in an empty folder in a terminal window you can watch. Without one, the app stays on the computers that have it.
 
-**When two computers changed the same thing.** You get two equal choices, **Keep This Computer's Version** or **Keep Desktop's Version**, each saying when it changed. Changes to the choices themselves (which apps, which plugins) never ask: they're merged automatically.
+**When two computers changed the same thing.** The sync stops and shows each clashing file with both versions side by side and the exact lines that differ. You choose one version per file, then **Keep Chosen Versions**; **Cancel** leaves everything as it was. Nothing is lost: the version you didn't keep stays in History. Changes to the choices themselves (which apps, which plugins) never ask: they're merged automatically.
+
+**Broken files are caught.** When git combines two computers' changes to the same file without a clash, the result is checked before it's applied: JSON, TOML and YAML with their own parsers, and Lua with `luac`. If the combined file no longer reads, it's treated like a clash and you choose a version, so a broken settings file never reaches your desktop.
 
 **History and Undo.** **History** lists every sync, who made it and when. **Show Files** lists what it changed. **Undo** shows the files it will put back, then reverses that one sync on all your computers. Later syncs stay as they are.
 
 **Computers.** Rename this computer in **Settings** (names are unique, so two computers can't share one). Remove a computer you no longer use; if it syncs again, it comes back.
+
+**Something wrong?** The speech-bubble button next to Settings in the sidebar, and **Report This…** next to any error, open a GitHub issue with the details filled in. Nothing is sent until you submit it on GitHub.
 
 **Stopping.** **Settings → Disconnect** stops syncing on this computer. Its settings stay exactly as they are, and your other computers carry on.
 
@@ -192,15 +201,15 @@ flowchart LR
 **A sync, step by step**
 
 1. **Save this computer's changes.** Changed files are copied into the sync folder, new files are added, and everything is saved as one change with a message listing what changed.
-2. **Get changes from your other computers** (`git pull --rebase`). If the only clash is in the shared choices file, it's merged automatically. If a real setting clashes, the sync stops and asks you.
-3. **Update this computer.** chezmoi writes the incoming files into place, then the theme and background switch over if they changed.
+2. **Get changes from your other computers** (`git fetch`, then `git rebase`). If the only clash is in the shared choices file, it's merged automatically. If a real setting clashes, or combining left a file that no longer reads, the sync stops and asks you.
+3. **Update this computer.** First it checks Omarchy versions and pauses or resumes Omarchy's own settings here. Then chezmoi writes the incoming files into place, and the theme and background switch over if they changed.
 4. **Share with your other computers** (`git push`).
 5. **Apps and plugins** that should be here are installed, or wait for your yes.
 
 **Your private repository** holds:
 
 - your settings files, in chezmoi's layout (for example `dot_config/hypr/bindings.lua`);
-- `.chezmoidata.yaml`, the shared choices: which folders, apps and plugins sync, the theme and background, and each computer's name, plugins, web apps and personal exceptions;
+- `.chezmoidata.yaml`, the shared choices: which folders, apps and plugins sync, the theme and background, extra repositories and their keys, install steps for apps from outside the repositories, and each computer's name, Omarchy version, plugins, web apps and personal exceptions;
 - `.chezmoiignore`, the rules for what each computer leaves out, worked out per computer from the shared choices;
 - `.background/`, the one background image in use.
 
@@ -211,19 +220,23 @@ flowchart LR
 ## Privacy and safety
 
 - Your settings go only to the private repository in your own GitHub account, through GitHub's own sign-in (`gh`). The app has no server, no analytics and no telemetry.
-- Before a new computer takes your synced settings, its own are backed up to `~/.local/share/omarchy-sync/backups/`.
+- Before a new computer takes your synced settings, its own are backed up to `~/.local/share/omarchy-sync/backups/`. The same happens before a computer takes a newer Omarchy's settings.
+- Adding a repository or running install steps always asks first and says plainly to do it only for sources you trust.
+- A way back through Btrfs snapshots (Snapper) is being considered in [issue #7](https://github.com/tsubaie/OmaSync/issues/7).
 - Installing anything asks for your password through Omarchy's prompt (`pkexec`), unless you allowed adding without asking.
 - Nothing is deleted on your other computers: switching something off stops syncing it, and Undo and History cover the rest.
 
 **Files on your computer**
 
-| Path                                      | What                                                     |
-| ----------------------------------------- | -------------------------------------------------------- |
-| `~/.local/share/chezmoi`                  | The sync folder: a local copy of your private repository |
-| `~/.local/share/omarchy-sync/backups/`    | Backups taken before a computer's first sync             |
-| `~/.local/share/omarchy-sync/background/` | The synced background, on computers that received it     |
-| `~/.local/state/omarchy-sync/background`  | The background sync's memory, so it doesn't notify twice |
-| `~/.config/systemd/user/omarchy-sync.*`   | The 15-minute timer                                      |
+| Path                                                        | What                                                                                         |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| `~/.local/share/chezmoi`                                    | The sync folder: a local copy of your private repository                                     |
+| `~/.local/share/omarchy-sync/backups/`                      | Backups taken before a computer's first sync, and before it takes a newer Omarchy's settings |
+| `~/.local/share/omarchy-sync/background/`                   | The synced background, on computers that received it                                         |
+| `~/.local/state/omarchy-sync/background`                    | The background sync's memory, so it doesn't notify twice                                     |
+| `~/.local/state/omarchy-sync/status.json`                   | The latest sync state, which the bar icon shows                                              |
+| `~/.config/omarchy/plugins/io.github.tsubaie.omarchy-sync/` | The bar icon (an Omarchy shell plugin)                                                       |
+| `~/.config/systemd/user/omarchy-sync.*`                     | The 15-minute timer                                                                          |
 
 ## Questions
 
@@ -247,11 +260,11 @@ mise x -- pnpm tauri dev        # the app with live reload
 mise x -- pnpm audit:all        # every check CI runs
 ```
 
-| Layer  | Built with                                                                                                                                     |
-| ------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| Window | [Tauri 2](https://tauri.app), React 19, TypeScript, [React Aria](https://react-spectrum.adobe.com/react-aria/), Vite                           |
-| Engine | Rust, calling chezmoi, git, gh, pacman, yay, systemd and Omarchy's commands                                                                    |
-| Checks | Oxlint, Prettier, Knip, dependency-cruiser, Vitest, Playwright with axe accessibility checks, cargo fmt, Clippy, a real two-computer sync test |
+| Layer  | Built with                                                                                                                                                                                                              |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Window | [Tauri 2](https://tauri.app), React 19, TypeScript, [React Aria](https://react-spectrum.adobe.com/react-aria/), Vite                                                                                                    |
+| Engine | Rust, calling chezmoi, git, gh, pacman, yay, systemd and Omarchy's commands                                                                                                                                             |
+| Checks | Oxlint, Prettier, Knip, dependency-cruiser, Vitest, Playwright with axe accessibility checks, cargo fmt, Clippy, a real two-computer sync test, and the real app on several computers in containers (`pnpm test:multi`) |
 
 The layout, the checks and the writing rules are in [CONTRIBUTING.md](CONTRIBUTING.md). Pull requests are checked by CI, including the page in WebKit with accessibility checks.
 
