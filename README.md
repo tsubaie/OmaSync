@@ -77,7 +77,19 @@ It follows your Omarchy theme, light or dark:
 
 ## Install
 
-Omarchy Sync is built from source for now. You need [mise](https://mise.jdx.dev), which Omarchy already includes, and Tauri's system libraries (`webkit2gtk-4.1`, already installed on Omarchy).
+On Omarchy, one line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tsubaie/OmaSync/main/install.sh | sh
+```
+
+[Read the installer](install.sh) first if you like. It downloads the latest release's Arch package, checks it against the release's `SHA256SUMS`, and installs it with `pacman`, which asks for your password. Nothing is compiled. Run the same line again to update.
+
+Then open **Omarchy Sync** from the app launcher (Super + Space).
+
+### Build from source
+
+You need [mise](https://mise.jdx.dev), which Omarchy already includes, and Tauri's system libraries (`webkit2gtk-4.1`, already installed on Omarchy).
 
 ```bash
 git clone https://github.com/tsubaie/OmaSync.git
@@ -92,8 +104,6 @@ for size in 16 32 48 64 128 256 512; do
     ~/.local/share/icons/hicolor/${size}x${size}/apps/omarchy-sync.png
 done
 ```
-
-Then open **Omarchy Sync** from the app launcher (Super + Space).
 
 To update later, pull and run the same build and `install` lines again.
 

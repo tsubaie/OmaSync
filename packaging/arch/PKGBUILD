@@ -1,0 +1,36 @@
+# Builds Omarchy Sync from the checked-out repository. The release workflow
+# builds first (with its caches) and runs `makepkg -R` here to package only.
+pkgname=omarchy-sync
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Keep Omarchy settings, themes, plugins and apps the same on all your computers"
+arch=('x86_64')
+url="https://github.com/tsubaie/OmaSync"
+license=('MIT')
+# The three tools setup would otherwise install, so a fresh install skips that step.
+depends=('webkit2gtk-4.1' 'gtk3' 'chezmoi' 'github-cli' 'git')
+makedepends=('cargo' 'nodejs' 'pnpm')
+# The cargo release profile already strips the binary; makepkg has nothing to split out.
+options=('!debug')
+source=()
+
+_repo="$startdir/../.."
+
+build() {
+  cd "$_repo"
+  pnpm install --frozen-lockfile
+  # Tauri embeds the built page, so it has to exist before the Rust crate compiles.
+  pnpm build
+  cargo build --release --locked --manifest-path src-tauri/Cargo.toml
+}
+
+package() {
+  cd "$_repo"
+  install -Dm755 src-tauri/target/release/omarchy-sync "$pkgdir/usr/bin/omarchy-sync"
+  install -Dm644 omarchy-sync.desktop "$pkgdir/usr/share/applications/omarchy-sync.desktop"
+  for size in 16 32 48 64 128 256 512; do
+    install -Dm644 "packaging/icons/${size}x${size}/omarchy-sync.png" \
+      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/omarchy-sync.png"
+  done
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
