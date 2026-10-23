@@ -19,9 +19,10 @@ _repo="$startdir/../.."
 build() {
   cd "$_repo"
   pnpm install --frozen-lockfile
-  # Tauri embeds the built page, so it has to exist before the Rust crate compiles.
+  # Tauri embeds the built page, so it has to exist before the Rust crate compiles, and only
+  # with the custom-protocol feature on (`tauri build` turns it on; plain cargo doesn't).
   pnpm build
-  cargo build --release --locked --manifest-path src-tauri/Cargo.toml
+  cargo build --release --locked --manifest-path src-tauri/Cargo.toml --features tauri/custom-protocol
 }
 
 package() {
