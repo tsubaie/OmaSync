@@ -28,8 +28,10 @@ export function useSync() {
   const [busy, setBusy] = useState<string | null>('Getting ready');
   /** The steps the running job has reached so far, the last one in progress. */
   const [steps, setSteps] = useState<string[]>([]);
-  /** Which job is running, by its first label, for how many steps it usually takes. */
-  const [job, setJob] = useState<string | null>(null);
+  /** The steps it announced it will take (some reached steps may be extra, like new files). */
+  const [plan, setPlan] = useState<string[]>([]);
+  /** How far along the current step is, when it can tell (uploads and downloads). */
+  const [percent, setPercent] = useState<number | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -69,18 +71,27 @@ export function useSync() {
     if (working.current) return undefined;
     working.current = true;
     setBusy(first);
-    setJob(first);
     setSteps([]);
+    setPlan([]);
+    setPercent(null);
     try {
-      return await work((step) => {
-        setBusy(step);
-        setSteps((done) => [...done, step]);
+      return await work((line) => {
+        // Besides step names, sync.rs sends the plan and percentages on lines starting \u0001.
+        const [kind, ...rest] = line.split('\t');
+        if (kind === '\u0001plan') setPlan(rest);
+        else if (kind === '\u0001percent') setPercent(Number(rest[0]));
+        else {
+          setBusy(line);
+          setSteps((done) => [...done, line]);
+          setPercent(null);
+        }
       });
     } finally {
       working.current = false;
       setBusy(null);
-      setJob(null);
       setSteps([]);
+      setPlan([]);
+      setPercent(null);
       setSyncing(false);
     }
   }
@@ -266,7 +277,8 @@ export function useSync() {
     setTab,
     busy,
     steps,
-    job,
+    plan,
+    percent,
     idle: busy === null,
     syncing,
     notice,

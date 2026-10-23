@@ -354,8 +354,15 @@ fn known_folder(path: &str) -> Result<&'static str> {
 #[tauri::command]
 async fn set_folder(path: String, on: bool) -> Result<Data> {
     let path = known_folder(&path)?;
+    // Stop tracking before saving "off": once saved, the ignore rules hide it from chezmoi,
+    // which then can't forget it. Starting is the other way round.
+    if !on {
+        blocking(move |ctx| sync::track(ctx, path, false)).await?;
+    }
     let data = edit(|d, _| sync::toggle(&mut d.folders, path, on))?;
-    blocking(move |ctx| sync::track(ctx, path, on)).await?;
+    if on {
+        blocking(move |ctx| sync::track(ctx, path, true)).await?;
+    }
     Ok(data)
 }
 

@@ -770,6 +770,9 @@ kbd {
 .progress .steps li.now {
   color: var(--ink);
 }
+.progress .steps li.next {
+  opacity: 0.6;
+}
 .progress .steps li.done svg {
   color: var(--good);
 }

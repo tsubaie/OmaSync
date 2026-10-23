@@ -35,3 +35,13 @@ export function shortList(files: string[], max = 4) {
   const shown = files.slice(0, max).join(', ');
   return files.length > max ? `${shown} and ${files.length - max} more` : shown;
 }
+
+/**
+ * Where a job stands: the steps reached (the last in progress) then the announced ones still to
+ * come, and how much of it is done, counting the current step's percentage.
+ */
+export function progress(steps: string[], plan: string[], percent: number | null) {
+  const items = [...steps, ...plan.filter((p) => !steps.includes(p))];
+  const done = Math.max(steps.length - 1, 0) + (percent ?? 0) / 100;
+  return { items, share: items.length ? Math.min(done / items.length, 1) : 0 };
+}

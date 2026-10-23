@@ -758,6 +758,69 @@ pub fn run(dir: Option<&Path>, prog: &str, args: &[&str]) -> Result<String, Stri
     }
 }
 
+// Besides plain step names, a job's `step` callback carries two kinds of line, read by the
+// page (state.ts): the steps it's about to take, and how far along the current one is.
+const PLAN: &str = "\u{1}plan\t";
+const PERCENT: &str = "\u{1}percent\t";
+
+/// Announces every step a job will take, so the page can show what's still to come.
+fn plan(step: &dyn Fn(&str), steps: &[&str]) {
+    step(&format!("{PLAN}{}", steps.join("\t")));
+}
+
+/// The percentage in a git progress line, for the transfer itself only (git also counts and
+/// compresses objects, each from 0 to 100%).
+fn transfer_percent(line: &str) -> Option<u8> {
+    if !line.contains("Receiving objects") && !line.contains("Writing objects") {
+        return None;
+    }
+    let before = &line[..line.find('%')?];
+    let digits = before.trim_end().rsplit(' ').next()?;
+    digits.parse().ok()
+}
+
+/// A git command that talks to GitHub, passing its upload or download percentage on as it goes.
+fn git_progress(ctx: &Ctx, args: &[&str], step: &dyn Fn(&str)) -> Result<String, String> {
+    use std::io::Read;
+    let mut child = Command::new("git")
+        .args(args)
+        .current_dir(&ctx.src)
+        .env("LC_ALL", "C")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("git: {e}"))?;
+    let mut stderr = child.stderr.take().ok_or("git: no output")?;
+    let (mut all, mut line, mut last) = (Vec::new(), Vec::new(), None);
+    let mut buf = [0u8; 1024];
+    // Progress lines end in \r as they update; each finished one in \n.
+    while let Ok(n) = stderr.read(&mut buf)
+        && n > 0
+    {
+        for &b in &buf[..n] {
+            all.push(b);
+            if b == b'\r' || b == b'\n' {
+                let p = transfer_percent(&String::from_utf8_lossy(&line));
+                if p.is_some() && p != last {
+                    step(&format!("{PERCENT}{}", p.unwrap_or_default()));
+                    last = p;
+                }
+                line.clear();
+            } else {
+                line.push(b);
+            }
+        }
+    }
+    let out = child.wait_with_output().map_err(|e| format!("git: {e}"))?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
+    } else {
+        let err = String::from_utf8_lossy(&all);
+        Err(format!("git {}: {}", args.join(" "), err.trim()))
+    }
+}
+
 /// Runs the tool rather than looking it up, so a broken shim (e.g. mise with no version set) counts as missing.
 pub fn has(prog: &str) -> bool {
     run(None, prog, &["--version"]).is_ok()
@@ -778,7 +841,7 @@ pub fn friendly(err: &str) -> String {
     } else if e.contains("rejected") || e.contains("non-fast-forward") {
         "Another computer synced at the same moment. Press Sync now again.".into()
     } else {
-        "Something went wrong while syncing. Nothing on this computer was lost.".into()
+        "Something went wrong. Nothing on this computer was lost.".into()
     }
 }
 
@@ -1240,20 +1303,31 @@ pub fn sync(
     };
     let mut notes = Vec::new();
 
+    plan(
+        step,
+        &[
+            "Saving this computer's changes",
+            "Saving changed settings",
+            "Looking for new files",
+            "Getting changes from your other computers",
+            "Updating this computer",
+            "Sharing with your other computers",
+        ],
+    );
     step("Saving this computer's changes");
     save_local(ctx, step).map_err(fail)?;
 
     step("Getting changes from your other computers");
     let tracked = ctx.git(&["rev-parse", "--abbrev-ref", "@{u}"]).is_ok();
     if tracked {
-        let mut args = vec!["pull", "--rebase", "-q"];
+        let mut args = vec!["pull", "--rebase", "--progress"];
         // During a rebase, "theirs" is this computer's commits and "ours" is what came from GitHub.
         match prefer {
             Prefer::ThisComputer => args.extend(["-X", "theirs"]),
             Prefer::OtherComputer => args.extend(["-X", "ours"]),
             Prefer::Ask => {}
         }
-        if let Err(e) = ctx.git(&args) {
+        if let Err(e) = git_progress(ctx, &args, step) {
             if !ctx.rebasing() {
                 return Err(fail(e));
             }
@@ -1295,10 +1369,9 @@ pub fn sync(
 
     step("Sharing with your other computers");
     if tracked {
-        ctx.git(&["push", "-q"]).map_err(fail)?;
+        git_progress(ctx, &["push", "--progress"], step).map_err(fail)?;
     } else {
-        ctx.git(&["push", "-q", "-u", "origin", "HEAD"])
-            .map_err(fail)?;
+        git_progress(ctx, &["push", "--progress", "-u", "origin", "HEAD"], step).map_err(fail)?;
     }
 
     let plugins = data.missing_plugins(&ctx.host);
@@ -1691,10 +1764,19 @@ pub struct Apps {
 pub fn overview(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Overview, String> {
     // Staging and git status would collide with a background sync mid-commit.
     let _lock = lock_wait(ctx)?;
+    plan(
+        step,
+        &[
+            "Saving changed settings",
+            "Looking for new files",
+            "Checking GitHub for your other computers",
+            "Checking your apps and plugins",
+        ],
+    );
     let data = ctx.load_data();
     stage(ctx, &data, step)?;
     step("Checking GitHub for your other computers");
-    let online = ctx.git(&["fetch", "-q"]).is_ok();
+    let online = git_progress(ctx, &["fetch", "--progress"], step).is_ok();
     let incoming = ctx
         .git(&["rev-list", "--count", "HEAD..@{u}"])
         .ok()
@@ -1787,8 +1869,14 @@ pub fn track_plugin(ctx: &Ctx, id: &str, on: bool) -> Result<(), String> {
             run(None, "chezmoi", &["add", &path])?;
         }
     } else {
-        // Fails only when it was never in the sync folder, which is the goal anyway.
-        let _ = run(None, "chezmoi", &["forget", "--force", &path]);
+        // The choice is already saved, so the ignore rules hide it from chezmoi: take its
+        // folder out of the sync folder directly (it may never have been there).
+        let source = ctx.src.join("dot_config/omarchy/plugins");
+        for e in std::fs::read_dir(&source).into_iter().flatten().flatten() {
+            if strip_attributes(&e.file_name().to_string_lossy()) == id {
+                let _ = std::fs::remove_dir_all(e.path());
+            }
+        }
     }
     Ok(())
 }
@@ -2322,6 +2410,23 @@ mod tests {
             &base,
         );
         assert_eq!(got, vec!["brave-bin"]);
+    }
+
+    #[test]
+    fn reads_git_transfer_percentages() {
+        assert_eq!(
+            transfer_percent("Receiving objects:  45% (9/20), 1.2 MiB | 3 MiB/s"),
+            Some(45)
+        );
+        assert_eq!(
+            transfer_percent("Writing objects: 100% (3/3), done."),
+            Some(100)
+        );
+        assert_eq!(transfer_percent("Compressing objects:  50% (1/2)"), None);
+        assert_eq!(
+            transfer_percent("remote: Enumerating objects: 5, done."),
+            None
+        );
     }
 
     #[test]

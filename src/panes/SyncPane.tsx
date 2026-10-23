@@ -1,6 +1,7 @@
 import { Button } from 'react-aria-components';
 import {
   Check,
+  Circle,
   Cloud,
   Download,
   Package,
@@ -13,7 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { api } from '../api';
-import { ago, byFolder, plural, shortList } from '../format';
+import { ago, byFolder, plural, progress, shortList } from '../format';
 import type { SyncState } from '../state';
 import { Group, OmarchyLogo, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
@@ -65,33 +66,30 @@ function status(s: SyncState): [string, string, LucideIcon, string] {
   ];
 }
 
-/** About how many steps each job reports (see the step() calls in sync.rs), for the bar. */
-const EXPECTED: Record<string, number> = {
-  'Checking for changes': 4,
-  Starting: 6,
-  Undoing: 7,
-};
-
-/** A bar and the steps so far: finished ones ticked, the current one in progress. */
+/**
+ * The real progress of the running job: the steps it announced, ticked as they finish, the
+ * current one with its upload or download percentage, and the ones still to come.
+ */
 function Progress({ s }: { s: SyncState }) {
-  const expected = s.job ? EXPECTED[s.job] : undefined;
-  if (!expected || s.steps.length === 0) return null;
-  // It never claims to be done before it is.
-  const share = Math.min(s.steps.length / (expected + 1), 0.95);
+  if (s.plan.length === 0 || s.steps.length === 0) return null;
+  const { items, share } = progress(s.steps, s.plan, s.percent);
   return (
     <div className="progress">
       <progress className="bar" aria-label="Progress" value={share} max={1} />
       <ol className="steps">
-        {s.steps.map((step, i) => {
-          const now = i === s.steps.length - 1;
+        {items.map((step, i) => {
+          const state = i < s.steps.length - 1 ? 'done' : i === s.steps.length - 1 ? 'now' : 'next';
           return (
-            <li key={`${i}${step}`} className={now ? 'now' : 'done'}>
-              {now ? (
+            <li key={`${i}${step}`} className={state}>
+              {state === 'done' ? (
+                <Check size={12} aria-hidden="true" />
+              ) : state === 'now' ? (
                 <RefreshCw size={12} aria-hidden="true" />
               ) : (
-                <Check size={12} aria-hidden="true" />
+                <Circle size={12} aria-hidden="true" />
               )}
               {step}
+              {state === 'now' && s.percent !== null && ` ${s.percent}%`}
             </li>
           );
         })}
