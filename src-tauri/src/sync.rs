@@ -164,10 +164,70 @@ pub struct Data {
     /// script someone added to install them (none yet: they can't sync).
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub outside: BTreeMap<String, Option<Script>>,
+    /// Extra package repositories (beyond Omarchy's and Arch's) some computer has, by name, so a
+    /// computer without one can add it before installing apps from it.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub repositories: BTreeMap<String, Repository>,
+    /// Which extra repository each synced app comes from. Such an app installs only from it,
+    /// never from the AUR instead.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub app_repo: BTreeMap<String, String>,
     /// The layout of this file; older layouts are upgraded when read.
     #[serde(default)]
     pub version: u32,
 }
+
+/// An extra package repository, as the computer that has it uses it.
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+pub struct Repository {
+    pub servers: Vec<String>,
+    /// pacman's signature rules for it, word by word ("Required", "DatabaseTrustedOnly", …).
+    #[serde(default)]
+    pub sig_level: Vec<String>,
+    /// The key that signs it, copied from that computer's pacman keyring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<RepoKey>,
+}
+
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+pub struct RepoKey {
+    /// 40 hex digits, to check against the vendor's website.
+    pub fingerprint: String,
+    /// Whose key it is, as the key says ("Codex Linux Repository").
+    pub owner: String,
+    /// The public key itself (ASCII-armored).
+    pub armored: String,
+}
+
+/// A map changed on two sides of a merge: entries `mine` changed (added, altered or removed)
+/// win; the rest come from `theirs`.
+fn merge_map<T: Clone + PartialEq>(
+    base: &BTreeMap<String, T>,
+    theirs: &BTreeMap<String, T>,
+    mine: &BTreeMap<String, T>,
+) -> BTreeMap<String, T> {
+    let mut out = theirs.clone();
+    for key in base.keys().chain(mine.keys()) {
+        if mine.get(key) != base.get(key) {
+            match mine.get(key) {
+                Some(v) => out.insert(key.clone(), v.clone()),
+                None => out.remove(key),
+            };
+        }
+    }
+    out
+}
+
+/// Repositories every Omarchy computer has; only others are recorded and offered.
+const STANDARD_REPOS: &[&str] = &[
+    "omarchy",
+    "core",
+    "extra",
+    "multilib",
+    "core-testing",
+    "extra-testing",
+    "multilib-testing",
+];
 
 /// How to install an app from outside Arch's repos and the AUR: a command, run in an empty
 /// folder in a terminal window the person can see (it may download a repository itself).
@@ -354,15 +414,7 @@ impl Data {
             out.retain(|x| !(b.contains(x) && !m.contains(x)));
             out
         };
-        let mut outside = theirs.outside.clone();
-        for app in base.outside.keys().chain(mine.outside.keys()) {
-            if mine.outside.get(app) != base.outside.get(app) {
-                match mine.outside.get(app) {
-                    Some(s) => outside.insert(app.clone(), s.clone()),
-                    None => outside.remove(app),
-                };
-            }
-        }
+        let outside = merge_map(&base.outside, &theirs.outside, &mine.outside);
         let mut computers = theirs.computers.clone();
         for id in base.computers.keys().chain(mine.computers.keys()) {
             if mine.computers.get(id) != base.computers.get(id) {
@@ -388,6 +440,8 @@ impl Data {
             },
             computers,
             outside,
+            repositories: merge_map(&base.repositories, &theirs.repositories, &mine.repositories),
+            app_repo: merge_map(&base.app_repo, &theirs.app_repo, &mine.app_repo),
             version: theirs.version.max(mine.version),
         }
     }
@@ -1350,6 +1404,8 @@ fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String>, String> 
     if let Some(name) = save_background(ctx) {
         data.background = Some(name);
     }
+    // Extra repositories here, so other computers can add them for apps that come from them.
+    record_repositories(&mut data);
     // Apps here that `yay` couldn't install elsewhere; they sync only once given a script.
     for app in outside_repos(&user_apps_here()) {
         data.outside.entry(app).or_insert(None);
@@ -1897,13 +1953,238 @@ fn sync_inner(
 /// Synced apps this computer should have but doesn't.
 /// Synced apps this computer wants and `yay` can install (not ones from outside the repos).
 pub fn missing_apps(data: &Data, host: &str, installed: &BTreeSet<String>) -> Vec<String> {
+    let here = repos_here();
     data.apps
         .iter()
         .filter(|a| {
-            data.wants_app(host, a) && !installed.contains(*a) && !data.outside.contains_key(*a)
+            data.wants_app(host, a)
+                && !installed.contains(*a)
+                && !data.outside.contains_key(*a)
+                // From an extra repository this computer doesn't have: never from the AUR
+                // instead; it waits for the repository (see missing_repos).
+                && data.app_repo.get(*a).is_none_or(|r| here.contains(r))
         })
         .cloned()
         .collect()
+}
+
+/// The package repositories this computer uses.
+pub fn repos_here() -> BTreeSet<String> {
+    run(None, "pacman-conf", &["--repo-list"])
+        .unwrap_or_default()
+        .lines()
+        .map(String::from)
+        .collect()
+}
+
+/// An extra repository this computer needs for apps it should have.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct MissingRepo {
+    pub name: String,
+    pub repository: Repository,
+    pub apps: Vec<String>,
+}
+
+/// Extra repositories this computer lacks for synced apps it wants and doesn't have yet.
+pub fn missing_repos(
+    data: &Data,
+    host: &str,
+    installed: &BTreeSet<String>,
+    here: &BTreeSet<String>,
+) -> Vec<MissingRepo> {
+    let mut needed: BTreeMap<&String, Vec<String>> = BTreeMap::new();
+    for app in data
+        .apps
+        .iter()
+        .filter(|a| data.wants_app(host, a) && !installed.contains(*a))
+    {
+        if let Some(repo) = data.app_repo.get(app).filter(|r| !here.contains(*r)) {
+            needed.entry(repo).or_default().push(app.clone());
+        }
+    }
+    needed
+        .into_iter()
+        .filter_map(|(name, apps)| {
+            Some(MissingRepo {
+                name: name.clone(),
+                repository: data.repositories.get(name)?.clone(),
+                apps,
+            })
+        })
+        .collect()
+}
+
+/// This computer's extra repositories as pacman uses them (servers and signature rules), with
+/// the key that signs each, and which of the person's apps come from one.
+fn record_repositories(data: &mut Data) {
+    let extra: Vec<String> = repos_here()
+        .into_iter()
+        .filter(|r| !STANDARD_REPOS.contains(&r.as_str()))
+        .collect();
+    if extra.is_empty() {
+        return;
+    }
+    for name in &extra {
+        let conf = run(None, "pacman-conf", &[&format!("--repo={name}")]).unwrap_or_default();
+        let field = |key: &str| -> Vec<String> {
+            conf.lines()
+                .filter_map(|l| l.strip_prefix(key))
+                .map(|v| v.trim().to_string())
+                .collect()
+        };
+        let repository = Repository {
+            servers: field("Server = "),
+            sig_level: field("SigLevel = "),
+            key: repo_key(name),
+        };
+        if !repository.servers.is_empty() {
+            data.repositories.insert(name.clone(), repository);
+        }
+    }
+    let mine = user_apps_here();
+    for (app, repo) in sources(mine.iter(), &[], &BTreeMap::new()) {
+        if extra.contains(&repo) {
+            data.app_repo.insert(app, repo);
+        }
+    }
+}
+
+/// The key that signed a repository's package list, copied from pacman's keyring. The keyring
+/// is root's, so its public half is read from a copy in a temporary folder.
+fn repo_key(name: &str) -> Option<RepoKey> {
+    let db = run(None, "pacman-conf", &["DBPath"]).unwrap_or("/var/lib/pacman/".into());
+    let sig = Path::new(db.trim())
+        .join("sync")
+        .join(format!("{name}.db.sig"));
+    let packets = run(None, "gpg", &["--list-packets", &sig.to_string_lossy()]).ok()?;
+    let fingerprint = packets
+        .split_whitespace()
+        .skip_while(|w| *w != "fpr")
+        .nth(2)?
+        .trim_end_matches(')')
+        .to_uppercase();
+    if fingerprint.len() != 40 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    let dir = std::env::temp_dir().join(format!("omarchy-sync-keys-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).ok()?;
+    let ring = ["pubring.gpg", "pubring.kbx"]
+        .iter()
+        .find(|f| std::fs::copy(Path::new("/etc/pacman.d/gnupg").join(f), dir.join(f)).is_ok());
+    let home = dir.to_string_lossy().into_owned();
+    let gpg = |args: &[&str]| {
+        let mut all = vec!["--homedir", home.as_str(), "--no-autostart", "--batch"];
+        all.extend_from_slice(args);
+        run(None, "gpg", &all).ok()
+    };
+    let key = ring.and_then(|_| {
+        let armored = gpg(&["--export", "--armor", &fingerprint])?;
+        let owner = gpg(&["--list-keys", "--with-colons", &fingerprint])?
+            .lines()
+            .find_map(|l| {
+                l.strip_prefix("uid:")
+                    .map(|u| u.split(':').nth(8).unwrap_or("").to_string())
+            })
+            .unwrap_or_default();
+        armored
+            .starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----")
+            .then(|| RepoKey {
+                fingerprint: fingerprint.clone(),
+                owner,
+                armored,
+            })
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    key
+}
+
+/// Adds an extra repository on this computer, as recorded from another one: its settings file
+/// in /etc/pacman.d, an Include for it in pacman.conf, its key imported and trusted, and the
+/// package lists refreshed. One password prompt (pkexec); every value is checked first.
+pub fn add_repository(data: &Data, name: &str) -> Result<(), String> {
+    let repo = data
+        .repositories
+        .get(name)
+        .ok_or_else(|| format!("no repository called {name}"))?;
+    let plain = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+    };
+    if !plain(name) || STANDARD_REPOS.contains(&name) {
+        return Err(format!("not a repository that can be added: {name}"));
+    }
+    if repos_here().contains(name) {
+        return Ok(());
+    }
+    const LEVELS: &[&str] = &[
+        "Never",
+        "Optional",
+        "Required",
+        "TrustedOnly",
+        "TrustAll",
+        "PackageNever",
+        "PackageOptional",
+        "PackageRequired",
+        "PackageTrustedOnly",
+        "PackageTrustAll",
+        "DatabaseNever",
+        "DatabaseOptional",
+        "DatabaseRequired",
+        "DatabaseTrustedOnly",
+        "DatabaseTrustAll",
+    ];
+    let servers_ok = !repo.servers.is_empty()
+        && repo.servers.iter().all(|s| {
+            s.starts_with("https://") && !s.chars().any(|c| c.is_whitespace() || c.is_control())
+        });
+    if !servers_ok || !repo.sig_level.iter().all(|l| LEVELS.contains(&l.as_str())) {
+        return Err(format!("the settings recorded for {name} don't look right"));
+    }
+    let dir = std::env::temp_dir().join(format!("omarchy-sync-repo-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let mut conf = format!("[{name}]\n");
+    if !repo.sig_level.is_empty() {
+        conf.push_str(&format!("SigLevel = {}\n", repo.sig_level.join(" ")));
+    }
+    for server in &repo.servers {
+        conf.push_str(&format!("Server = {server}\n"));
+    }
+    let target = format!("/etc/pacman.d/omarchy-sync-{name}.conf");
+    let include = format!("Include = {target}");
+    let mut script = format!(
+        "set -e\ninstall -m 644 '{}' '{target}'\ngrep -qxF '{include}' /etc/pacman.conf || printf '\\n%s\\n' '{include}' >> /etc/pacman.conf\n",
+        dir.join("repo.conf").display()
+    );
+    std::fs::write(dir.join("repo.conf"), conf).map_err(|e| e.to_string())?;
+    if let Some(key) = &repo.key {
+        let fpr_ok =
+            key.fingerprint.len() == 40 && key.fingerprint.bytes().all(|b| b.is_ascii_hexdigit());
+        if !fpr_ok
+            || !key
+                .armored
+                .starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----")
+        {
+            let _ = std::fs::remove_dir_all(&dir);
+            return Err(format!("the key recorded for {name} doesn't look right"));
+        }
+        std::fs::write(dir.join("repo.key"), &key.armored).map_err(|e| e.to_string())?;
+        script.push_str(&format!(
+            "pacman-key --add '{}'\npacman-key --lsign-key {}\n",
+            dir.join("repo.key").display(),
+            key.fingerprint
+        ));
+    }
+    script.push_str("pacman -Sy --noconfirm\n");
+    std::fs::write(dir.join("add.sh"), &script).map_err(|e| e.to_string())?;
+    let result = run(
+        None,
+        "pkexec",
+        &["bash", &dir.join("add.sh").to_string_lossy()],
+    )
+    .map(|_| ());
+    let _ = std::fs::remove_dir_all(&dir);
+    result
 }
 
 /// Synced apps from outside the repos that this computer wants, with their install scripts.
@@ -1978,6 +2259,17 @@ pub fn sources<'a>(
     outside_here: &[String],
     outside_synced: &BTreeMap<String, Option<Script>>,
 ) -> BTreeMap<String, String> {
+    sources_with(apps, outside_here, outside_synced, &BTreeMap::new())
+}
+
+/// `sources`, where an app that comes from an extra repository this computer doesn't have
+/// (`app_repo`, recorded by another computer) shows that repository rather than the AUR.
+pub fn sources_with<'a>(
+    apps: impl Iterator<Item = &'a String>,
+    outside_here: &[String],
+    outside_synced: &BTreeMap<String, Option<Script>>,
+    app_repo: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
     let mut repo_of: BTreeMap<&str, &str> = BTreeMap::new();
     let listing = run(None, "pacman", &["-Sl"]).unwrap_or_default();
     // `pacman -Sl` lists repositories in pacman.conf's order; the first one listing a package wins.
@@ -1993,6 +2285,7 @@ pub fn sources<'a>(
             Some(&("core" | "extra" | "multilib")) => "arch",
             Some(repo) => repo,
             None if outside_here.contains(app) || outside_synced.contains_key(app) => "elsewhere",
+            None if app_repo.contains_key(app) => app_repo[app].as_str(),
             None => "aur",
         };
         (app.clone(), source.to_string())
@@ -2419,6 +2712,8 @@ pub struct Overview {
     pub history: Vec<Entry>,
     /// Every computer's plugins, named.
     pub plugins: Vec<Plugin>,
+    /// Extra repositories this computer needs for apps it should have, waiting to be added.
+    pub missing_repos: Vec<MissingRepo>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -2510,6 +2805,7 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
             })
             .collect(),
         plugins,
+        missing_repos: missing_repos(&data, &ctx.host, &installed(), &repos_here()),
     })
 }
 
@@ -2604,7 +2900,7 @@ fn apps(data: &Data) -> Apps {
     let outside = outside_repos(&mine);
     // Every app shown: this computer's and the synced ones it may not have yet.
     let all = mine.iter().chain(data.apps.iter());
-    let source = sources(all, &outside, &data.outside);
+    let source = sources_with(all, &outside, &data.outside, &data.app_repo);
     Apps {
         installed,
         mine,
@@ -3186,6 +3482,74 @@ mod tests {
             transfer_percent("remote: Enumerating objects: 5, done."),
             None
         );
+    }
+
+    #[test]
+    fn apps_from_an_extra_repository_wait_for_it() {
+        let mut d = Data {
+            apps: vec!["chatgpt-bin".into(), "firefox".into()],
+            ..Default::default()
+        };
+        d.app_repo
+            .insert("chatgpt-bin".into(), "openai-chatgpt".into());
+        d.repositories.insert(
+            "openai-chatgpt".into(),
+            Repository {
+                servers: vec!["https://example.com/arch".into()],
+                ..Default::default()
+            },
+        );
+        let none = BTreeSet::new();
+        let missing = missing_repos(&d, "b", &none, &BTreeSet::from(["core".into()]));
+        assert_eq!(
+            (
+                missing.len(),
+                missing[0].name.as_str(),
+                missing[0].apps.clone()
+            ),
+            (1, "openai-chatgpt", vec!["chatgpt-bin".to_string()])
+        );
+        // Once the repository is here, nothing waits for it.
+        let here = BTreeSet::from(["openai-chatgpt".to_string()]);
+        assert!(missing_repos(&d, "b", &none, &here).is_empty());
+        // A repository recorded on one computer survives a merge with another's changes.
+        let base = Data::default();
+        let theirs = Data {
+            apps: vec!["yazi".into()],
+            ..Default::default()
+        };
+        let m = Data::merge(&base, &theirs, &d);
+        assert!(m.repositories.contains_key("openai-chatgpt"));
+        assert_eq!(
+            m.app_repo.get("chatgpt-bin").map(String::as_str),
+            Some("openai-chatgpt")
+        );
+    }
+
+    #[test]
+    fn a_tampered_repository_is_refused_before_anything_runs() {
+        let mut d = Data::default();
+        let repo = |server: &str, level: &str| Repository {
+            servers: vec![server.into()],
+            sig_level: vec![level.into()],
+            key: None,
+        };
+        d.repositories
+            .insert("plain-http".into(), repo("http://example.com", "Required"));
+        d.repositories.insert(
+            "odd-level".into(),
+            repo("https://example.com", "Required; rm -rf"),
+        );
+        d.repositories
+            .insert("bad name!".into(), repo("https://example.com", "Required"));
+        d.repositories
+            .insert("core".into(), repo("https://example.com", "Required"));
+        for name in ["plain-http", "odd-level", "bad name!", "core", "unknown"] {
+            assert!(
+                add_repository(&d, name).is_err(),
+                "{name} should be refused"
+            );
+        }
     }
 
     #[test]

@@ -354,6 +354,72 @@ function ScriptedApps({ s }: { s: SyncState }) {
   );
 }
 
+/** The fingerprint in groups of four, as vendors print it, to compare at a glance. */
+const groups = (fingerprint: string) => fingerprint.match(/.{1,4}/g)?.join(' ') ?? fingerprint;
+
+/**
+ * Extra repositories this computer needs before some synced apps can install (they never come
+ * from the AUR instead). Adding one changes what this computer trusts, so it always asks, with
+ * the repository's address and key shown, and asks for the password.
+ */
+function ReposToAdd({ s }: { s: SyncState }) {
+  const [confirm, setConfirm] = useState<string | null>(null);
+  return (
+    <Group
+      title="Repositories to Add"
+      footer="These apps come from their makers' own repositories, which your other computers use. They install here once the repository is added."
+    >
+      {s.overview!.missing_repos.map((r) => (
+        <Row
+          key={r.name}
+          lead={<Tile icon={Package} kind="apps" size={24} />}
+          title={r.name}
+          detail={`Needed for ${r.apps.join(', ')}. From ${r.repository.servers[0]}`}
+          end={
+            confirm === r.name ? (
+              <div className="actions">
+                <Link onPress={() => setConfirm(null)}>Cancel</Link>
+                <Push
+                  onPress={() => {
+                    setConfirm(null);
+                    s.act(
+                      `Adding the ${r.name} repository`,
+                      () => api.addRepository(r.name),
+                      () => s.refresh(),
+                    );
+                  }}
+                >
+                  Add It
+                </Push>
+              </div>
+            ) : (
+              <Push disabled={!s.idle} onPress={() => setConfirm(r.name)}>
+                Add Repository…
+              </Push>
+            )
+          }
+        >
+          {confirm === r.name && (
+            <Caution>
+              <b>Add it only if you trust {r.repository.key?.owner || r.name}.</b> From now on this
+              computer installs and updates packages from it, as your other computers do.
+              {r.repository.key ? (
+                <>
+                  {' '}
+                  Its key's fingerprint, to check against the maker's website:{' '}
+                  <code>{groups(r.repository.key.fingerprint)}</code>
+                </>
+              ) : (
+                ' It has no signing key, so its packages can’t be checked.'
+              )}
+            </Caution>
+          )}
+        </Row>
+      ))}
+    </Group>
+  );
+}
+
 export function SyncPane({ s }: { s: SyncState }) {
   const ov = s.overview;
   if (s.conflict) {
@@ -402,6 +468,7 @@ export function SyncPane({ s }: { s: SyncState }) {
               </div>
             </Group>
           )}
+          {ov.missing_repos.length > 0 && <ReposToAdd s={s} />}
           {s.scripted.length > 0 && s.idle && <ScriptedApps s={s} />}
           {showPlugins && (
             <Group

@@ -323,3 +323,21 @@ test('problems and ideas can be reported from beside Settings', async ({ page })
     { cmd: 'report', args: { message: null, details: null } },
   ]);
 });
+
+test("an app from its maker's repository waits until the repository is added", async ({ page }) => {
+  await page.goto('/?scenario=repo');
+  const group = page.getByRole('region', { name: 'Repositories to Add' });
+  await expect(group.getByText('Needed for chatgpt-bin.', { exact: false })).toBeVisible();
+  await group.getByRole('button', { name: 'Add Repository…' }).click();
+  // Nothing runs until the person has seen whose repository it is and its key, and agreed.
+  await expect(group.getByText('Add it only if you trust Codex Linux Repository.')).toBeVisible();
+  await expect(group.locator('code')).toHaveText(
+    '3BFA 0E4A E8B8 CC16 A2D9 BA68 4A3B 4A56 6C46 60E4',
+  );
+  expect(await calls(page, 'add_repository')).toEqual([]);
+  expect(await a11y(page)).toEqual([]);
+  await group.getByRole('button', { name: 'Add It' }).click();
+  expect(await calls(page, 'add_repository')).toEqual([
+    { cmd: 'add_repository', args: { name: 'openai-chatgpt' } },
+  ]);
+});

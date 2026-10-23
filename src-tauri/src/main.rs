@@ -41,6 +41,7 @@ fn main() {
             install_plugins,
             set_app_script,
             set_bar_indicator,
+            add_repository,
             report,
             remove_app_script,
             install_with_script,
@@ -348,6 +349,22 @@ async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> 
         blocking(move |ctx| sync::track_plugin(ctx, &plugin, on)).await?;
     }
     Ok(data)
+}
+
+/// Adds an extra package repository on this computer, as another computer has it (after the
+/// person confirmed); only one this computer needs and lacks, by its recorded name.
+#[tauri::command]
+async fn add_repository(name: String) -> Result<()> {
+    blocking(move |ctx| {
+        let data = ctx.load_data();
+        let needed = sync::missing_repos(&data, &ctx.host, &sync::installed(), &sync::repos_here());
+        if !needed.iter().any(|r| r.name == name) {
+            return Err(format!("{name} isn't a repository this computer needs"));
+        }
+        sync::add_repository(&data, &name)
+    })
+    .await
+    .map_err(Problem::from)
 }
 
 /// Shows the sync indicator on the Omarchy bar, or takes it off.

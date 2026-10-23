@@ -16,7 +16,10 @@ function source(from: string | undefined): [string, string] {
     ];
   if (from === 'elsewhere') return ['No repository', 'Installs with the steps you add.'];
   return from
-    ? [from, `From the ${from} repository, which other computers need set up too.`]
+    ? [
+        from,
+        `From the ${from} repository, which each computer needs added (the Sync page offers it).`,
+      ]
     : ['', ''];
 }
 

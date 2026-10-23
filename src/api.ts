@@ -7,6 +7,16 @@ export type Look = { colors_toml: string; motion: boolean };
 export type Folder = { path: string; name: string; default: boolean; exists: boolean };
 export type Catalog = { folders: Folder[]; data_label: string };
 export type Plugin = { id: string; name: string; description: string };
+/** An extra package repository another computer has, and the apps here that need it. */
+export type MissingRepo = {
+  name: string;
+  repository: {
+    servers: string[];
+    sig_level: string[];
+    key?: { fingerprint: string; owner: string; armored: string };
+  };
+  apps: string[];
+};
 /** How to install an app from outside the repos: a command, run in an empty folder. */
 export type Script = { command: string };
 
@@ -76,6 +86,8 @@ export type Overview = {
   history: Entry[];
   /** Every computer's plugins. */
   plugins: Plugin[];
+  /** Extra repositories this computer needs for apps it should have. */
+  missing_repos: MissingRepo[];
 };
 export type Status = {
   overview: Overview;
@@ -135,6 +147,8 @@ export const api = {
   /** Returns where this computer's previous settings were backed up. */
   join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
   installApps: () => invoke<void>('install_apps'),
+  /** Adds an extra repository this computer needs (asks for the password). */
+  addRepository: (name: string) => invoke<void>('add_repository', { name }),
   /** Opens a new GitHub issue: the choice of kind, or a problem report filled in with an error. */
   report: (message?: string, details?: string) =>
     invoke<void>('report', { message: message ?? null, details: details ?? null }),

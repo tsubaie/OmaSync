@@ -149,6 +149,25 @@ const status = (): Status => ({
     },
     incoming_files: [],
     incoming_from: [],
+    // "repo": an app here comes from its maker's own repository, which this computer lacks.
+    missing_repos:
+      scenario === 'repo'
+        ? [
+            {
+              name: 'openai-chatgpt',
+              repository: {
+                servers: ['https://persistent.oaistatic.com/codex-app-prod/linux/arch/x86_64'],
+                sig_level: ['PackageRequired', 'DatabaseRequired'],
+                key: {
+                  fingerprint: '3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4',
+                  owner: 'Codex Linux Repository',
+                  armored: '-----BEGIN PGP PUBLIC KEY BLOCK-----',
+                },
+              },
+              apps: ['chatgpt-bin'],
+            },
+          ]
+        : [],
     plugins: [
       { id: 'timezones', name: 'Timezones', description: 'World clock with an hour-grid popup.' },
       { id: 'webcam', name: 'Webcam Controls', description: 'Control any webcam from the bar.' },
@@ -292,6 +311,7 @@ mockIPC((cmd, args) => {
     case 'resolve_conflict':
       return { notes: [], waiting: [] };
     case 'report':
+    case 'add_repository':
       return null;
     case 'set_bar_indicator':
       barIndicator = !!a.on;
