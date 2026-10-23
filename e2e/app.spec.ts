@@ -340,4 +340,20 @@ test("an app from its maker's repository waits until the repository is added", a
   expect(await calls(page, 'add_repository')).toEqual([
     { cmd: 'add_repository', args: { name: 'openai-chatgpt' } },
   ]);
+  // Or by hand: the same steps as terminal commands.
+  await group.getByRole('button', { name: 'Show Commands' }).click();
+  await expect(group.locator('.commands code')).toContainText(
+    'sudo pacman-key --lsign-key 3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4',
+  );
+  // Until then the app is off and locked here.
+  await page.getByRole('tab', { name: 'Installed Apps' }).click();
+  await expect(
+    page.getByText('Needs the openai-chatgpt repository on this computer first'),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('switch', { name: 'chatgpt-bin synced on This Computer' }),
+  ).toBeDisabled();
+  await expect(
+    page.getByRole('switch', { name: 'chatgpt-bin synced on This Computer' }),
+  ).not.toBeChecked();
 });

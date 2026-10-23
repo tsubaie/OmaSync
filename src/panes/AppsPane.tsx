@@ -130,6 +130,9 @@ export function AppsPane({ s }: { s: SyncState }) {
               const outside = ov.apps.outside.includes(app) || app in (data.outside ?? {});
               const script = data.outside?.[app] ?? null;
               const [tag, meaning] = source(ov.apps.source[app]);
+              // Needs an extra repository this computer doesn't have yet: off and locked here
+              // until it's added (it never comes from the AUR instead).
+              const repo = ov.missing_repos.find((r) => r.apps.includes(app))?.name;
               return (
                 <div className={`row matrix ${many ? 'many' : ''}`} style={columns} key={app}>
                   <div className="text">
@@ -149,6 +152,11 @@ export function AppsPane({ s }: { s: SyncState }) {
                       </div>
                     ) : (
                       <div className="detail">{synced ? about : 'Only on this computer'}</div>
+                    )}
+                    {repo && (
+                      <div className="detail warn">
+                        Needs the {repo} repository on this computer first (see Sync).
+                      </div>
                     )}
                     {outside && (
                       <div className="detail">
@@ -182,9 +190,9 @@ export function AppsPane({ s }: { s: SyncState }) {
                       computers={computers.map((c) => ({
                         id: c,
                         name: name(c),
-                        on: s.wants(c, app),
+                        on: s.wants(c, app) && !(repo && c === host),
                       }))}
-                      disabled={!s.idle || (outside && !script)}
+                      disabled={!s.idle || (outside && !script) || !!repo}
                       onChange={(c, on) => s.edit(() => api.setApp(c, app, on))}
                     />
                   ) : (
@@ -192,9 +200,9 @@ export function AppsPane({ s }: { s: SyncState }) {
                       <div className="cell" key={c}>
                         <span className="cell-label">{column(c)}</span>
                         <Toggle
-                          on={s.wants(c, app)}
+                          on={s.wants(c, app) && !(repo && c === host)}
                           label={`${app} synced on ${name(c)}`}
-                          disabled={!s.idle || (outside && !script)}
+                          disabled={!s.idle || (outside && !script) || (!!repo && c === host)}
                           onChange={(on) => s.edit(() => api.setApp(c, app, on))}
                         />
                       </div>

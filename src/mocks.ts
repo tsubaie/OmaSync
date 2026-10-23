@@ -3,7 +3,7 @@
 // recorded on window.e2eCalls so tests can check what the page asked for.
 
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
-import type { Catalog, Data, Problem, SetupState, Status } from './api';
+import type { Catalog, Computer, Data, Problem, SetupState, Status } from './api';
 
 declare global {
   interface Window {
@@ -13,6 +13,12 @@ declare global {
 
 const scenario = new URLSearchParams(location.search).get('scenario') ?? 'synced';
 // ?theme=light previews a light Omarchy theme (Catppuccin Latte); the default is the dark fallback.
+// Computers beyond Laptop and Desktop.
+const extra = Math.max(
+  0,
+  Number(new URLSearchParams(location.search).get('computers') ?? (scenario === 'many' ? 6 : 2)) -
+    2,
+);
 const theme = new URLSearchParams(location.search).get('theme');
 const LATTE = [
   'background = "#eff1f5"',
@@ -56,21 +62,23 @@ const catalog: Catalog = {
 
 let data: Data = {
   folders: FOLDERS.filter(([, , on]) => on).map(([path]) => path),
-  apps: ['brave-bin', 'yazi', 'quicknote'],
+  apps: ['brave-bin', 'yazi', 'quicknote', ...(scenario === 'repo' ? ['chatgpt-bin'] : [])],
   // On Desktop only, from outside the repos: it waits here for its install command.
   outside: { quicknote: { command: 'curl -fsSL https://example.com/quicknote.sh | bash' } },
   plugins: ['timezones', 'webcam'],
   computers: {
     aaaa11112222: { name: 'Laptop', plugins: ['timezones'] },
     bbbb33334444: { name: 'Desktop', skip_apps: ['yazi'], plugins: ['timezones', 'webcam'] },
-    ...(scenario === 'many'
-      ? {
-          cccc55556666: { name: 'Work Laptop' },
-          dddd77778888: { name: 'Studio' },
-          eeee99990000: { name: 'Living Room' },
-          ffff11112222: { name: 'Travel' },
-        }
-      : {}),
+    ...Object.fromEntries(
+      (
+        [
+          ['cccc55556666', { name: 'Work Laptop' }],
+          ['dddd77778888', { name: 'Studio' }],
+          ['eeee99990000', { name: 'Living Room' }],
+          ['ffff11112222', { name: 'Travel' }],
+        ] as [string, Computer][]
+      ).slice(0, extra),
+    ),
   },
 };
 
@@ -123,19 +131,20 @@ const status = (): Status => ({
     computers: [
       ['aaaa11112222', now - 120],
       ['bbbb33334444', now - 3600],
-      // "many": six computers syncing together.
-      ...(scenario === 'many'
-        ? ([
-            ['cccc55556666', now - 600],
-            ['dddd77778888', now - 7200],
-            ['eeee99990000', now - 86400],
-            ['ffff11112222', now - 3 * 86400],
-          ] as [string, number][])
-        : []),
+      // More computers: "many" is six; ?computers=3 to 6 picks how many in all.
+      ...(
+        [
+          ['cccc55556666', now - 600],
+          ['dddd77778888', now - 7200],
+          ['eeee99990000', now - 86400],
+          ['ffff11112222', now - 3 * 86400],
+        ] as [string, number][]
+      ).slice(0, extra),
     ],
     apps: {
       installed: ['brave-bin', 'yazi', 'tapecalc'],
       mine: ['brave-bin', 'yazi', 'spotify', 'tapecalc'],
+      // ("repo": chatgpt-bin waits for its maker's repository.)
       // Installed from its own repository, not Arch's or the AUR.
       outside: ['tapecalc'],
       source: {

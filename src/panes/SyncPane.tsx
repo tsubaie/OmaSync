@@ -13,7 +13,7 @@ import {
   WifiOff,
   type LucideIcon,
 } from 'lucide-react';
-import { api, type Keep, type Versions } from '../api';
+import { api, type Keep, type MissingRepo, type Versions } from '../api';
 import { ago, byFolder, diffLines, plural, shortList } from '../format';
 import type { SyncState } from '../state';
 import { Caution, Group, Link, OmarchyLogo, Progress, Push, Row, Tile } from '../ui';
@@ -354,6 +354,36 @@ function ScriptedApps({ s }: { s: SyncState }) {
   );
 }
 
+/**
+ * The commands that add a repository by hand, in a terminal: the same steps Add Repository
+ * takes (its settings file, an Include in pacman.conf, its key trusted, lists refreshed).
+ */
+function repoCommands(r: MissingRepo) {
+  const file = `/etc/pacman.d/omarchy-sync-${r.name}.conf`;
+  const conf = [
+    `[${r.name}]`,
+    ...(r.repository.sig_level.length ? [`SigLevel = ${r.repository.sig_level.join(' ')}`] : []),
+    ...r.repository.servers.map((s) => `Server = ${s}`),
+  ];
+  const key = r.repository.key;
+  return [
+    `sudo tee ${file} > /dev/null <<'EOF'`,
+    ...conf,
+    'EOF',
+    `grep -qxF 'Include = ${file}' /etc/pacman.conf || echo 'Include = ${file}' | sudo tee -a /etc/pacman.conf`,
+    ...(key
+      ? [
+          `cat > /tmp/${r.name}.key <<'EOF'`,
+          key.armored.trim(),
+          'EOF',
+          `sudo pacman-key --add /tmp/${r.name}.key`,
+          `sudo pacman-key --lsign-key ${key.fingerprint}`,
+        ]
+      : []),
+    'sudo pacman -Sy',
+  ].join('\n');
+}
+
 /** The fingerprint in groups of four, as vendors print it, to compare at a glance. */
 const groups = (fingerprint: string) => fingerprint.match(/.{1,4}/g)?.join(' ') ?? fingerprint;
 
@@ -364,6 +394,8 @@ const groups = (fingerprint: string) => fingerprint.match(/.{1,4}/g)?.join(' ') 
  */
 function ReposToAdd({ s }: { s: SyncState }) {
   const [confirm, setConfirm] = useState<string | null>(null);
+  const [shown, setShown] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   return (
     <Group
       title="Repositories to Add"
@@ -399,6 +431,28 @@ function ReposToAdd({ s }: { s: SyncState }) {
             )
           }
         >
+          <div className="inline">
+            <Link onPress={() => setShown(shown === r.name ? null : r.name)}>
+              {shown === r.name ? 'Hide Commands' : 'Show Commands'}
+            </Link>
+          </div>
+          {shown === r.name && (
+            <div className="commands">
+              <p className="detail">
+                Or add it yourself: run these in a terminal. They do the same as Add Repository.
+              </p>
+              <pre>
+                <code>{repoCommands(r)}</code>
+              </pre>
+              <Push
+                onPress={() =>
+                  navigator.clipboard.writeText(repoCommands(r)).then(() => setCopied(true), s.fail)
+                }
+              >
+                {copied ? 'Copied' : 'Copy Commands'}
+              </Push>
+            </div>
+          )}
           {confirm === r.name && (
             <Caution>
               <b>Add it only if you trust {r.repository.key?.owner || r.name}.</b> From now on this

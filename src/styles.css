@@ -669,6 +669,24 @@ output {
   box-shadow: var(--focus);
 }
 
+/* Commands to run by hand, to read and copy. */
+.commands {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+  justify-items: start;
+}
+.commands pre {
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 11.5px;
+  box-shadow: inset 0 0 0 0.5px var(--line);
+}
 /* A warning before something risky: tinted in the warning colour, never hidden. */
 .caution {
   display: flex;
