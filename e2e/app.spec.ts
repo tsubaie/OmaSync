@@ -33,7 +33,8 @@ test('sync pane shows the state and syncs on request', async ({ page }) => {
   expect(await a11y(page)).toEqual([]);
 
   await page.getByRole('button', { name: 'Sync Now' }).click();
-  await expect(page.getByText('Synced.')).toBeVisible();
+  // Success is a toast that slides away.
+  await expect(page.locator('.toast').getByText('Synced')).toBeVisible();
   expect(await calls(page, 'sync_now')).toEqual([
     expect.objectContaining({ args: expect.objectContaining({ prefer: 'Ask' }) }),
   ]);
@@ -66,7 +67,9 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
   await page.getByRole('tab', { name: 'Apps' }).click();
   const yazi = page.getByRole('switch', { name: 'yazi on This Computer' });
   await expect(yazi).toBeChecked();
-  await yazi.click({ force: true });
+  // Toggle it the way a keyboard user does; it works the same in WebKit and Chromium.
+  await yazi.focus();
+  await page.keyboard.press('Space');
   await expect(yazi).not.toBeChecked();
   expect(await calls(page, 'set_app')).toEqual([
     { cmd: 'set_app', args: { computer: 'aaaa11112222', app: 'yazi', on: false } },

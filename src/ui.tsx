@@ -78,19 +78,22 @@ export function Row({
 export function Push({
   children,
   prominent,
+  large,
   disabled,
   onPress,
   tip,
 }: {
   children: ReactNode;
   prominent?: boolean;
+  /** The one main action on a screen, a size up. */
+  large?: boolean;
   disabled?: boolean;
   onPress: () => void;
   tip?: string;
 }) {
   const button = (
     <Button
-      className={`push ${prominent ? 'prominent' : ''}`}
+      className={`push ${prominent ? 'prominent' : ''} ${large ? 'large' : ''}`}
       isDisabled={disabled}
       onPress={onPress}
     >

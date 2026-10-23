@@ -1,14 +1,22 @@
+import { useState } from 'react';
+import { Search } from 'lucide-react';
+import { Input, SearchField } from 'react-aria-components';
 import { api } from '../api';
 import type { SyncState } from '../state';
 import { Group, Link, Push, Row, Toggle } from '../ui';
 
 export function AppsPane({ s }: { s: SyncState }) {
+  const [query, setQuery] = useState('');
   const { overview: ov, data, host } = s;
   if (!ov || !data) return null;
   const computers = [host, ...Object.keys(data.computers ?? {}).filter((c) => c !== host)];
   const name = (c: string) => (c === host ? 'This Computer' : s.nameOf(c));
   const columns = { '--n': computers.length } as React.CSSProperties;
   const local = ov.apps.local_only;
+  const q = query.trim().toLowerCase();
+  const shown = local.filter(
+    (app) => !q || app.includes(q) || (ov.apps.about[app] ?? '').toLowerCase().includes(q),
+  );
   return (
     <>
       <Group
@@ -65,10 +73,25 @@ export function AppsPane({ s }: { s: SyncState }) {
         title="Only on This Computer"
         footer="Apps you installed here that your other computers don't have."
       >
+        {local.length > 6 && (
+          <div className="row">
+            <SearchField
+              className="field search"
+              aria-label="Search these apps"
+              value={query}
+              onChange={setQuery}
+            >
+              <Search size={14} aria-hidden="true" />
+              <Input placeholder="Search" />
+            </SearchField>
+          </div>
+        )}
         {local.length === 0 ? (
           <Row title="Every app you installed yourself is synced." />
+        ) : shown.length === 0 ? (
+          <Row title={`No apps match “${query.trim()}”.`} />
         ) : (
-          local.map((app) => (
+          shown.map((app) => (
             <Row
               key={app}
               title={app}

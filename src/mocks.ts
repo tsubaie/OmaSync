@@ -12,6 +12,21 @@ declare global {
 }
 
 const scenario = new URLSearchParams(location.search).get('scenario') ?? 'synced';
+// ?theme=light previews a light Omarchy theme (Catppuccin Latte); the default is the dark fallback.
+const theme = new URLSearchParams(location.search).get('theme');
+const LATTE = [
+  'background = "#eff1f5"',
+  'foreground = "#4c4f69"',
+  'accent = "#1e66f5"',
+  'lighter_background = "#ccd0da"',
+  'dark_foreground = "#6c6f85"',
+  'green = "#40a02b"',
+  'yellow = "#df8e1d"',
+  'red = "#d20f39"',
+  'cyan = "#179299"',
+  'orange = "#fe640b"',
+  'magenta = "#ea76cb"',
+].join('\n');
 const now = Math.floor(Date.now() / 1000);
 
 const catalog: Catalog = {
@@ -101,7 +116,7 @@ mockIPC((cmd, args) => {
   const a = (args ?? {}) as Record<string, never>;
   switch (cmd) {
     case 'look':
-      return { colors_toml: '', motion: false, blur: false };
+      return { colors_toml: theme === 'light' ? LATTE : '', motion: false, blur: false };
     case 'folders':
       return catalog;
     case 'probe':

@@ -166,6 +166,30 @@ export function SettingsPane({ s }: { s: SyncState }) {
         />
       </Group>
 
+      <Group title="Keyboard Shortcuts">
+        {(
+          [
+            ['Sync now', ['Ctrl', 'R']],
+            ['Go to a section', ['Ctrl', '1–5']],
+            ['Move between controls', ['Tab']],
+            ['Cancel a confirmation', ['Esc']],
+            ['Quit', ['Ctrl', 'Q']],
+          ] as const
+        ).map(([action, keys]) => (
+          <Row
+            key={action}
+            title={action}
+            end={
+              <span className="inline">
+                {keys.map((k) => (
+                  <kbd key={k}>{k}</kbd>
+                ))}
+              </span>
+            }
+          />
+        ))}
+      </Group>
+
       <Group
         title="Stop Syncing This Computer"
         footer="Your settings here stay exactly as they are, and your other computers keep syncing. You can set this computer up again any time."

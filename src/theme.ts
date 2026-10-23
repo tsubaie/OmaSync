@@ -66,7 +66,10 @@ export function palette(toml: string): Record<string, Rgb> {
   const ink = get('foreground', '#cdd6f4');
   const accent = get('accent', '#89b4fa');
   const raised = get('lighter_background', '#313244');
-  const card = mix(bg, ink, 0.05);
+  // macOS designs each appearance on its own: light windows put white cards on a soft grey,
+  // dark ones lift cards a step lighter than the window.
+  const light = luminance(bg) > 0.4;
+  const card = light ? mix(bg, WHITE, 0.75) : mix(bg, ink, 0.06);
   const surfaces = [bg, card];
   const onAccent = bestOn(accent, bg, ink);
   const p: Record<string, Rgb> = {

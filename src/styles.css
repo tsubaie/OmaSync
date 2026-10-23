@@ -1,9 +1,11 @@
-/* Styled after macOS System Settings (Apple HIG): translucent sidebar with icon tiles,
-   inset grouped forms, 13 px body text, push buttons, small switches.
+/* Omarchy Sync, styled after macOS 26 System Settings (Apple HIG + the macos-design skill):
+   a floating translucent sidebar with icon tiles, depth from layered surfaces and shadows
+   rather than borders, inset grouped forms, capsule buttons, and one signature element: the
+   picture of your computers on the Sync pane.
    Colours are set at startup from the active Omarchy theme (src/theme.ts), already
    contrast-checked; the values below are the Catppuccin fallback.
    Interactive states come from React Aria's data attributes ([data-hovered], [data-pressed],
-   [data-selected], [data-disabled], [data-focus-visible]). */
+   [data-selected], [data-disabled], [data-focus-visible], [data-focused]). */
 
 :root {
   --bg: #1e1e2e;
@@ -29,13 +31,34 @@
   --on-tile-folders: #1e1e2e;
   --tile-history: #f5c2e7;
   --on-tile-history: #1e1e2e;
+  --tile-settings: #585b70;
+  --on-tile-settings: #cdd6f4;
 
   /* SF Pro where it exists (it may only be used on Apple platforms), Inter everywhere else. */
   --font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif;
-  --ease: cubic-bezier(0.25, 0.1, 0.25, 1);
-  --sidebar-alpha: 72%;
-  --hairline: 0.5px solid var(--line);
+
+  /* Motion: 150 ms for hovers, 250 ms for panels, a slight spring for selection. */
+  --ease-out: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --fast: 150ms;
+  --normal: 250ms;
+
+  /* Depth: the 0.5 px edge shadow is the macOS look; dark themes need about twice the opacity. */
+  --edge: 0 0 0 0.5px rgb(0 0 0 / 0.1);
+  --shadow-sm: var(--edge), 0 1px 2px rgb(0 0 0 / 0.12);
+  --shadow-md: var(--edge), 0 4px 16px rgb(0 0 0 / 0.2);
+  --shadow-lg: var(--edge), 0 2px 8px rgb(0 0 0 / 0.16), 0 8px 30px rgb(0 0 0 / 0.28);
+  --highlight: inset 0 0.5px 0 rgb(255 255 255 / 0.07);
+
+  --sidebar-alpha: 66%;
   --focus: 0 0 0 3px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+:root[style*='color-scheme: light'] {
+  --edge: 0 0 0 0.5px rgb(0 0 0 / 0.06);
+  --shadow-sm: var(--edge), 0 1px 2px rgb(0 0 0 / 0.06);
+  --shadow-md: var(--edge), 0 4px 16px rgb(0 0 0 / 0.1);
+  --shadow-lg: var(--edge), 0 2px 8px rgb(0 0 0 / 0.08), 0 8px 30px rgb(0 0 0 / 0.14);
+  --highlight: inset 0 0.5px 0 rgb(255 255 255 / 0.8);
 }
 .no-blur {
   --sidebar-alpha: 100%;
@@ -70,6 +93,10 @@ svg {
   display: block;
   flex: none;
 }
+/* Status messages use <output> (implicit role="status"); it is inline by default. */
+output {
+  display: block;
+}
 .visually-hidden {
   position: absolute;
   width: 1px;
@@ -83,37 +110,46 @@ svg {
 
 .window {
   display: grid;
-  grid-template-columns: 216px 1fr;
+  grid-template-columns: 232px 1fr;
   height: 100vh;
+  background: var(--bg);
 }
+
+/* A floating, inset sidebar panel, as in macOS 26. See-through so Hyprland's blur shows the
+   desktop behind the window, with a saturation boost so colours behind it stay lively. */
 .sidebar {
-  /* See-through so Hyprland's blur shows the desktop behind it, like macOS vibrancy. */
+  margin: 8px 0 8px 8px;
+  padding: 10px 8px;
+  border-radius: 16px;
   background: color-mix(
     in srgb,
-    color-mix(in srgb, var(--bg), var(--ink) 4%) var(--sidebar-alpha),
+    color-mix(in srgb, var(--bg), var(--ink) 7%) var(--sidebar-alpha),
     transparent
   );
-  border-right: var(--hairline);
-  padding: 14px 10px;
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: var(--shadow-md), var(--highlight);
   display: flex;
   flex-direction: column;
   gap: 2px;
+  overflow-y: auto;
 }
 .nav {
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 5px 8px;
-  border-radius: 6px;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: 8px;
   outline: none;
-  transition: background-color 0.15s var(--ease);
+  font-size: 13px;
+  transition: background-color var(--fast) var(--ease-out);
 }
 .nav[data-hovered] {
-  background: color-mix(in srgb, var(--raised) 60%, transparent);
+  background: color-mix(in srgb, var(--ink) 7%, transparent);
 }
 .nav[data-selected] {
   background: var(--accent);
   color: var(--on-accent);
+  font-weight: 500;
 }
 .nav[data-focus-visible] {
   box-shadow: var(--focus);
@@ -126,40 +162,47 @@ svg {
 .pane {
   height: 100vh;
   overflow-y: auto;
-  background: var(--bg);
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--ink) 30%, transparent) transparent;
+  scrollbar-color: color-mix(in srgb, var(--ink) 25%, transparent) transparent;
 }
+/* The title bar: content scrolls under it and fades out (a scroll-edge effect), no hard border. */
 .toolbar {
   position: sticky;
   top: 0;
   z-index: 2;
-  /* Content scrolls under a frosted bar, as in macOS. */
-  background: color-mix(in srgb, var(--bg) 78%, transparent);
-  backdrop-filter: blur(18px) saturate(1.4);
-  border-bottom: 0.5px solid transparent;
-  transition: border-color 0.2s var(--ease);
-}
-.pane.scrolled .toolbar {
-  border-bottom-color: var(--line);
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  mask-image: linear-gradient(to bottom, black 78%, transparent);
 }
 .toolbar h1,
 .content {
-  max-width: 676px;
+  max-width: 700px;
   margin: 0 auto;
-  padding: 0 28px;
+  padding: 0 32px;
 }
 .toolbar h1 {
-  font-size: 15px;
+  font-size: 26px;
   font-weight: 700;
-  padding-top: 16px;
-  padding-bottom: 14px;
+  letter-spacing: -0.022em;
+  padding-top: 22px;
+  padding-bottom: 18px;
 }
 .content {
-  padding-bottom: 36px;
+  padding-bottom: 40px;
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 26px;
+}
+/* Each pane eases in when you switch to it. */
+.pane-wrap[data-entering] .content,
+.pane-wrap .content {
+  animation: rise var(--normal) var(--ease-out);
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 
 /* ---------- Building blocks ---------- */
@@ -172,11 +215,12 @@ svg {
   place-items: center;
   width: var(--s, 22px);
   height: var(--s, 22px);
-  border-radius: calc(var(--s, 22px) * 0.26);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--c), white 14%), var(--c));
+  border-radius: calc(var(--s, 22px) * 0.28);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c), white 16%), var(--c));
   box-shadow:
     inset 0 0 0 0.5px rgb(0 0 0 / 0.12),
-    0 0.5px 1px rgb(0 0 0 / 0.15);
+    inset 0 0.5px 0 rgb(255 255 255 / 0.25),
+    0 0.5px 1.5px rgb(0 0 0 / 0.18);
   color: var(--on);
 }
 .tile.sync {
@@ -194,6 +238,10 @@ svg {
 .tile.history {
   --c: var(--tile-history);
   --on: var(--on-tile-history);
+}
+.tile.settings {
+  --c: var(--tile-settings);
+  --on: var(--on-tile-settings);
 }
 .tile.plain {
   --c: var(--raised);
@@ -215,27 +263,26 @@ svg {
 .group h2 {
   font-size: 13px;
   font-weight: 600;
-  margin: 0 2px 7px;
+  margin: 0 4px 8px;
 }
 .group > p {
   font-size: 11px;
   color: var(--quiet);
-  margin: 7px 2px 0;
-  line-height: 1.36;
+  margin: 8px 4px 0;
+  line-height: 1.4;
 }
+/* Grouped boxes: lifted by a lighter surface and a layered shadow, not a border. */
 .box {
   background: var(--card);
-  border-radius: 10px;
-  box-shadow:
-    0 0 0 0.5px var(--line),
-    0 1px 2px rgb(0 0 0 / 0.06);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm), var(--highlight);
 }
 .row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 9px 14px;
-  min-height: 40px;
+  gap: 12px;
+  padding: 10px 14px;
+  min-height: 44px;
   position: relative;
 }
 /* Separators start at the text, not the box edge. */
@@ -245,7 +292,7 @@ svg {
   top: 0;
   left: 14px;
   right: 0;
-  border-top: var(--hairline);
+  border-top: 0.5px solid var(--line);
 }
 .row .text {
   flex: 1;
@@ -255,7 +302,7 @@ svg {
 .sub {
   font-size: 11px;
   color: var(--quiet);
-  line-height: 1.36;
+  line-height: 1.4;
 }
 .detail.warn {
   color: var(--warn);
@@ -274,34 +321,44 @@ svg {
   flex-wrap: wrap;
 }
 
+/* Capsule buttons, as in macOS 26. */
 .push {
   font: 500 13px/18px var(--font);
   color: var(--ink);
-  padding: 3px 14px;
-  border-radius: 6px;
+  padding: 4px 14px;
+  border-radius: 999px;
   outline: none;
-  border: var(--hairline);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--raised), white 6%), var(--raised));
-  box-shadow:
-    0 0.5px 1.5px rgb(0 0 0 / 0.18),
-    inset 0 0.5px 0 rgb(255 255 255 / 0.06);
-  transition: filter 0.12s var(--ease);
+  border: 0;
+  background: color-mix(in srgb, var(--ink) 10%, var(--card));
+  box-shadow: var(--shadow-sm), var(--highlight);
+  transition:
+    filter var(--fast) var(--ease-out),
+    transform var(--fast) var(--ease-out);
   white-space: nowrap;
 }
 .push[data-hovered] {
-  filter: brightness(1.08);
+  filter: brightness(1.1);
 }
 .push[data-pressed] {
   filter: brightness(0.92);
+  transform: scale(0.97);
 }
 .push.prominent {
-  border-color: transparent;
   color: var(--on-accent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent), white 12%), var(--accent));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent), white 14%), var(--accent));
+  box-shadow:
+    var(--edge),
+    0 2px 10px color-mix(in srgb, var(--accent) 35%, transparent),
+    var(--highlight);
+}
+.push.large {
+  font-size: 14px;
+  padding: 7px 26px;
 }
 .push[data-disabled] {
   opacity: 0.5;
   filter: none;
+  transform: none;
 }
 .push[data-focus-visible] {
   box-shadow: var(--focus);
@@ -314,6 +371,7 @@ svg {
   color: var(--quiet);
   outline: none;
   border-radius: 4px;
+  transition: color var(--fast) var(--ease-out);
 }
 .link[data-hovered] {
   color: var(--ink);
@@ -325,43 +383,45 @@ svg {
   box-shadow: var(--focus);
 }
 
-/* macOS small switch: the knob slides, the track fills. */
+/* macOS switch: the knob slides with a slight spring, the track fills. */
 .switch {
   display: inline-flex;
   flex: none;
   outline: none;
 }
 .switch .track {
-  width: 32px;
-  height: 18px;
-  border-radius: 9px;
+  width: 38px;
+  height: 22px;
+  border-radius: 11px;
   position: relative;
   background: var(--raised);
   box-shadow: inset 0 0 0 1px var(--off-edge);
   transition:
-    background-color 0.2s var(--ease),
-    box-shadow 0.2s var(--ease);
+    background-color var(--normal) var(--ease-out),
+    box-shadow var(--normal) var(--ease-out);
 }
 .switch .track::after {
   content: '';
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: var(--off-knob);
-  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.3),
+    0 0 0 0.5px rgb(0 0 0 / 0.08);
   transition:
-    transform 0.2s var(--ease),
-    background-color 0.2s var(--ease);
+    transform var(--normal) var(--ease-spring),
+    background-color var(--normal) var(--ease-out);
 }
 .switch[data-selected] .track {
   background: var(--accent);
   box-shadow: none;
 }
 .switch[data-selected] .track::after {
-  transform: translateX(14px);
+  transform: translateX(16px);
   background: var(--on-knob);
 }
 .switch[data-disabled] {
@@ -371,47 +431,261 @@ svg {
   box-shadow: var(--focus);
 }
 
+/* Text fields: inset, rounded, focus ring in the accent. */
+.field input {
+  font: 13px var(--font);
+  color: var(--ink);
+  width: 230px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  outline: none;
+  background: var(--bg);
+  border: 0;
+  box-shadow:
+    inset 0 0 0 0.5px var(--line),
+    inset 0 1px 2px rgb(0 0 0 / 0.12);
+  transition: box-shadow var(--fast) var(--ease-out);
+}
+.field input[data-focused] {
+  box-shadow: var(--focus);
+}
+.field input[data-disabled] {
+  opacity: 0.5;
+}
+.search input {
+  width: 100%;
+  padding-left: 30px;
+}
+.search {
+  position: relative;
+}
+.search svg {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--quiet);
+  pointer-events: none;
+}
+
 .tip {
   font-size: 11px;
   color: var(--ink);
-  background: var(--raised);
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
   padding: 4px 8px;
+  border-radius: 7px;
+  box-shadow: var(--shadow-md);
+}
+kbd {
+  font: 500 11px var(--font);
+  padding: 1px 6px;
   border-radius: 5px;
-  border: var(--hairline);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.2);
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+  box-shadow: inset 0 -0.5px 0 rgb(0 0 0 / 0.25);
 }
 
-/* ---------- Sync ---------- */
+/* ---------- Sync: the picture of your computers ---------- */
 
 .hero {
+  --state: var(--good);
+  position: relative;
+  overflow: hidden;
+  padding: 30px 24px 26px;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 14px;
-  padding: 16px;
+  text-align: center;
+  gap: 6px;
+}
+/* A soft glow in the state's colour behind the devices: the one bold moment on the screen. */
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: -40% -10% auto;
+  height: 120%;
+  background: radial-gradient(
+    closest-side,
+    color-mix(in srgb, var(--state) 16%, transparent),
+    transparent
+  );
+  pointer-events: none;
+}
+.hero.warn {
+  --state: var(--warn);
+}
+.hero.bad {
+  --state: var(--bad);
+}
+.hero.sync {
+  --state: var(--accent);
+}
+.hero > * {
+  position: relative;
 }
 .hero h2 {
-  font-size: 17px;
+  font-size: 22px;
   font-weight: 600;
+  letter-spacing: -0.02em;
   line-height: 1.25;
+  max-width: 42ch;
+  text-wrap: balance;
+  margin-top: 14px;
 }
 .hero .detail {
   font-size: 13px;
-  margin-top: 2px;
 }
-.hero .text {
+.hero .push {
+  margin-top: 12px;
+}
+
+.constellation {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 100%;
+  max-width: 520px;
+}
+.device {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 110px;
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+.device .screen {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--card), var(--ink) 12%),
+    color-mix(in srgb, var(--card), var(--ink) 4%)
+  );
+  box-shadow: var(--shadow-md), var(--highlight);
+  color: var(--ink);
+}
+.device.here .screen {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent), white 14%), var(--accent));
+  color: var(--on-accent);
+}
+.device.empty .screen {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--quiet) 70%, transparent);
+  border-radius: 18px;
+  color: var(--quiet);
+  transition: color var(--fast) var(--ease-out);
+}
+.device.empty[data-hovered] .screen {
+  color: var(--ink);
+}
+.device.empty[data-focus-visible] .screen {
+  box-shadow: var(--focus);
+}
+/* Stacked like cards when there are several other computers. */
+.device .screen.stack::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: inherit;
+  transform: translate(6px, -6px) scale(0.92);
+  z-index: -1;
+  opacity: 0.6;
+}
+.device .badge-dot {
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--state);
+  color: var(--bg);
+  box-shadow: 0 0 0 2.5px var(--card);
+}
+.device .name {
+  font-size: 12px;
+  font-weight: 600;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.device .when {
+  font-size: 11px;
+  color: var(--quiet);
+  margin-top: -4px;
+}
+/* The private sync space between them. */
+.hub {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  margin-top: 8px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--state);
+  background: color-mix(in srgb, var(--state) 14%, var(--card));
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 5px color-mix(in srgb, var(--state) 8%, transparent);
+}
+/* Lines between devices and the sync space; light travels along them while syncing. */
+.wire {
   flex: 1;
-  min-width: 0;
+  min-width: 24px;
+  max-width: 110px;
+  height: 2px;
+  margin-top: 31px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--state) 55%, transparent);
 }
-.busy .hero .tile {
-  animation: breathe 1.2s var(--ease) infinite alternate;
+.wire.idle {
+  background: color-mix(in srgb, var(--quiet) 35%, transparent);
 }
-@keyframes breathe {
+.wire.dashed {
+  background: repeating-linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--quiet) 50%, transparent) 0 4px,
+    transparent 4px 9px
+  );
+}
+.busy .wire {
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent), white 30%), transparent) 0
+      0 / 40% 100% no-repeat,
+    color-mix(in srgb, var(--accent) 30%, transparent);
+  animation: travel 1.4s var(--ease-out) infinite;
+}
+@keyframes travel {
   from {
-    opacity: 0.45;
+    background-position:
+      -60% 0,
+      0 0;
   }
   to {
-    opacity: 1;
+    background-position:
+      160% 0,
+      0 0;
   }
+}
+/* While syncing, the sync space breathes gently; the travelling light carries the motion. */
+.busy .hub {
+  animation: breathe 1.2s var(--ease-out) infinite alternate;
 }
 
 .notice .line {
@@ -438,6 +712,42 @@ svg {
   user-select: text;
 }
 
+/* A small confirmation that slides up and away. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 8px 12px;
+  border-radius: 999px;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--card) 86%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  box-shadow: var(--shadow-lg), var(--highlight);
+  animation: toast 2.8s var(--ease-out) forwards;
+}
+.toast svg {
+  color: var(--good);
+}
+@keyframes toast {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 12px);
+  }
+  10%,
+  85% {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+
 .choices {
   flex-wrap: wrap;
   gap: 14px;
@@ -459,6 +769,8 @@ svg {
   font-size: 11px;
   color: var(--quiet);
   min-height: 0;
+  padding-top: 8px;
+  padding-bottom: 4px;
 }
 .cell-label {
   display: none;
@@ -474,10 +786,11 @@ svg {
 .setup {
   max-width: 560px;
   margin: 0 auto;
-  padding: 44px 28px;
+  padding: 48px 28px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
+  animation: rise var(--normal) var(--ease-out);
 }
 .setup .intro {
   text-align: center;
@@ -485,14 +798,18 @@ svg {
   flex-direction: column;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 .setup .intro .tile {
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  box-shadow:
+    var(--shadow-lg),
+    inset 0 0.5px 0 rgb(255 255 255 / 0.25);
 }
 .setup h1 {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 700;
+  letter-spacing: -0.022em;
 }
 .setup .intro p:not(.sub) {
   color: var(--quiet);
@@ -534,14 +851,22 @@ svg {
   height: 8px;
   border-radius: 50%;
   background: var(--accent-mark);
-  animation: breathe 1.2s var(--ease) infinite alternate;
+  animation: breathe 1.2s var(--ease-out) infinite alternate;
+}
+@keyframes breathe {
+  from {
+    opacity: 0.45;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 /* ---------- Narrow tiles ---------- */
 
 @media (max-width: 640px) {
   .window {
-    grid-template-columns: 60px 1fr;
+    grid-template-columns: 64px 1fr;
   }
   .nav {
     justify-content: center;
@@ -558,11 +883,8 @@ svg {
     padding-left: 16px;
     padding-right: 16px;
   }
-  .hero {
-    flex-wrap: wrap;
-  }
-  .hero .push {
-    margin-left: 60px;
+  .device {
+    width: 84px;
   }
   .matrix {
     display: flex;
@@ -586,44 +908,16 @@ svg {
 
 /* Respect "reduce motion": Hyprland/GNOME animations off (set by the app) or the web setting. */
 .no-motion *,
+.no-motion *::before,
 .no-motion *::after {
   animation: none !important;
   transition: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
   *,
+  *::before,
   *::after {
     animation: none !important;
     transition: none !important;
   }
-}
-
-/* Status messages use <output> (implicit role="status"); it is inline by default. */
-output {
-  display: block;
-}
-
-/* Settings is grey, as in macOS. */
-.tile.settings {
-  --c: var(--tile-settings);
-  --on: var(--on-tile-settings);
-}
-
-/* macOS text field: inset, rounded, focus ring in the accent. */
-.field input {
-  font: 13px var(--font);
-  color: var(--ink);
-  width: 220px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  outline: none;
-  background: var(--bg);
-  border: var(--hairline);
-  box-shadow: inset 0 0.5px 1px rgb(0 0 0 / 0.15);
-}
-.field input[data-focused] {
-  box-shadow: var(--focus);
-}
-.field input[data-disabled] {
-  opacity: 0.5;
 }

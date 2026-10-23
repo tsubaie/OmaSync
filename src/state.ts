@@ -34,6 +34,7 @@ export function useSync() {
   const [dismissed, setDismissed] = useState('');
   const [signingIn, setSigningIn] = useState(false);
   const [pending, setPending] = useState(false);
+  const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const working = useRef(true);
   // Unix seconds, ticking each minute; components read it instead of the clock so rendering stays pure.
   const [now, setNow] = useState(() => Math.floor(Date.now() / 1000));
@@ -114,7 +115,11 @@ export function useSync() {
         undoSha ? api.undo(undoSha, onStep) : api.syncNow(prefer, onStep),
       );
       if (report) {
-        setNotice({ good: true, text: ['Synced.', ...report.notes].join(' ') });
+        // Success is a small toast; anything worth reading (apps installed or not) stays on screen.
+        if (report.notes.length) setNotice({ good: true, text: report.notes.join(' ') });
+        const id = Date.now();
+        setToast({ id, text: undoSha ? 'Undone' : 'Synced' });
+        setTimeout(() => setToast((t) => (t?.id === id ? null : t)), 3000);
         setConflict(null);
         setPending(false);
       }
@@ -213,6 +218,7 @@ export function useSync() {
 
   return {
     catalog,
+    toast,
     nameOf,
     syncSpace: status?.sync_space ?? null,
     setSetup,

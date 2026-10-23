@@ -1,5 +1,13 @@
 import { useState } from 'react';
-import { FolderSync, History, Package, RefreshCw, Settings, type LucideIcon } from 'lucide-react';
+import {
+  CircleCheck,
+  FolderSync,
+  History,
+  Package,
+  RefreshCw,
+  Settings,
+  type LucideIcon,
+} from 'lucide-react';
 import { Tab, TabList, TabPanel, Tabs } from 'react-aria-components';
 import { AppsPane } from './panes/AppsPane';
 import { FoldersPane } from './panes/FoldersPane';
@@ -95,6 +103,12 @@ export function App() {
           </TabPanel>
         );
       })}
+      {s.toast && (
+        <output key={s.toast.id} className="toast">
+          <CircleCheck size={16} aria-hidden="true" />
+          {s.toast.text}
+        </output>
+      )}
     </Tabs>
   );
 }

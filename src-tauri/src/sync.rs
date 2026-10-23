@@ -543,6 +543,15 @@ fn lock(ctx: &Ctx) -> Result<std::fs::File, String> {
     Ok(file)
 }
 
+/// Waits for any running sync (window or background timer) to finish, then holds the lock.
+/// Used by the read-mostly overview, which also writes to the sync folder while staging.
+fn lock_wait(ctx: &Ctx) -> Result<std::fs::File, String> {
+    let file =
+        std::fs::File::create(ctx.src.join(".git/omarchy-sync.lock")).map_err(|e| e.to_string())?;
+    file.lock().map_err(|e| e.to_string())?;
+    Ok(file)
+}
+
 /// Commits this computer's current files (and theme) so nothing local is ever overwritten unsaved.
 fn save_local(ctx: &Ctx) -> Result<(), String> {
     let mut data = ctx.load_data();
@@ -955,6 +964,8 @@ pub struct Apps {
 }
 
 pub fn overview(ctx: &Ctx) -> Result<Overview, String> {
+    // Staging and git status would collide with a background sync mid-commit.
+    let _lock = lock_wait(ctx)?;
     let data = ctx.load_data();
     stage(ctx, &data)?;
     let online = ctx.git(&["fetch", "-q"]).is_ok();
