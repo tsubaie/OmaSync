@@ -65,12 +65,12 @@ jobs:
           sed -i "s/^pkgver=.*/pkgver=$VERSION/" packaging/arch/PKGBUILD
           cd packaging/arch
           sudo -u builder makepkg -Rfd --noconfirm
-          mkdir -p ../../dist && cp ./*.pkg.tar.zst ../../dist/
-          cd ../../dist && sha256sum ./*.pkg.tar.zst | sed 's|\./||' > SHA256SUMS && cat SHA256SUMS
+          mkdir -p ../../release && cp ./*.pkg.tar.zst ../../release/
+          cd ../../release && sha256sum ./*.pkg.tar.zst | sed 's|\./||' > SHA256SUMS && cat SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: arch
-          path: dist/*
+          path: release/*
 
   release:
     name: Publish GitHub Release
@@ -85,13 +85,13 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: arch
-          path: dist
-      - run: cd dist && sha256sum -c SHA256SUMS
+          path: release
+      - run: cd release && sha256sum -c SHA256SUMS
       - name: Build provenance for the release files
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: dist/*.pkg.tar.zst
+          subject-path: release/*.pkg.tar.zst
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: release/*
           generate_release_notes: true
