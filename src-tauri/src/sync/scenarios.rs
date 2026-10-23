@@ -148,7 +148,7 @@ fn the_same_file_changed_on_both_asks_and_keeps_both_versions() {
     lab.write("a", ".config/hypr/bindings.lua", "a2");
     lab.sync_ok("a");
     lab.write("b", ".config/hypr/bindings.lua", "b2");
-    let ov = overview(lab.ctx("b"), &|_| {}, false).unwrap();
+    let ov = overview(lab.ctx("b"), &lab.data("b"), &|_| {}, false).unwrap();
     assert_eq!(
         (ov.incoming, ov.unshared.clone()),
         (1, vec![".config/hypr/bindings.lua".to_string()])
@@ -169,7 +169,7 @@ fn the_same_file_changed_on_both_asks_and_keeps_both_versions() {
     lab.sync_ok("a");
     assert_eq!(lab.read("a", ".config/hypr/bindings.lua"), "b2");
     assert_eq!(lab.read("a", ".config/hypr/monitors.lua"), "-- a screen\n");
-    let ov = overview(lab.ctx("a"), &|_| {}, false).unwrap();
+    let ov = overview(lab.ctx("a"), &lab.data("a"), &|_| {}, false).unwrap();
     assert_eq!(
         (ov.incoming, ov.unshared.len()),
         (0, 0),
@@ -265,7 +265,7 @@ fn three_computers_end_up_the_same() {
             format!("-- {n} screen\n")
         );
     }
-    let ov = overview(lab.ctx("c"), &|_| {}, false).unwrap();
+    let ov = overview(lab.ctx("c"), &lab.data("c"), &|_| {}, false).unwrap();
     let mut listed: Vec<&str> = ov.computers.iter().map(|c| c.0.as_str()).collect();
     listed.sort();
     assert_eq!(listed, ["a", "b", "c"]);
@@ -1220,7 +1220,7 @@ fn the_bar_indicator_goes_on_by_itself_and_stays_off_once_taken_off() {
     let mut lab = pair();
     let ctx = lab.ctx("a").clone();
     assert!(!bar_indicator(&ctx));
-    ensure_bar_indicator(&ctx).unwrap();
+    ensure_bar_indicator(&ctx, &ctx.load_data()).unwrap();
     assert!(bar_indicator(&ctx));
     let calls = lab.calls("a");
     assert!(
@@ -1232,7 +1232,7 @@ fn the_bar_indicator_goes_on_by_itself_and_stays_off_once_taken_off() {
         d.computers.get_mut(host).unwrap().no_bar_indicator = true
     });
     set_bar_indicator(&ctx, false).unwrap();
-    ensure_bar_indicator(&ctx).unwrap();
+    ensure_bar_indicator(&ctx, &ctx.load_data()).unwrap();
     assert!(!bar_indicator(&ctx));
     lab.sync_ok("a");
 }
@@ -1347,7 +1347,7 @@ fn apps_from_the_standard_repositories_record_no_extra_repository() {
     lab.sync_ok("a");
     let data = lab.data("a");
     assert!(data.repositories.is_empty() && data.app_repo.is_empty());
-    let ov = overview(lab.ctx("a"), &|_| {}, false).unwrap();
+    let ov = overview(lab.ctx("a"), &lab.data("a"), &|_| {}, false).unwrap();
     assert_eq!(
         ov.apps.source.get("firefox").map(String::as_str),
         Some("aur")
@@ -1364,6 +1364,6 @@ fn the_package_list_is_read_once_per_sync_and_once_per_look() {
     lab.sync_ok("a");
     assert_eq!(calls(&lab) - before, 1, "{}", lab.calls("a"));
     let before = calls(&lab);
-    overview(lab.ctx("a"), &|_| {}, false).unwrap();
+    overview(lab.ctx("a"), &lab.data("a"), &|_| {}, false).unwrap();
     assert_eq!(calls(&lab) - before, 1, "{}", lab.calls("a"));
 }

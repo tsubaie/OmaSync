@@ -241,11 +241,11 @@ async fn overview(on_step: Channel<String>, just_synced: bool) -> Result<Status>
         // Keeps the background timer matching this computer's choice (cheap when it already does).
         let schedule_error = sync::schedule(ctx, !manual).err();
         // On by default; a failure here only means no indicator, so it doesn't stop the check.
-        let _ = sync::ensure_bar_indicator(ctx);
-        let overview = sync::overview(ctx, &steps(on_step), just_synced)?;
+        let _ = sync::ensure_bar_indicator(ctx, &data);
+        let overview = sync::overview(ctx, &data, &steps(on_step), just_synced)?;
         Ok(Status {
             overview,
-            data: ctx.load_data(),
+            data,
             host: ctx.host.clone(),
             sync_space: sync::sync_space(ctx),
             schedule_error,
