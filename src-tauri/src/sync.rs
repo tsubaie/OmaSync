@@ -657,6 +657,22 @@ impl Data {
             .collect()
     }
 
+    /// Whether a file (its path under home) syncs on this computer: its most specific switch
+    /// (a nested one over its folder's) is on, and this computer doesn't leave it out.
+    pub fn syncs(&self, host: &str, target: &str) -> bool {
+        // The icons go with the web apps.
+        let as_app = target
+            .strip_prefix(ICON_DIR)
+            .map(|rest| format!("{APPS_DIR}{rest}"));
+        let target = as_app.as_deref().unwrap_or(target);
+        FOLDERS
+            .iter()
+            .map(|(f, _, _)| *f)
+            .filter(|f| target == *f || target.starts_with(&format!("{f}/")))
+            .max_by_key(|f| f.len())
+            .is_some_and(|f| self.folders.iter().any(|x| x == f) && self.uses_folder(host, f))
+    }
+
     /// Folders this computer should send and receive.
     pub fn active_folders(&self, host: &str) -> Vec<String> {
         self.folders
@@ -1331,7 +1347,28 @@ fn stage(ctx: &Ctx, data: &Data, step: &dyn Fn(&str)) -> Result<(), String> {
     step(&format!("Saving {}", plural(new.len(), "new file")));
     let mut args = vec!["add"];
     args.extend(new.iter().map(|s| s.as_str()));
-    run(None, "chezmoi", &args).map(|_| ())
+    run(None, "chezmoi", &args)?;
+    prune_ignored(&ctx.src);
+    Ok(())
+}
+
+/// Takes `.git` folders, `node_modules` and backup files out of the sync folder. The ignore
+/// rules name them, but an exception (a shared plugin, the current theme) wins over every
+/// ignore rule in chezmoi, so whatever those folders hold gets added.
+fn prune_ignored(dir: &Path) {
+    for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let path = e.path();
+        if path.is_dir() {
+            if name == "dot_git" || name == "node_modules" {
+                let _ = std::fs::remove_dir_all(&path);
+            } else if name != ".git" {
+                prune_ignored(&path);
+            }
+        } else if strip_attributes(&name).contains(".bak.") {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
 }
 
 fn commit(ctx: &Ctx) -> Result<(), String> {
@@ -1488,31 +1525,109 @@ fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String>, String> 
 
 /// Every computer writes its own entry in the shared choices file, so two computers syncing
 /// close together often clash there without touching the same choice. While the shared file is
-/// the only clash, each one is settled by merging the choices; returns false (still rebasing)
-/// when anything else clashes.
+/// the only clash, each one is settled by merging the choices. A file switched off on either
+/// side settles itself too (see `switched_off`). Returns false (still rebasing) when anything
+/// else clashes.
 fn settle_data(ctx: &Ctx) -> Result<bool, String> {
     const FILE: &str = ".chezmoidata.yaml";
+    let mut switched_off_here = Vec::new();
     while ctx.rebasing() {
-        if ctx.conflicted() != [FILE] {
-            return Ok(false);
-        }
+        let conflicted = ctx.conflicted();
         // During a rebase, stage 2 is what came from GitHub and stage 3 is this computer's.
-        let side = |n: u8| -> Data {
-            ctx.git(&["show", &format!(":{n}:{FILE}")])
-                .ok()
-                .and_then(|t| serde_yaml::from_str(&t).ok())
-                .unwrap_or_default()
+        let side = |n: u8, file: &str| ctx.git(&["show", &format!(":{n}:{file}")]).ok();
+        if conflicted.iter().any(|f| f == FILE) {
+            let data = |n: u8| -> Data {
+                side(n, FILE)
+                    .and_then(|t| serde_yaml::from_str(&t).ok())
+                    .unwrap_or_default()
+            };
+            ctx.save_data(&Data::merge(&data(1), &data(2), &data(3)))?;
+            ctx.git(&["add", FILE])?;
+        }
+        let text = std::fs::read_to_string(ctx.data_path()).unwrap_or_default();
+        let Ok(choices) = serde_yaml::from_str::<Data>(&text) else {
+            return Ok(false);
         };
-        ctx.save_data(&Data::merge(&side(1), &side(2), &side(3)))?;
-        ctx.git(&["add", FILE])?;
+        for file in conflicted.iter().filter(|f| *f != FILE) {
+            if !switched_off(ctx, &choices, file, ":2", ":3") {
+                return Ok(false);
+            }
+            if side(3, file).is_none() {
+                // This computer switched it off: the removal stands (the other computer's
+                // version is in the history it sent).
+                ctx.git(&["rm", "-q", "--", file])?;
+            } else {
+                // Another computer did: this computer's version stays in the history (the
+                // replayed change keeps it), and the file leaves the sync folder in a change
+                // of its own, below.
+                ctx.git(&["checkout", "--theirs", "--", file])?;
+                ctx.git(&["add", "--", file])?;
+                switched_off_here.push(file.clone());
+            }
+        }
+        // Settled to exactly what came from GitHub: nothing left of this change to replay.
+        let nothing_left = ctx.git(&["diff", "--cached", "--quiet"]).is_ok();
+        let go_on = if nothing_left { "--skip" } else { "--continue" };
         // Stops again at the next clashing change, if any; the loop looks again.
-        if let Err(e) = ctx.git(&["-c", "core.editor=true", "rebase", "--continue"])
+        if let Err(e) = ctx.git(&["-c", "core.editor=true", "rebase", go_on])
             && ctx.conflicted().is_empty()
         {
             return Err(e);
         }
     }
+    if !switched_off_here.is_empty() {
+        let mut args = vec!["rm", "-q", "--ignore-unmatch", "--"];
+        args.extend(switched_off_here.iter().map(String::as_str));
+        ctx.git(&args)?;
+        if ctx.git(&["diff", "--cached", "--quiet"]).is_err() {
+            ctx.git(&[
+                "commit",
+                "-q",
+                "-m",
+                &format!("Sync from {}", ctx.host),
+                "-m",
+                "Switched off on another computer; this computer keeps its own copy.",
+            ])?;
+        }
+    }
     Ok(true)
+}
+
+/// A file changed on one computer and switched off on another isn't a clash: the switch
+/// decides. One side took it out of the sync folder (`theirs` and `mine` are the two sides'
+/// revisions, or their stages in a rebase), and the choices as merged no longer sync it here.
+/// Every computer keeps the copy on its disk.
+fn switched_off(ctx: &Ctx, choices: &Data, file: &str, theirs: &str, mine: &str) -> bool {
+    let missing = |rev: &str| ctx.git(&["show", &format!("{rev}:{file}")]).is_err();
+    !choices.syncs(&ctx.host, &source_to_target(file)) && (missing(theirs) || missing(mine))
+}
+
+/// Every file that clashes between this computer and GitHub, from a trial join of the two.
+/// Replaying this computer's changes stops at the first one that clashes, which may not be the
+/// only one; settling joins everything at once, so every clashing file needs a choice. Falls
+/// back to `first` (the replay's) when the join finds none.
+fn all_clashes(ctx: &Ctx, first: Vec<String>) -> Vec<String> {
+    let _ = ctx.git(&["merge", "--no-ff", "--no-commit", "@{u}"]);
+    if !ctx.merging() {
+        return first;
+    }
+    let base = ctx
+        .git(&["merge-base", "HEAD", "MERGE_HEAD"])
+        .unwrap_or_default();
+    let choices = Data::merge(
+        &data_at(ctx, &base),
+        &data_at(ctx, "MERGE_HEAD"),
+        &data_at(ctx, "HEAD"),
+    );
+    let files: Vec<String> = ctx
+        .conflicted()
+        .into_iter()
+        .filter(|f| {
+            f != ".chezmoidata.yaml" && !switched_off(ctx, &choices, f, "MERGE_HEAD", "HEAD")
+        })
+        .collect();
+    let _ = ctx.git(&["merge", "--abort"]);
+    if files.is_empty() { first } else { files }
 }
 
 /// A clashing file as this computer has it and as GitHub has it, for showing side by side.
@@ -1545,11 +1660,12 @@ fn clash(ctx: &Ctx, files: Vec<String>, broken: Vec<String>) -> SyncError {
         .and_then(|l| parse_log(&l).into_iter().next())
         .map(|(author, t)| (data.resolve(&author), t));
     let versions = files.iter().map(|f| versions(ctx, f)).collect();
+    let targets = |paths: Vec<String>| paths.iter().map(|p| source_to_target(p)).collect();
     SyncError::Conflict(Conflict {
-        files: to_targets(ctx, files),
+        files: targets(files),
         by,
         versions,
-        broken: to_targets(ctx, broken),
+        broken: targets(broken),
     })
 }
 
@@ -1620,7 +1736,7 @@ pub fn resolve(
     step: &dyn Fn(&str),
 ) -> Result<Report, SyncError> {
     let fail = SyncError::Failed;
-    {
+    let saved_first = {
         let _lock = lock_wait(ctx).map_err(fail)?;
         plan(
             step,
@@ -1632,6 +1748,7 @@ pub fn resolve(
         );
         step("Saving this computer's changes");
         save_local(ctx, &|_| {}).map_err(fail)?;
+        let synced_before = ctx.load_data().active_folders(&ctx.host);
         step("Getting changes from your other computers");
         git_progress(ctx, &["fetch", "--progress"], step).map_err(fail)?;
         step("Keeping the versions you chose");
@@ -1656,13 +1773,22 @@ pub fn resolve(
                     label(&source_to_target(source))
                 ));
             }
-            if settled.is_ok()
-                && let Some(left) = ctx
+            if settled.is_ok() {
+                let merged = ctx.load_data();
+                for left in ctx
                     .conflicted()
                     .into_iter()
-                    .find(|f| f != ".chezmoidata.yaml" && !choices.contains_key(f))
-            {
-                settled = Err(format!("no choice for {}", source_to_target(&left)));
+                    .filter(|f| f != ".chezmoidata.yaml" && !choices.contains_key(f))
+                {
+                    settled = if switched_off(ctx, &merged, &left, "MERGE_HEAD", "HEAD") {
+                        ctx.git(&["rm", "-q", "--", &left]).map(|_| ())
+                    } else {
+                        Err(format!("no choice for {}", source_to_target(&left)))
+                    };
+                    if settled.is_err() {
+                        break;
+                    }
+                }
             }
             if let Err(e) = settled {
                 let _ = ctx.git(&["merge", "--abort"]);
@@ -1679,10 +1805,14 @@ pub fn resolve(
         // Put the chosen versions in place now; the sync below starts by saving this computer's
         // files, which would otherwise save the clashing ones back over the choice.
         settle_pause(ctx).map_err(fail)?;
+        let saved_first = save_newly_synced(ctx, &synced_before).map_err(fail)?;
         run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
-    }
+        saved_first
+    };
     // Joined: the rest is an ordinary sync (apply here, share, apps and plugins).
-    sync(ctx, Prefer::Ask, install, step)
+    let mut report = sync(ctx, Prefer::Ask, install, step)?;
+    report.notes.splice(0..0, saved_first);
+    Ok(report)
 }
 
 /// Makes a file exactly one side's version during a merge (this computer's is HEAD, the other's
@@ -1816,6 +1946,28 @@ fn repair_data(ctx: &Ctx, before: &str) -> Result<(), String> {
     ))?;
     ctx.git(&["commit", "-q", "-am", &format!("Sync from {}", ctx.host)])
         .map(|_| ())
+}
+
+/// A folder that starts syncing here (switched on elsewhere, or by an undo) comes in over this
+/// computer's own copy, which was never saved while the folder wasn't syncing: it's saved
+/// first. `synced_before` is `active_folders` from before the change came in.
+fn save_newly_synced(ctx: &Ctx, synced_before: &[String]) -> Result<Option<String>, String> {
+    let new_here: Vec<String> = ctx
+        .load_data()
+        .active_folders(&ctx.host)
+        .into_iter()
+        .filter(|f| !synced_before.contains(f) && ctx.home.join(f).exists())
+        .collect();
+    if new_here.is_empty() {
+        return Ok(None);
+    }
+    backup(ctx, &new_here, &format!("before-syncing-{}", now()))?;
+    let what: Vec<&str> = new_here.iter().map(|f| label(f)).collect();
+    let verb = if what.len() == 1 { "syncs" } else { "sync" };
+    Ok(Some(format!(
+        "{} now {verb} here. This computer's own settings were saved first.",
+        what.join(", ")
+    )))
 }
 
 /// Syncs, and records how it went for the bar indicator (see `write_status`).
@@ -1961,6 +2113,14 @@ fn sync_inner(
         }
     };
     let mut notes = Vec::new();
+    // A sync interrupted part way (a crash, the power going) leaves git mid-way; this one
+    // starts afresh, and the interrupted one's changes are still on disk to save again.
+    if ctx.rebasing() {
+        let _ = ctx.git(&["rebase", "--abort"]);
+    }
+    if ctx.merging() {
+        let _ = ctx.git(&["merge", "--abort"]);
+    }
 
     plan(
         step,
@@ -1984,6 +2144,7 @@ fn sync_inner(
     }
 
     step("Getting changes from your other computers");
+    let synced_before = ctx.load_data().active_folders(&ctx.host);
     let tracked = ctx.git(&["rev-parse", "--abbrev-ref", "@{u}"]).is_ok();
     if tracked {
         git_progress(ctx, &["fetch", "--progress"], step).map_err(fail)?;
@@ -2011,9 +2172,9 @@ fn sync_inner(
                 return Err(fail(e));
             }
             if !settle_data(ctx).map_err(fail)? {
-                let files = ctx.conflicted();
+                let first = ctx.conflicted();
                 let _ = ctx.git(&["rebase", "--abort"]);
-                return Err(clash(ctx, files, Vec::new()));
+                return Err(clash(ctx, all_clashes(ctx, first), Vec::new()));
             }
         }
         // Combined without a clash, but a file both computers changed may have come out
@@ -2031,6 +2192,7 @@ fn sync_inner(
 
     step("Updating this computer");
     notes.extend(settle_pause(ctx).map_err(fail)?);
+    notes.extend(save_newly_synced(ctx, &synced_before).map_err(fail)?);
     run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
     let data = ctx.load_data();
     // The Current theme switch governs applying it too.
@@ -2669,9 +2831,27 @@ pub fn source_to_target(path: &str) -> String {
 pub fn undo(ctx: &Ctx, sha: &str) -> Result<(), String> {
     let _lock = lock_wait(ctx)?;
     save_local(ctx, &|_| {})?;
+    let synced_before = ctx.load_data().active_folders(&ctx.host);
     if ctx.git(&["revert", "--no-commit", sha]).is_err() {
         let _ = ctx.git(&["revert", "--abort"]);
         return Err("can't undo: later changes depend on it".into());
+    }
+    // Never puts back a file that's switched off now (the choices as undone decide): it would
+    // reach every computer, over copies that were never saved.
+    let choices = ctx.load_data();
+    let staged = ctx.git(&["diff", "--cached", "--name-status"])?;
+    let revives_switched_off = parse_changes(staged.lines()).iter().any(|c| {
+        c.how == "Added"
+            && c.path != DATA_LABEL
+            && !c.path.starts_with(".background/")
+            && !choices.syncs(&ctx.host, &c.path)
+    });
+    if revives_switched_off {
+        let _ = ctx.git(&["revert", "--abort"]);
+        return Err(
+            "This change would put back settings that are switched off, so it can't be undone."
+                .into(),
+        );
     }
     let who = ctx
         .git(&["log", "-1", "--format=%an", sha])
@@ -2682,6 +2862,7 @@ pub fn undo(ctx: &Ctx, sha: &str) -> Result<(), String> {
         "-m",
         &format!("{UNDO_PREFIX}a change from {who}"),
     ])?;
+    save_newly_synced(ctx, &synced_before)?;
     // Put the undone files in place now; otherwise the next sync would re-save the old ones over the undo.
     run(None, "chezmoi", &["apply", "--force"]).map(|_| ())
 }
@@ -2940,7 +3121,11 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
         .collect();
     plugins.sort_by_key(|p| p.name.to_lowercase());
     let here = repos_here();
-    let mut unshared = to_targets(ctx, parse_status(&status));
+    let mut unshared: Vec<String> = parse_status(&status)
+        .iter()
+        .filter(|p| !p.starts_with(".chezmoiignore"))
+        .map(|p| source_to_target(p))
+        .collect();
     for change in look_changes(ctx, &data) {
         if !unshared.contains(&change) {
             unshared.push(change);
@@ -3101,30 +3286,6 @@ fn look_changes(ctx: &Ctx, data: &Data) -> Vec<String> {
         && data.background.as_ref() != Some(&name)
     {
         out.push(format!(".background/{name}"));
-    }
-    out
-}
-
-fn to_targets(ctx: &Ctx, paths: Vec<String>) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut files = Vec::new();
-    for p in paths {
-        if p == ".chezmoidata.yaml" {
-            out.push(DATA_LABEL.to_string());
-        } else if !p.starts_with(".chezmoi") {
-            files.push(ctx.src.join(p).to_string_lossy().into_owned());
-        }
-    }
-    if !files.is_empty() {
-        let mut args = vec!["target-path"];
-        args.extend(files.iter().map(|s| s.as_str()));
-        let home = format!("{}/", ctx.home.to_string_lossy());
-        let targets = run(None, "chezmoi", &args).unwrap_or_default();
-        out.extend(
-            targets
-                .lines()
-                .map(|t| t.strip_prefix(&home).unwrap_or(t).to_string()),
-        );
     }
     out
 }
@@ -3799,272 +3960,9 @@ mod tests {
         assert_eq!(plural(1, "app"), "1 app");
         assert_eq!(plural(3, "app"), "3 apps");
     }
-
-    /// Two computers sharing a local bare repo instead of GitHub.
-    /// Needs chezmoi and git, so it only runs with `cargo test -- --ignored`.
-    #[test]
-    #[ignore]
-    fn two_computers_sync_and_settle_a_conflict() {
-        let root = std::env::temp_dir().join(format!("omarchy-sync-e2e-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let remote = root.join("remote.git");
-        std::fs::create_dir_all(&remote).unwrap();
-        run(Some(&remote), "git", &["init", "-q", "--bare"]).unwrap();
-        let remote = remote.to_string_lossy().into_owned();
-
-        let computer = |name: &str, bindings: &str, monitors: &str| {
-            let home = root.join(name);
-            std::fs::create_dir_all(home.join(".config/hypr")).unwrap();
-            std::fs::write(home.join(".config/hypr/bindings.lua"), bindings).unwrap();
-            std::fs::write(home.join(".config/hypr/monitors.lua"), monitors).unwrap();
-            Ctx {
-                src: home.join(".local/share/chezmoi"),
-                host: name.into(),
-                hostname: name.into(),
-                home,
-            }
-        };
-        // chezmoi and git find their folders through these; never let them reach the real home.
-        let enter = |ctx: &Ctx| unsafe {
-            std::env::set_var("HOME", &ctx.home);
-            std::env::set_var("XDG_CONFIG_HOME", ctx.home.join(".config"));
-            std::env::set_var("XDG_DATA_HOME", ctx.home.join(".local/share"));
-            std::env::set_var("XDG_STATE_HOME", ctx.home.join(".local/state"));
-            std::env::set_var("XDG_CACHE_HOME", ctx.home.join(".cache"));
-            // The ignore rules find this computer by /etc/machine-id; here, both share one.
-            std::env::set_var("OMARCHY_SYNC_HOST", &ctx.host);
-        };
-        let read = |ctx: &Ctx, f: &str| {
-            std::fs::read_to_string(ctx.home.join(".config/hypr").join(f)).unwrap()
-        };
-        let write = |ctx: &Ctx, f: &str, s: &str| {
-            std::fs::write(ctx.home.join(".config/hypr").join(f), s).unwrap()
-        };
-        let quiet = |_: &str| {};
-        let ok = |r: Result<Report, SyncError>| match r {
-            Ok(_) => {}
-            Err(SyncError::Failed(e)) => panic!("{e}"),
-            Err(SyncError::Conflict(f)) => panic!("unexpected conflict {f:?}"),
-        };
-
-        let a = computer("a", "a1", "screen-a");
-        let alacritty = a.home.join(".config/alacritty");
-        std::fs::create_dir_all(&alacritty).unwrap();
-        std::fs::write(
-            alacritty.join("alacritty.toml"),
-            "a = 1\n\nb = 2\n\nc = 3\n",
-        )
-        .unwrap();
-        let dock = a.home.join(PLUGIN_DIR).join("dock");
-        std::fs::create_dir_all(&dock).unwrap();
-        std::fs::write(dock.join("manifest.json"), r#"{"name":"Dock"}"#).unwrap();
-        let (apps, icons) = (a.home.join(APPS_DIR), a.home.join(ICON_DIR));
-        std::fs::create_dir_all(&apps).unwrap();
-        std::fs::create_dir_all(&icons).unwrap();
-        std::fs::write(
-            apps.join("Chat App.desktop"),
-            "[Desktop Entry]\nExec=omarchy-launch-webapp https://chat.example\nIcon=chat\n",
-        )
-        .unwrap();
-        std::fs::write(apps.join("mpv.desktop"), "[Desktop Entry]\nExec=mpv\n").unwrap();
-        std::fs::write(apps.join("mimeinfo.cache"), "cache").unwrap();
-        std::fs::write(icons.join("chat.png"), "png").unwrap();
-        std::fs::write(icons.join("other.png"), "png").unwrap();
-        // The background in use (Omarchy links it from its state folder); B shows the same
-        // image already, so applying it there never calls omarchy during the test.
-        let b = computer("b", "b-old", "screen-b");
-        for ctx in [&a, &b] {
-            let pics = ctx.home.join("Pictures");
-            let state = ctx.home.join(".local/state/omarchy/current");
-            std::fs::create_dir_all(&pics).unwrap();
-            std::fs::create_dir_all(&state).unwrap();
-            std::fs::write(pics.join("hills.jpg"), "jpg").unwrap();
-            std::os::unix::fs::symlink(pics.join("hills.jpg"), state.join("background")).unwrap();
-            // Both use the custom theme "mine", so applying it never calls omarchy either.
-            std::fs::write(state.join("theme.name"), "mine").unwrap();
-        }
-        for theme in ["mine", "old"] {
-            let dir = a.home.join(".config/omarchy/themes").join(theme);
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::write(dir.join("colors.toml"), theme).unwrap();
-        }
-        enter(&a);
-        seed(&a).unwrap();
-        a.git(&["remote", "add", "origin", &remote]).unwrap();
-        ok(sync(&a, Prefer::Ask, false, &quiet));
-
-        assert!(a.src.join(".background/hills.jpg").exists());
-        assert!(!a.src.join("dot_config/omarchy/backgrounds").exists());
-        // A theme picked in Omarchy shows as not shared yet, before any sync records it.
-        let state = a.home.join(".local/state/omarchy/current");
-        assert!(look_changes(&a, &a.load_data()).is_empty());
-        std::fs::write(state.join("theme.name"), "old").unwrap();
-        assert_eq!(
-            look_changes(&a, &a.load_data()),
-            [".config/omarchy/themes/old"]
-        );
-        std::fs::write(state.join("theme.name"), "mine").unwrap();
-        enter(&b);
-        assert!(adopt(&b, &remote, &quiet).unwrap().exists());
-        ok(sync(&b, Prefer::Ask, false, &quiet));
-        assert_eq!(read(&b, "bindings.lua"), "a1");
-        assert_eq!(read(&b, "monitors.lua"), "screen-b");
-
-        let on_b = |p: &str| b.home.join(p).exists();
-        // The bar indicator's status: B has a plugin waiting for it.
-        let status = |ctx: &Ctx| {
-            let text = std::fs::read_to_string(state_file(ctx).with_file_name("status.json"))
-                .unwrap_or_default();
-            serde_json::from_str::<serde_json::Value>(&text).unwrap_or_default()["state"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string()
-        };
-        assert_eq!(status(&b), "attention");
-        assert_eq!(b.load_data().background.as_deref(), Some("hills.jpg"));
-        // Only the current theme's folder travels.
-        assert!(on_b(".config/omarchy/themes/mine/colors.toml"));
-        assert!(!on_b(".config/omarchy/themes/old"));
-        assert!(b.src.join(".background/hills.jpg").exists());
-
-        // Only the web app and its icon travel; other shortcuts, caches and icons don't.
-        assert!(on_b(".local/share/applications/Chat App.desktop"));
-        assert!(on_b(".local/share/icons/hicolor/256x256/apps/chat.png"));
-        assert!(!on_b(".local/share/applications/mpv.desktop"));
-        assert!(!on_b(".local/share/applications/mimeinfo.cache"));
-        assert!(!on_b(".local/share/icons/hicolor/256x256/apps/other.png"));
-
-        // A's plugin waits on B until B takes it.
-        let b_dock = b.home.join(PLUGIN_DIR).join("dock/manifest.json");
-        assert!(!b_dock.exists());
-        assert_eq!(
-            b.load_data().missing_plugins(&b.host),
-            vec!["dock".to_string()]
-        );
-        assert_eq!(b.plugin("dock").name, "Dock");
-        install_plugins(&b, &["dock".into()]).unwrap();
-        assert!(b_dock.exists());
-        assert!(b.load_data().missing_plugins(&b.host).is_empty());
-        ok(sync(&b, Prefer::Ask, false, &quiet));
-        assert_eq!(status(&b), "synced");
-
-        // A plugin nobody switched on stays on the computer that has it.
-        enter(&a);
-        let solo = a.home.join(PLUGIN_DIR).join("solo");
-        std::fs::create_dir_all(&solo).unwrap();
-        std::fs::write(solo.join("manifest.json"), "{}").unwrap();
-        ok(sync(&a, Prefer::Ask, false, &quiet));
-        enter(&b);
-        ok(sync(&b, Prefer::Ask, false, &quiet));
-        assert!(!b.home.join(PLUGIN_DIR).join("solo").exists());
-        assert!(!b.src.join("dot_config/omarchy/plugins/solo").exists());
-        assert!(b.load_data().missing_plugins(&b.host).is_empty());
-
-        // Both change the same file; the second to sync is asked, then keeps its own version.
-        enter(&a);
-        write(&a, "bindings.lua", "a2");
-        ok(sync(&a, Prefer::Ask, false, &quiet));
-        enter(&b);
-        write(&b, "bindings.lua", "b2");
-        let ov = overview(&b, &|_| {}, false).unwrap();
-        assert_eq!(
-            (ov.incoming, ov.unshared.clone()),
-            (1, vec![".config/hypr/bindings.lua".to_string()])
-        );
-        match sync(&b, Prefer::Ask, false, &quiet) {
-            Err(SyncError::Conflict(c)) => {
-                assert_eq!(c.files, vec![".config/hypr/bindings.lua"]);
-                assert_eq!(c.by.map(|(name, _)| name), Some("a".to_string()));
-            }
-            _ => panic!("expected a conflict"),
-        }
-        assert_eq!(read(&b, "bindings.lua"), "b2");
-        ok(sync(&b, Prefer::ThisComputer, false, &quiet));
-
-        enter(&a);
-        ok(sync(&a, Prefer::Ask, false, &quiet));
-        assert_eq!(read(&a, "bindings.lua"), "b2");
-        assert_eq!(read(&a, "monitors.lua"), "screen-a");
-        let ov = overview(&a, &|_| {}, false).unwrap();
-        assert_eq!(
-            (ov.incoming, ov.unshared.len()),
-            (0, 0),
-            "{:?}",
-            ov.unshared
-        );
-        assert_eq!(
-            ov.computers
-                .iter()
-                .map(|c| c.0.as_str())
-                .collect::<Vec<_>>(),
-            vec!["a", "b"]
-        );
-
-        // Undo the last change on one computer; the other gets the undo on its next sync.
-        let last = &ov.history[0];
-        assert!(
-            !last.first && last.labels.iter().any(|l| l == "Keyboard shortcuts"),
-            "{last:?}"
-        );
-        write(&a, "bindings.lua", "a3");
-        ok(sync(&a, Prefer::Ask, false, &quiet));
-        undo(&a, &history(&a)[0].sha).unwrap();
-        ok(sync(&a, Prefer::Ask, false, &quiet));
-        assert_eq!(read(&a, "bindings.lua"), "b2");
-        assert!(history(&a)[0].is_undo);
-        enter(&b);
-        ok(sync(&b, Prefer::Ask, false, &quiet));
-        assert_eq!(read(&b, "bindings.lua"), "b2");
-        assert!(history(&b).last().unwrap().first);
-
-        // A second clash, settled by looking at both versions: B keeps A's, and B's own
-        // version stays in the history.
-        enter(&a);
-        write(&a, "bindings.lua", "a4");
-        ok(sync(&a, Prefer::Ask, false, &quiet));
-        enter(&b);
-        write(&b, "bindings.lua", "b4");
-        let clash = match sync(&b, Prefer::Ask, false, &quiet) {
-            Err(SyncError::Conflict(c)) => c,
-            _ => panic!("expected a conflict"),
-        };
-        let v = &clash.versions[0];
-        assert_eq!(
-            (v.mine.as_deref(), v.theirs.as_deref(), v.binary),
-            (Some("b4"), Some("a4"), false)
-        );
-        let choices = BTreeMap::from([(v.source.clone(), Keep::Theirs)]);
-        ok(resolve(&b, &choices, false, &quiet));
-        assert_eq!(read(&b, "bindings.lua"), "a4");
-        // The whole history, as History shows it (a single file's log hides the side that lost).
-        let kept = b.git(&["log", "-p"]).unwrap_or_default();
-        assert!(kept.contains("+b4"), "B's own version is in the history");
-        assert!(history(&b).iter().any(|e| e.is_merge));
-        enter(&a);
-        ok(sync(&a, Prefer::Ask, false, &quiet));
-        assert_eq!(read(&a, "bindings.lua"), "a4");
-
-        // Both add the same setting in different parts of a TOML file: git combines them
-        // without a clash, but the result has it twice, which isn't valid TOML. B goes back to
-        // where it was and is asked, with the file marked as broken by combining.
-        let toml = |ctx: &Ctx| ctx.home.join(".config/alacritty/alacritty.toml");
-        std::fs::write(toml(&a), "a = 1\nx = \"a\"\n\nb = 2\n\nc = 3\n").unwrap();
-        ok(sync(&a, Prefer::Ask, false, &quiet));
-        enter(&b);
-        let mine = "a = 1\n\nb = 2\n\nc = 3\nx = \"b\"\n";
-        std::fs::write(toml(&b), mine).unwrap();
-        let clash = match sync(&b, Prefer::Ask, false, &quiet) {
-            Err(SyncError::Conflict(c)) => c,
-            other => panic!("expected the broken file to be shown, got {other:?}"),
-        };
-        assert_eq!(clash.broken, vec![".config/alacritty/alacritty.toml"]);
-        assert_eq!(std::fs::read_to_string(toml(&b)).unwrap(), mine);
-        let choices = BTreeMap::from([(clash.versions[0].source.clone(), Keep::Mine)]);
-        ok(resolve(&b, &choices, false, &quiet));
-        assert_eq!(std::fs::read_to_string(toml(&b)).unwrap(), mine);
-        enter(&a);
-        ok(sync(&a, Prefer::Ask, false, &quiet));
-        assert_eq!(std::fs::read_to_string(toml(&a)).unwrap(), mine);
-        std::fs::remove_dir_all(&root).unwrap();
-    }
 }
+
+#[cfg(test)]
+mod lab;
+#[cfg(test)]
+mod scenarios;

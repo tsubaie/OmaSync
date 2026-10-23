@@ -34,7 +34,7 @@ Run the same gates CI runs before you open a pull request:
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `pnpm audit:static` | Oxlint, TypeScript, Prettier, Knip (unused code and dependencies), dependency-cruiser                                                                                |
 | `pnpm test`         | Unit tests, including WCAG contrast for every bundled Omarchy theme                                                                                                  |
-| `pnpm audit:rust`   | `cargo fmt`, Clippy with warnings as errors, and the Rust tests, including a real two-computer sync (needs `chezmoi` and `git`)                                      |
+| `pnpm audit:rust`   | `cargo fmt`, Clippy with warnings as errors, and the Rust tests, including the sync lab's scenarios (needs `chezmoi` and `git`; see below)                           |
 | `pnpm test:e2e`     | The page in WebKit with Rust mocked, plus axe accessibility checks on every pane                                                                                     |
 | `pnpm audit:all`    | All of the above                                                                                                                                                     |
 | `pnpm test:multi`   | The real app (built, driven through WebDriver) on several computers in a Docker container, syncing through a local repository. Needs Docker; not part of `audit:all` |
@@ -43,7 +43,18 @@ Playwright's WebKit build only runs on Ubuntu-like systems. On Arch, run the end
 
 Pull requests run these on GitHub Actions; that's the normal place to run the slower ones.
 
-The Rust tests never touch your real settings: the two-computer test points `HOME` and every `XDG_*` folder at a temporary directory.
+The Rust tests never touch your real settings: the sync lab points `HOME` and every `XDG_*` folder at a temporary directory, and puts fakes for `omarchy`, `pacman`, `systemctl` and the rest on `PATH`.
+
+## The sync lab
+
+Settings are precious, and a sync involves several computers, so the engine is tested as stories: `src-tauri/src/sync/scenarios.rs` holds one short test per situation (a clash, a folder switched off, an older Omarchy, a lost connection, odd file names, …), written with the lab in `src-tauri/src/sync/lab.rs`. The lab gives each computer a temporary home and a bare repository stands in for GitHub, so any number of computers run on one machine in seconds.
+
+After every step the lab checks the promise the app makes on the computer that acted: a synced file holds a version from its history or the person's own unsaved change; nothing the person wrote is replaced unless that version is in the history or a backup; a version that reached the history stays there; and settings that don't sync here are never touched. A scenario that forgets to assert something still fails if the promise breaks.
+
+- **Any change to `sync.rs` gets a scenario.** Reuse `pair()` for two computers with a plugin, a web app, a theme and a background.
+- `anything_in_any_order_keeps_every_version` does random things on three computers. `LAB_SEEDS` and `LAB_STEPS` scale it (CI runs a few seeds per pull request and many each night), `LAB_SEED=n` replays one, and a failure prints what happened.
+- `LAB_KEEP=1` leaves a failed scenario's folders in `/tmp` to look at.
+- `src-tauri/fixtures/sync-space-v*.tar.gz` is a sync space saved by an earlier version; a scenario joins it with today's code. When the layout of the shared choices file changes (`Data::upgrade`), run `LAB_SAVE_SYNC_SPACE=1 cargo test save_todays_sync_space -- --include-ignored` to add the new one and keep the old.
 
 ## Decisions to keep
 
