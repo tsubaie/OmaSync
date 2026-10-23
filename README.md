@@ -89,7 +89,7 @@ On Omarchy, one line:
 curl -fsSL https://raw.githubusercontent.com/tsubaie/OmaSync/main/install.sh | sh
 ```
 
-[Read the installer](install.sh) first if you like. It downloads the latest release's Arch package, checks it against the release's `SHA256SUMS`, and installs it with `pacman`, which asks for your password. Nothing is compiled. Run the same line again to update.
+[Read the installer](install.sh) first if you like. It downloads the latest release's Arch package, checks it against the release's `SHA256SUMS`, and installs it with `pacman`, which asks for your password. Nothing is compiled. To update, run the same line again, or use **Settings → Check for Updates**.
 
 Then open **Omarchy Sync** from the app launcher (Super + Space).
 
@@ -164,6 +164,8 @@ If another computer already uses this computer's name (Omarchy names every compu
 **Computers.** Rename this computer in **Settings** (names are unique, so two computers can't share one). Remove a computer you no longer use; if it syncs again, it comes back.
 
 **Something wrong?** The speech-bubble button next to Settings in the sidebar, and **Report This…** next to any error, open a GitHub issue with the details filled in. Nothing is sent until you submit it on GitHub.
+
+**Updating.** **Settings → Check for Updates** asks GitHub whether a newer release exists; nothing is downloaded. **What's New** opens the release's page. **Update** downloads the package, checks it against the release's checksums and GitHub's record of which workflow built it, installs it through Omarchy's password prompt, and restarts Omarchy Sync. A sync that's running finishes first. A copy built from source says so and updates with `git pull` and the build steps above.
 
 **Stopping.** **Settings → Disconnect** stops syncing on this computer. Its settings stay exactly as they are, and your other computers carry on.
 

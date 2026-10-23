@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Monitor } from 'lucide-react';
 import { Input, TextField } from 'react-aria-components';
-import { api } from '../api';
+import { api, type Update } from '../api';
 import { ago } from '../format';
 import type { SyncState } from '../state';
 import { Group, Link, Push, Row, Tile, Toggle } from '../ui';
@@ -28,6 +28,97 @@ function NameField({ s }: { s: SyncState }) {
     >
       <Input />
     </TextField>
+  );
+}
+
+/**
+ * Omarchy Sync's own version, and a newer release when there is one: the update is downloaded,
+ * checked, installed after the password, and the app restarts once any running sync is done.
+ */
+function Updates({ s }: { s: SyncState }) {
+  // Not checked yet (undefined), up to date (null), or the newer release.
+  const [found, setFound] = useState<Update | null | undefined>(undefined);
+  const [confirm, setConfirm] = useState(false);
+  const title = `Omarchy Sync ${s.version}`;
+  if (s.installedHow === 'Source') {
+    return (
+      <Group
+        title="Updates"
+        footer="This copy was built from source. To update, pull the latest code and run the build steps in the README again."
+      >
+        <Row title={title} detail="Built from source" />
+      </Group>
+    );
+  }
+  const detail =
+    found === undefined
+      ? s.installedHow === 'Aur'
+        ? 'Installed from the AUR'
+        : 'Installed from the release package'
+      : found === null
+        ? 'You have the latest version.'
+        : `${found.version} is available.`;
+  const check = () =>
+    s.act(
+      'Checking for updates',
+      () => api.checkUpdate(),
+      (update) => setFound(update),
+    );
+  return (
+    <Group
+      title="Updates"
+      footer="Updates come from Omarchy Sync's releases on GitHub. Before one is installed, it's checked against the release's checksums and GitHub's record of which workflow built it, and Omarchy asks for your password."
+    >
+      <Row
+        title={title}
+        detail={detail}
+        end={
+          found ? (
+            confirm ? (
+              <div className="actions">
+                <Link onPress={() => setConfirm(false)}>Cancel</Link>
+                <Push
+                  prominent
+                  disabled={!s.idle}
+                  onPress={() => {
+                    setConfirm(false);
+                    s.act(`Updating to ${found.version}`, (onStep) =>
+                      api.installUpdate(found.version, onStep),
+                    );
+                  }}
+                >
+                  Update
+                </Push>
+              </div>
+            ) : (
+              <div className="actions">
+                <Link
+                  disabled={!s.idle}
+                  onPress={() => api.openRelease(found.version).catch(s.fail)}
+                >
+                  What's New
+                </Link>
+                <Push disabled={!s.idle} onPress={() => setConfirm(true)}>
+                  Update to {found.version}…
+                </Push>
+              </div>
+            )
+          ) : (
+            <Link disabled={!s.idle} onPress={check}>
+              Check for Updates
+            </Link>
+          )
+        }
+      >
+        {confirm && found && (
+          <p className="detail">
+            Downloads Omarchy Sync {found.version} from GitHub, checks that its release workflow
+            built it, installs it after your password, then restarts Omarchy Sync. A sync that's
+            running finishes first.
+          </p>
+        )}
+      </Row>
+    </Group>
   );
 }
 
@@ -167,11 +258,13 @@ export function SettingsPane({ s }: { s: SyncState }) {
         />
       </Group>
 
+      <Updates s={s} />
+
       <Group title="Keyboard Shortcuts">
         {(
           [
             ['Sync now', ['Ctrl', 'R']],
-            ['Go to a section', ['Ctrl', '1–7']],
+            ['Go to a section', ['Ctrl', '1–8']],
             ['Move between controls', ['Tab']],
             ['Cancel a confirmation', ['Esc']],
             ['Quit', ['Ctrl', 'Q']],

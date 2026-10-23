@@ -136,6 +136,8 @@ const status = (): Status => ({
   sync_space: 'https://github.com/someone/omarchy-sync',
   schedule_error: null,
   bar_indicator: barIndicator,
+  version: '0.1.1',
+  installed_how: scenario === 'source' ? 'Source' : 'Package',
   data,
   overview: {
     unshared: scenario === 'conflict' ? ['.config/hypr/bindings.lua'] : [],
@@ -393,6 +395,21 @@ mockIPC((cmd, args) => {
     case 'set_auto':
     case 'set_install_auto':
       return data;
+    case 'check_update':
+      return scenario === 'update'
+        ? { version: '0.2.0', url: 'https://github.com/tsubaie/OmaSync/releases/tag/v0.2.0' }
+        : null;
+    case 'install_update':
+      emit(a.onStep, [
+        "\u0001plan\tDownloading Omarchy Sync 0.2.0\tChecking it's genuine\tInstalling\tRestarting Omarchy Sync",
+        'Downloading Omarchy Sync 0.2.0',
+        "Checking it's genuine",
+        'Installing',
+        'Restarting Omarchy Sync',
+      ]);
+      return null;
+    case 'open_release':
+      return null;
     default:
       return null;
   }

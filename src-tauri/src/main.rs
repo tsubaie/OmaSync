@@ -3,6 +3,7 @@
 //! because the commands install packages and change files.
 
 mod sync;
+mod update;
 
 use serde::Serialize;
 use sync::{Ctx, Data, Overview, Prefer, Report, SetupState, SyncError};
@@ -64,6 +65,9 @@ fn main() {
             forget_computer,
             open_sync_space,
             disconnect,
+            check_update,
+            install_update,
+            open_release,
         ])
         .run(tauri::generate_context!())
         .expect("Omarchy Sync couldn't start");
@@ -226,6 +230,9 @@ struct Status {
     schedule_error: Option<String>,
     /// Whether the sync indicator is on the Omarchy bar.
     bar_indicator: bool,
+    /// This copy's version, and how it was installed (which decides how it updates).
+    version: &'static str,
+    installed_how: update::How,
 }
 
 #[tauri::command]
@@ -245,6 +252,8 @@ async fn overview(on_step: Channel<String>, just_synced: bool) -> Result<Status>
             sync_space: sync::sync_space(ctx),
             schedule_error,
             bar_indicator: sync::bar_indicator(ctx),
+            version: env!("CARGO_PKG_VERSION"),
+            installed_how: update::installed_how(),
         })
     })
     .await
@@ -643,8 +652,56 @@ async fn open_sync_space() -> Result<()> {
     .map_err(Problem::from)
 }
 
+/// Whether a newer Omarchy Sync is released. Asks GitHub; nothing is downloaded.
+#[tauri::command]
+async fn check_update() -> Result<Option<update::Update>> {
+    blocking(|_| update::check()).await.map_err(Problem::from)
+}
+
+/// Installs the latest release, which must be the version the page saw (nothing else can be
+/// named), then restarts the app: the installed copy starts a moment later, so the one-window
+/// check doesn't hand it to this closing window. A running sync finishes before the install.
+#[tauri::command]
+async fn install_update(
+    app: tauri::AppHandle,
+    version: String,
+    on_step: Channel<String>,
+) -> Result<()> {
+    blocking(move |ctx| {
+        let step = steps(on_step);
+        let latest = update::check()?
+            .filter(|u| u.version == version)
+            .ok_or_else(|| format!("{version} isn't the latest release"))?;
+        update::install(ctx, &latest.version, &step)?;
+        step("Restarting Omarchy Sync");
+        std::process::Command::new("sh")
+            .args(["-c", "sleep 1; exec \"$0\"", &update::exe_path()])
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        app.exit(0);
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(Problem::from)
+}
+
+/// Opens a release's page on GitHub (what's new). Only a plain version number becomes an address.
+#[tauri::command]
+fn open_release(version: String) -> Result<()> {
+    if update::version(&version).is_none() {
+        return Err(format!("not a version: {version}").into());
+    }
+    std::process::Command::new("xdg-open")
+        .arg(update::release_page(&version))
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string().into())
+}
+
 /// Where problems and ideas are reported.
-const ISSUES: &str = "https://github.com/tsubaie/OmaSync/issues/new";
+fn issues() -> String {
+    format!("https://github.com/{}/issues/new", update::GITHUB_REPO)
+}
 
 /// Opens a new GitHub issue in the browser: with no message, the choice of kind (problem,
 /// suggestion, something else); with an error's message and details, a problem report filled
@@ -664,13 +721,14 @@ fn report(message: Option<String>, details: Option<String>) -> Result<()> {
             .take(max)
             .collect()
     };
+    let issues = issues();
     let url = match message {
-        None => format!("{ISSUES}/choose"),
+        None => format!("{issues}/choose"),
         Some(message) => {
             let message = clean(&message, 500);
             let title: String = message.chars().take(100).collect();
             format!(
-                "{ISSUES}?template=bug.yml&title={}&what-happened={}&details={}&version={}",
+                "{issues}?template=bug.yml&title={}&what-happened={}&details={}&version={}",
                 encode(&title),
                 encode(&message),
                 encode(&clean(&details.unwrap_or_default(), 4000)),
