@@ -43,11 +43,12 @@ export function HistoryPane({ s }: { s: SyncState }) {
             : e.labels.length === 0
               ? `${s.nameOf(e.computer)} synced`
               : `${s.nameOf(e.computer)} changed ${e.labels.join(', ').toLowerCase()}`;
+        // Every entry in Omarchy's colour; the icon tells undo, this computer and others apart.
         const [icon, kind] = e.is_undo
-          ? [Undo2, 'history']
+          ? [Undo2, 'accent']
           : e.computer === s.host
-            ? [Upload, 'sync']
-            : [Monitor, 'plain'];
+            ? [Upload, 'accent']
+            : [Monitor, 'accent'];
         const end =
           e.first || e.is_undo ? null : s.confirmUndo === e.sha ? (
             <div className="actions">

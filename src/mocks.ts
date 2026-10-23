@@ -34,7 +34,7 @@ const catalog: Catalog = {
   folders: [
     {
       path: '.config/omarchy',
-      name: 'Themes, menus and hooks',
+      name: 'Other Omarchy settings',
       default: true,
       exists: true,
     },

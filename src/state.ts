@@ -26,6 +26,10 @@ export function useSync() {
   const [tab, setTab] = useState<Tab>('sync');
   // The window opens already checking what state this computer is in.
   const [busy, setBusy] = useState<string | null>('Getting ready');
+  /** The steps the running job has reached so far, the last one in progress. */
+  const [steps, setSteps] = useState<string[]>([]);
+  /** Which job is running, by its first label, for how many steps it usually takes. */
+  const [job, setJob] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [status, setStatus] = useState<Status | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
@@ -65,11 +69,18 @@ export function useSync() {
     if (working.current) return undefined;
     working.current = true;
     setBusy(first);
+    setJob(first);
+    setSteps([]);
     try {
-      return await work(setBusy);
+      return await work((step) => {
+        setBusy(step);
+        setSteps((done) => [...done, step]);
+      });
     } finally {
       working.current = false;
       setBusy(null);
+      setJob(null);
+      setSteps([]);
       setSyncing(false);
     }
   }
@@ -254,6 +265,8 @@ export function useSync() {
     tab,
     setTab,
     busy,
+    steps,
+    job,
     idle: busy === null,
     syncing,
     notice,

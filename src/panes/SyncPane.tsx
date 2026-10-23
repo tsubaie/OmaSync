@@ -65,6 +65,41 @@ function status(s: SyncState): [string, string, LucideIcon, string] {
   ];
 }
 
+/** About how many steps each job reports (see the step() calls in sync.rs), for the bar. */
+const EXPECTED: Record<string, number> = {
+  'Checking for changes': 4,
+  Starting: 6,
+  Undoing: 7,
+};
+
+/** A bar and the steps so far: finished ones ticked, the current one in progress. */
+function Progress({ s }: { s: SyncState }) {
+  const expected = s.job ? EXPECTED[s.job] : undefined;
+  if (!expected || s.steps.length === 0) return null;
+  // It never claims to be done before it is.
+  const share = Math.min(s.steps.length / (expected + 1), 0.95);
+  return (
+    <div className="progress">
+      <progress className="bar" aria-label="Progress" value={share} max={1} />
+      <ol className="steps">
+        {s.steps.map((step, i) => {
+          const now = i === s.steps.length - 1;
+          return (
+            <li key={`${i}${step}`} className={now ? 'now' : 'done'}>
+              {now ? (
+                <RefreshCw size={12} aria-hidden="true" />
+              ) : (
+                <Check size={12} aria-hidden="true" />
+              )}
+              {step}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 /** One computer in the picture: a rounded screen, its name, and when it last shared changes. */
 function Device({
   name,
@@ -148,6 +183,7 @@ function Hero({ s }: { s: SyncState }) {
         <h2>{head}</h2>
         {detail && <p className="detail">{detail}</p>}
       </output>
+      <Progress s={s} />
       {!s.conflict && (
         <Push prominent large disabled={!s.idle} onPress={() => s.sync()} tip="Sync Now  Ctrl+R">
           {s.syncing ? 'Syncing…' : 'Sync Now'}

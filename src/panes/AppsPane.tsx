@@ -46,12 +46,14 @@ export function AppsPane({ s }: { s: SyncState }) {
           <Row title={`No apps match “${query.trim()}”.`} />
         ) : (
           <>
-            <div className="row matrix head" style={columns} aria-hidden="true">
-              <span>App</span>
-              {computers.map((c) => (
-                <span key={c}>{column(c)}</span>
-              ))}
-            </div>
+            {computers.length > 1 && (
+              <div className="row matrix head" style={columns} aria-hidden="true">
+                <span>App</span>
+                {computers.map((c) => (
+                  <span key={c}>{column(c)}</span>
+                ))}
+              </div>
+            )}
             {shown.map((app) => {
               const synced = data.apps.includes(app);
               const about = ov.apps.about[app];

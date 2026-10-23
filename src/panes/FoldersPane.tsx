@@ -2,28 +2,50 @@ import { api, type Folder } from '../api';
 import type { SyncState } from '../state';
 import { Group, Link, Row, Toggle } from '../ui';
 
-/** Folders that make up Omarchy itself, and its plugins; every other folder is an app's data. */
-const OMARCHY = ['.config/omarchy', '.config/hypr'];
+/** Omarchy's own parts, its window settings and its plugins, each listed in the order shown
+ * ("other" last); every other folder is an app's data. */
+const OMARCHY = [
+  '.config/omarchy/themes',
+  '.config/omarchy/extensions',
+  '.config/omarchy/hooks',
+  '.config/omarchy',
+];
+const WINDOWS = [
+  '.config/hypr/bindings.lua',
+  '.config/hypr/input.lua',
+  '.config/hypr/looknfeel.lua',
+  '.config/hypr/autostart.lua',
+  '.config/hypr/hyprsunset.conf',
+  '.config/hypr',
+];
 const PLUGINS = ['.config/omarchy/plugins', '.config/omarchy/shell.json'];
-const isOmarchy = (f: Folder) => OMARCHY.includes(f.path) || PLUGINS.includes(f.path);
+const isOmarchy = (f: Folder) => [...OMARCHY, ...WINDOWS, ...PLUGINS].includes(f.path);
 
 function FolderGroup({
   s,
   pick,
+  title = 'Same on Every Computer',
   footer,
 }: {
   s: SyncState;
-  pick: (f: Folder) => boolean;
+  /** The folders to show: a list (shown in its order) or a test. */
+  pick: string[] | ((f: Folder) => boolean);
+  title?: string;
   footer?: string;
 }) {
   const data = s.data;
   if (!data) return null;
   const separate = data.computers?.[s.host]?.skip_files ?? [];
-  const folders = s.catalog.folders.filter(
-    (f) => pick(f) && (data.folders.includes(f.path) || f.exists),
-  );
+  const order = (f: Folder) => (Array.isArray(pick) ? pick.indexOf(f.path) : 0);
+  const folders = s.catalog.folders
+    .filter(
+      (f) =>
+        (Array.isArray(pick) ? pick.includes(f.path) : pick(f)) &&
+        (data.folders.includes(f.path) || f.exists),
+    )
+    .toSorted((a, b) => order(a) - order(b));
   return (
-    <Group title="Same on Every Computer" footer={footer}>
+    <Group title={title} footer={footer}>
       {folders.length === 0 && <Row title="None of these apps are on this computer." />}
       {folders.map((f) => {
         const synced = data.folders.includes(f.path);
@@ -59,11 +81,20 @@ function FolderGroup({
 
 export function OmarchyPane({ s }: { s: SyncState }) {
   return (
-    <FolderGroup
-      s={s}
-      pick={(f) => OMARCHY.includes(f.path)}
-      footer="Your display layout (monitors.lua) always stays separate on each computer, because every screen is different."
-    />
+    <>
+      <FolderGroup
+        s={s}
+        pick={OMARCHY}
+        title="Omarchy"
+        footer="Only the background you're using syncs, and your other computers switch to it."
+      />
+      <FolderGroup
+        s={s}
+        pick={WINDOWS}
+        title="Windows"
+        footer="Your display layout (monitors.lua) always stays separate on each computer, because every screen is different."
+      />
+    </>
   );
 }
 
@@ -90,7 +121,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
     <>
       <FolderGroup
         s={s}
-        pick={(f) => PLUGINS.includes(f.path)}
+        pick={PLUGINS}
         footer="Plugins are the add-ons themselves; their settings, and where they sit on the bar, are kept in the bar layout."
       />
       {pluginsOn && (
@@ -102,12 +133,14 @@ export function PluginsPane({ s }: { s: SyncState }) {
             <Row title="No plugins on any computer yet." />
           ) : (
             <>
-              <div className="row matrix head" style={columns} aria-hidden="true">
-                <span>Plugin</span>
-                {computers.map((c) => (
-                  <span key={c}>{column(c)}</span>
-                ))}
-              </div>
+              {computers.length > 1 && (
+                <div className="row matrix head" style={columns} aria-hidden="true">
+                  <span>Plugin</span>
+                  {computers.map((c) => (
+                    <span key={c}>{column(c)}</span>
+                  ))}
+                </div>
+              )}
               {plugins.map((p) => {
                 const synced = !!data?.plugins?.includes(p.id);
                 const missingHere = synced && s.wantsPlugin(host, p.id) && !mine.includes(p.id);

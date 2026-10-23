@@ -9,19 +9,31 @@ pub const REPO: &str = "omarchy-sync";
 
 /// Folders offered on the "What's synced" tab: (path under home, plain name, on by default).
 pub const FOLDERS: &[(&str, &str, bool)] = &[
-    (".config/omarchy", "Themes, menus and hooks", true),
-    // Inside .config/omarchy, but synced on their own (see NESTED).
+    (".config/omarchy", "Other Omarchy settings", true),
+    // Inside another folder here, but each synced on its own (see NESTED).
+    (".config/omarchy/themes", "Themes", true),
+    (".config/omarchy/extensions", "Menus", true),
+    (".config/omarchy/hooks", "Hooks", true),
     (".config/omarchy/plugins", "Plugins", true),
     (
         ".config/omarchy/shell.json",
         "Bar layout and plugin settings",
         true,
     ),
+    (".config/hypr", "Other window settings", true),
+    (".config/hypr/bindings.lua", "Keyboard shortcuts", true),
     (
-        ".config/hypr",
-        "Windows, keyboard shortcuts and input",
+        ".config/hypr/input.lua",
+        "Keyboard, mouse and touchpad",
         true,
     ),
+    (".config/hypr/looknfeel.lua", "Look and feel", true),
+    (
+        ".config/hypr/autostart.lua",
+        "Apps that start with Omarchy",
+        true,
+    ),
+    (".config/hypr/hyprsunset.conf", "Night light", true),
     (
         ".local/share/applications",
         "Web apps and their icons",
@@ -42,8 +54,20 @@ pub const FOLDERS: &[(&str, &str, bool)] = &[
 /// The data file label shown when only the app list or sync choices changed.
 pub const DATA_LABEL: &str = "Apps and sync choices";
 
-/// Folders inside another synced folder; the ignore rules below leave them out when they're off.
-pub const NESTED: &[&str] = &[".config/omarchy/plugins", ".config/omarchy/shell.json"];
+/// Folders and files inside another synced folder; the ignore rules below leave them out when
+/// they're off. (The ignore rules list them again; a test checks the two agree.)
+pub const NESTED: &[&str] = &[
+    ".config/omarchy/plugins",
+    ".config/omarchy/shell.json",
+    ".config/omarchy/themes",
+    ".config/omarchy/extensions",
+    ".config/omarchy/hooks",
+    ".config/hypr/bindings.lua",
+    ".config/hypr/input.lua",
+    ".config/hypr/looknfeel.lua",
+    ".config/hypr/autostart.lua",
+    ".config/hypr/hyprsunset.conf",
+];
 
 // monitors.lua differs per screen, so it never leaves the computer it was made on.
 const IGNORE: &str = r#"**/.git
@@ -54,7 +78,7 @@ const IGNORE: &str = r#"**/.git
 .config/hypr/monitors.conf
 .config/omarchy/backgrounds
 .config/omarchy/backgrounds/**
-{{- range list ".config/omarchy/plugins" ".config/omarchy/shell.json" }}
+{{- range list ".config/omarchy/plugins" ".config/omarchy/shell.json" ".config/omarchy/themes" ".config/omarchy/extensions" ".config/omarchy/hooks" ".config/hypr/bindings.lua" ".config/hypr/input.lua" ".config/hypr/looknfeel.lua" ".config/hypr/autostart.lua" ".config/hypr/hyprsunset.conf" }}
 {{- if not (has . $.folders) }}
 {{ . }}
 {{ . }}/**
@@ -191,7 +215,7 @@ impl Data {
     /// computer had (they all synced before) stays synced.
     pub fn upgrade(&mut self) {
         if self.version < 1 && self.folders.iter().any(|f| f == ".config/omarchy") {
-            for f in NESTED {
+            for f in &NESTED[..2] {
                 toggle(&mut self.folders, f, true);
             }
         }
@@ -205,7 +229,17 @@ impl Data {
                 toggle(&mut self.plugins, &p, true);
             }
         }
-        self.version = 2;
+        // Version 3 split themes, menus, hooks and the window settings into their own switches;
+        // each stays on wherever its folder synced.
+        if self.version < 3 {
+            for f in &NESTED[2..] {
+                let parent = f.rsplit_once('/').map_or("", |(p, _)| p);
+                if self.folders.iter().any(|x| x == parent) {
+                    toggle(&mut self.folders, f, true);
+                }
+            }
+        }
+        self.version = 3;
     }
 
     /// The computer ID behind a git author name: an ID, or an older name listed in `aka`.
@@ -1277,7 +1311,7 @@ pub struct Entry {
     pub sha: String,
     pub computer: String,
     pub when: i64,
-    /// Plain names of what changed, e.g. "Windows, keyboard shortcuts and input".
+    /// Plain names of what changed, e.g. "Keyboard shortcuts".
     pub labels: Vec<String>,
     pub is_undo: bool,
     /// The very first save, which has nothing before it to go back to.
@@ -1906,6 +1940,31 @@ pub fn disconnect(ctx: &Ctx) -> Result<PathBuf, String> {
 
 /// Starts or stops syncing one folder from FOLDERS.
 pub fn track(ctx: &Ctx, folder: &str, on: bool) -> Result<(), String> {
+    // Stopping a folder that holds separately synced parts stops only the rest of it.
+    let children: Vec<&str> = NESTED
+        .iter()
+        .filter(|n| n.starts_with(&format!("{folder}/")))
+        .copied()
+        .collect();
+    if !on && !children.is_empty() {
+        for e in std::fs::read_dir(ctx.home.join(folder))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
+            let path = e.path();
+            let rel = format!("{folder}/{}", e.file_name().to_string_lossy());
+            if !children.contains(&rel.as_str()) {
+                // Fails for files never synced (ignored or new), which is the goal anyway.
+                let _ = run(
+                    None,
+                    "chezmoi",
+                    &["forget", "--force", &path.to_string_lossy()],
+                );
+            }
+        }
+        return Ok(());
+    }
     let mut folders = vec![folder];
     if folder == APPS_DIR && ctx.home.join(ICON_DIR).exists() {
         folders.push(ICON_DIR);
@@ -2020,6 +2079,28 @@ mod tests {
     }
 
     #[test]
+    fn nested_folders_match_the_ignore_rules() {
+        for f in NESTED {
+            assert!(
+                IGNORE.contains(&format!("\"{f}\"")),
+                "{f} missing from IGNORE"
+            );
+            assert!(
+                FOLDERS.iter().any(|(p, _, _)| p == f),
+                "{f} missing from FOLDERS"
+            );
+        }
+        let mut d = Data {
+            folders: vec![".config/hypr".into()],
+            version: 2,
+            ..Default::default()
+        };
+        d.upgrade();
+        assert!(d.folders.iter().any(|f| f == ".config/hypr/bindings.lua"));
+        assert!(!d.folders.iter().any(|f| f == ".config/omarchy/themes"));
+    }
+
+    #[test]
     fn upgrade_keeps_every_plugin_synced() {
         let mut d = Data::default();
         d.computers.entry("a".into()).or_default().plugins = vec!["clock".into()];
@@ -2039,7 +2120,7 @@ mod tests {
             ..Default::default()
         };
         d.upgrade();
-        assert!(NESTED.iter().all(|f| d.folders.iter().any(|x| x == f)));
+        assert!(NESTED[..2].iter().all(|f| d.folders.iter().any(|x| x == f)));
         // Turned off after the upgrade, they stay off.
         toggle(&mut d.folders, NESTED[0], false);
         d.upgrade();
@@ -2122,10 +2203,7 @@ mod tests {
         assert_eq!(h.len(), 2);
         assert_eq!(
             h[0].labels,
-            vec![
-                "Windows, keyboard shortcuts and input".to_string(),
-                DATA_LABEL.to_string()
-            ]
+            vec!["Keyboard shortcuts".to_string(), DATA_LABEL.to_string()]
         );
         assert!(h[0].is_undo && !h[0].first);
         assert_eq!(
@@ -2135,7 +2213,7 @@ mod tests {
                 h[1].first,
                 h[1].labels.len()
             ),
-            ("desk", 100, true, 1)
+            ("desk", 100, true, 2)
         );
         assert_eq!(
             h[1].files,
@@ -2152,9 +2230,7 @@ mod tests {
         );
         assert_eq!(
             describe(&h[0].files),
-            format!(
-                "Windows, keyboard shortcuts and input: changed bindings.lua\n{DATA_LABEL}: updated"
-            )
+            format!("Keyboard shortcuts: changed bindings.lua\n{DATA_LABEL}: updated")
         );
     }
 
@@ -2207,11 +2283,9 @@ mod tests {
 
     #[test]
     fn labels_and_time() {
-        assert_eq!(
-            label(".config/hypr/bindings.lua"),
-            "Windows, keyboard shortcuts and input"
-        );
+        assert_eq!(label(".config/hypr/bindings.lua"), "Keyboard shortcuts");
         assert_eq!(label(".config/hyprx/a"), ".config/hyprx/a");
+        assert_eq!(label(".config/hypr/hyprland.lua"), "Other window settings");
         assert_eq!(plural(1, "app"), "1 app");
         assert_eq!(plural(3, "app"), "3 apps");
     }
@@ -2382,7 +2456,7 @@ mod tests {
         // Undo the last change on one computer; the other gets the undo on its next sync.
         let last = &ov.history[0];
         assert!(
-            !last.first && last.labels.iter().any(|l| l.starts_with("Windows")),
+            !last.first && last.labels.iter().any(|l| l == "Keyboard shortcuts"),
             "{last:?}"
         );
         write(&a, "bindings.lua", "a3");
