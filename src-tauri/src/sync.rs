@@ -323,8 +323,8 @@ impl Data {
 
     /// Switches an app or plugin on or off for one computer. Switching it on while no computer
     /// has it on shares it with that computer and with `owners` (where it already is, so their
-    /// copy is the one shared). It stops being shared when nobody is left, or only the one
-    /// computer that has it.
+    /// copy is the one shared). Shared with only this computer still counts: computers added
+    /// later get it. It stops being shared when every computer is switched off.
     fn place(
         &mut self,
         shared: fn(&mut Data) -> &mut Vec<String>,
@@ -355,8 +355,7 @@ impl Data {
         } else {
             set(self, computer, on);
         }
-        let wanting: Vec<String> = ids.iter().filter(|id| wants(self, id)).cloned().collect();
-        if wanting.is_empty() || (wanting.len() == 1 && owners == wanting.as_slice()) {
+        if !ids.iter().any(|id| wants(self, id)) {
             toggle(shared(self), item, false);
             for id in &ids {
                 set(self, id, true);
@@ -1715,11 +1714,16 @@ mod tests {
         assert!(!d.wants_app("lap", "zed"));
         d.place_app("here", true, "lap", "zed", true);
         assert!(d.wants_app("lap", "zed"));
-        // Back to only the computer that has it: no longer shared, nothing left behind.
-        d.place_app("here", true, "lap", "zed", false);
-        assert_eq!(d.apps, vec!["zed".to_string()]);
-        d.place_app("here", true, "desk", "zed", false);
+        // Every computer switched off: no longer shared, nothing left behind.
+        for id in ["lap", "desk", "here"] {
+            d.place_app("here", true, id, "zed", false);
+        }
         assert!(d.apps.is_empty());
+        // With one computer, switching it on shares it for computers added later.
+        let mut solo = Data::default();
+        solo.computers.entry("here".into()).or_default();
+        solo.place_app("here", true, "here", "zed", true);
+        assert!(solo.wants_app("here", "zed"));
         assert!(d.computers.values().all(|c| c.skip_apps.is_empty()));
         // A plugin shared from Lap brings Lap along, since its copy is the one shared.
         d.computers.get_mut("lap").unwrap().plugins = vec!["dock".into()];

@@ -96,8 +96,7 @@ function place(
     next[list] = [...(next[list] ?? []), item];
     for (const id of ids) set(id, id === computer || owners.includes(id));
   } else set(computer, on);
-  const wanting = ids.filter(wants);
-  if (!wanting.length || (wanting.length === 1 && owners.join() === wanting[0])) {
+  if (!ids.some(wants)) {
     next[list] = (next[list] ?? []).filter((x) => x !== item);
     for (const id of ids) set(id, true);
   }

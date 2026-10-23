@@ -152,11 +152,17 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await expect(rows).toHaveText(['brave-bin', 'spotify', 'yazi']);
   const banner = page.getByText('Your other computers get this change the next time you sync.');
   await expect(banner).toBeVisible();
-  // Switched back, nothing is left to share, so the banner goes away.
+  // Every computer switched off again: nothing is left to share, so the banner goes away.
+  const here = page.getByRole('switch', { name: 'spotify on This Computer' });
+  await page.keyboard.press('Space');
+  await here.focus();
   await page.keyboard.press('Space');
   await expect(desk).not.toBeChecked();
-  await expect(page.getByRole('switch', { name: 'spotify on This Computer' })).not.toBeChecked();
+  await expect(here).not.toBeChecked();
   await expect(banner).toBeHidden();
+  // Switched on for this computer alone, it stays on: computers added later get it.
+  await page.keyboard.press('Space');
+  await expect(here).toBeChecked();
 });
 
 test('only Sync opens until the first check finishes', async ({ page }) => {
