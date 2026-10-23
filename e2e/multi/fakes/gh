@@ -12,9 +12,11 @@ case "$1 $2" in
   "repo create")
     # gh repo create omarchy-sync --private --source <dir> --remote origin --push
     src=""; while [ $# -gt 0 ]; do [ "$1" = --source ] && src="$2"; shift; done
-    git init -q --bare -b main "$E2E_REMOTE"
+    git init -q --bare "$E2E_REMOTE"
     git -C "$src" remote add origin https://github.com/tester/omarchy-sync.git
     git -C "$src" push -q -u origin HEAD
+    # Like GitHub, the first branch pushed becomes the default one.
+    git -C "$E2E_REMOTE" symbolic-ref HEAD "refs/heads/$(git -C "$src" branch --show-current)"
     ;;
   *) echo "fake gh: unexpected: $*" >&2; exit 1 ;;
 esac

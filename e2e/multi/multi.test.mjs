@@ -65,6 +65,10 @@ const portOpen = (port) =>
 /** Opens the app as this computer, runs `steps` in its window, then closes it. */
 async function use(c, steps) {
   const driver = spawn('tauri-driver', [], { env: c.env, stdio: 'ignore' });
+  // A missing tauri-driver should fail loudly, not as "connection refused" later.
+  driver.on('error', (e) => {
+    throw e;
+  });
   for (let i = 0; i < 100 && !(await portOpen(4444)); i++)
     await new Promise((r) => setTimeout(r, 100));
   const w = await remote({
@@ -88,8 +92,19 @@ const press = async (w, text) => {
   await b.waitForClickable({ timeout: 30_000 });
   await b.click();
 };
+/** Text as an XPath string, whichever quotes it contains. */
+const literal = (text) =>
+  !text.includes('"')
+    ? `"${text}"`
+    : !text.includes("'")
+      ? `'${text}'`
+      : `concat(${text
+          .split('"')
+          .map((part) => `"${part}"`)
+          .join(`, '"', `)})`;
+/** Waits for an element whose own text is exactly `text` (not one that only contains it). */
 const see = (w, text, timeout = 60_000) =>
-  w.$(`//*[normalize-space()="${text}"]`).waitForDisplayed({ timeout });
+  w.$(`//*[text()[normalize-space()=${literal(text)}]]`).waitForDisplayed({ timeout });
 const inStep = (w) => see(w, 'Everything matches your other computers.');
 
 const lua = (text) => `o.bind("SUPER + RETURN", "Terminal", "${text}")\n`;

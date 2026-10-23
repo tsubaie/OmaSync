@@ -15,7 +15,7 @@ ENV MISE_DATA_DIR=/opt/mise
 WORKDIR /setup
 COPY .mise.toml ./
 RUN mise trust /setup/.mise.toml && mise install
-RUN mise x -- cargo install tauri-driver --locked
+RUN mise x -- cargo install tauri-driver --locked --root /usr/local
 # The tests run as the person's own user (so files written into the checkout stay theirs):
 # the tools and the build cache must be writable by anyone.
 RUN chmod -R a+rwX /opt/mise && mkdir -p /cache/target && chmod 777 /cache/target
