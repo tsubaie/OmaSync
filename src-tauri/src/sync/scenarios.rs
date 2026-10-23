@@ -1279,3 +1279,26 @@ fn the_background_timer_tells_the_person_on_the_second_failure_only() {
     assert_eq!(calls.matches("notify-send").count(), 2, "{calls}");
     assert!(calls.contains("Plugins are ready to add"), "{calls}");
 }
+
+#[test]
+#[ignore]
+fn a_forgotten_computer_and_a_renamed_one_both_survive_syncing_at_once() {
+    let mut lab = pair();
+    lab.join("b");
+    lab.add("c");
+    lab.join("c");
+    // a forgets c while b renames itself: both changes to the computers list stay.
+    lab.edit("a", |d, _| {
+        d.computers.remove("c");
+    });
+    lab.edit("b", |d, host| {
+        d.computers.get_mut(host).unwrap().name = "Laptop".into()
+    });
+    lab.sync_ok("a");
+    lab.sync_ok("b");
+    lab.settle();
+    let computers = lab.data("a").computers;
+    assert_eq!(computers["b"].name, "Laptop");
+    // c comes back as soon as it syncs again, as before.
+    assert!(computers.contains_key("c"));
+}
