@@ -2009,11 +2009,10 @@ pub fn sync(ctx: &Ctx, install: bool, step: &dyn Fn(&str)) -> Result<Report, Syn
     write_status(ctx, "syncing", "Syncing…");
     let result = sync_inner(ctx, install, step);
     match &result {
-        Ok(_) => {
+        Ok((_, installed)) => {
             let data = ctx.load_data();
-            let installed = installed();
-            let waiting = missing_apps(&data, &ctx.host, &installed).len()
-                + missing_scripted(&data, &ctx.host, &installed).len()
+            let waiting = missing_apps(&data, &ctx.host, installed, &repos_here()).len()
+                + missing_scripted(&data, &ctx.host, installed).len()
                 + data.missing_plugins(&ctx.host).len();
             if waiting > 0 {
                 let what = plural(waiting, "app or plugin");
@@ -2029,7 +2028,7 @@ pub fn sync(ctx: &Ctx, install: bool, step: &dyn Fn(&str)) -> Result<Report, Syn
         ),
         Err(SyncError::Failed(e)) => write_status(ctx, "error", &friendly(e)),
     }
-    result
+    result.map(|(report, _)| report)
 }
 
 /// What the bar indicator shows (packaging/bar-plugin): `state` is synced, syncing, attention
@@ -2133,7 +2132,13 @@ pub fn set_bar_indicator(ctx: &Ctx, on: bool) -> Result<(), String> {
     }
 }
 
-fn sync_inner(ctx: &Ctx, install: bool, step: &dyn Fn(&str)) -> Result<Report, SyncError> {
+/// Also returns the apps installed here afterwards (`pacman -Qq` takes a moment, so it's run
+/// once per sync).
+fn sync_inner(
+    ctx: &Ctx,
+    install: bool,
+    step: &dyn Fn(&str),
+) -> Result<(Report, BTreeSet<String>), SyncError> {
     let fail = SyncError::Failed;
     // One sync at a time: one already running (the background timer's) finishes first.
     let _lock = match lock(ctx) {
@@ -2247,32 +2252,46 @@ fn sync_inner(ctx: &Ctx, install: bool, step: &dyn Fn(&str)) -> Result<Report, S
         }
     }
 
-    let missing = missing_apps(&data, &ctx.host, &installed());
+    let mut installed = installed();
+    let missing = missing_apps(&data, &ctx.host, &installed, &repos_here());
     if missing.is_empty() || !install {
-        return Ok(Report {
-            notes,
-            waiting: missing,
-        });
+        return Ok((
+            Report {
+                notes,
+                waiting: missing,
+            },
+            installed,
+        ));
     }
     step(&format!("Installing {}", plural(missing.len(), "app")));
     match install_apps(&missing) {
-        Ok(()) => notes.push(format!("Installed {}.", missing.join(", "))),
+        Ok(()) => {
+            notes.push(format!("Installed {}.", missing.join(", ")));
+            installed.extend(missing);
+        }
         Err(e) => notes.push(format!(
             "Couldn't install {}. {}",
             missing.join(", "),
             friendly(&e)
         )),
     }
-    Ok(Report {
-        notes,
-        waiting: vec![],
-    })
+    Ok((
+        Report {
+            notes,
+            waiting: vec![],
+        },
+        installed,
+    ))
 }
 
-/// Synced apps this computer should have but doesn't.
-/// Synced apps this computer wants and `yay` can install (not ones from outside the repos).
-pub fn missing_apps(data: &Data, host: &str, installed: &BTreeSet<String>) -> Vec<String> {
-    let here = repos_here();
+/// Synced apps this computer wants and `yay` can install (not ones from outside the repos);
+/// `here` is `repos_here()`.
+pub fn missing_apps(
+    data: &Data,
+    host: &str,
+    installed: &BTreeSet<String>,
+    here: &BTreeSet<String>,
+) -> Vec<String> {
     data.apps
         .iter()
         .filter(|a| {
@@ -3141,6 +3160,7 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
     }
     step("Checking your apps and plugins");
     let apps = apps(&data);
+    let here = repos_here();
     let mut ids: BTreeSet<String> = ctx.local_plugins().into_iter().collect();
     ids.extend(data.plugins.iter().cloned());
     ids.extend(
@@ -3154,7 +3174,6 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
         .map(|id| ctx.plugin(id))
         .collect();
     plugins.sort_by_key(|p| p.name.to_lowercase());
-    let here = repos_here();
     let mut unshared: Vec<String> = parse_status(&status)
         .iter()
         .filter(|p| !p.starts_with(".chezmoiignore"))
@@ -3170,7 +3189,6 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
         incoming,
         online,
         computers: computers(&parse_log(&log), &data, &ctx.host),
-        apps,
         incoming_files: incoming_files
             .lines()
             .filter(|f| !f.starts_with(".chezmoiignore"))
@@ -3185,8 +3203,9 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
             })
             .collect(),
         plugins,
-        missing_repos: missing_repos(&data, &ctx.host, &installed(), &here),
+        missing_repos: missing_repos(&data, &ctx.host, &apps.installed, &here),
         repos_here: repos_with_apps(&data, &here),
+        apps,
     })
 }
 
@@ -3526,7 +3545,10 @@ mod tests {
         d.outside.insert("rustxt".into(), Some(script.clone()));
         let none = BTreeSet::new();
         // yay only gets what it can install; rustxt waits for its script; numpad can't come.
-        assert_eq!(missing_apps(&d, "b", &none), vec!["firefox".to_string()]);
+        assert_eq!(
+            missing_apps(&d, "b", &none, &none),
+            vec!["firefox".to_string()]
+        );
         assert_eq!(
             missing_scripted(&d, "b", &none),
             vec![("rustxt".to_string(), script.clone())]
@@ -3855,7 +3877,11 @@ mod tests {
         };
         d.set_app("pc", "c", false);
         let installed: BTreeSet<String> = ["a".to_string()].into();
-        assert_eq!(missing_apps(&d, "pc", &installed), vec!["b".to_string()]);
+        let none = BTreeSet::new();
+        assert_eq!(
+            missing_apps(&d, "pc", &installed, &none),
+            vec!["b".to_string()]
+        );
     }
 
     #[test]

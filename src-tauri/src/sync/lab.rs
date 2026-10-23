@@ -53,7 +53,8 @@ esac"#,
     ),
     (
         "pacman",
-        r#"case "$1" in
+        r#"echo "pacman $*" >> "$LAB_LOG"
+case "$1" in
   -Qq|-Qqe) printf '%s\n' $LAB_PACKAGES ;;
 esac"#,
     ),

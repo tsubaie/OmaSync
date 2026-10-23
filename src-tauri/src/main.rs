@@ -340,7 +340,12 @@ async fn join(on_step: Channel<String>) -> Result<String> {
 #[tauri::command]
 async fn install_apps() -> Result<()> {
     blocking(|ctx| {
-        let missing = sync::missing_apps(&ctx.load_data(), &ctx.host, &sync::installed());
+        let missing = sync::missing_apps(
+            &ctx.load_data(),
+            &ctx.host,
+            &sync::installed(),
+            &sync::repos_here(),
+        );
         if missing.is_empty() {
             Ok(())
         } else {
