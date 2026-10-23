@@ -532,7 +532,7 @@ impl App {
         });
 
         // Each step says why it's needed, not just what it does.
-        let why = if !s.missing.is_empty() {
+        let why: String = if !s.missing.is_empty() {
             "Omarchy Sync needs a couple of small helper tools to copy your settings safely. Omarchy will ask for your password once.".into()
         } else if !s.signed_in && self.signing_in {
             "Finish signing in in the window that opened, then come back here.".into()
