@@ -674,8 +674,15 @@ async fn install_update(
             .ok_or_else(|| format!("{version} isn't the latest release"))?;
         update::install(ctx, &latest.version, &step)?;
         step("Restarting Omarchy Sync");
+        // Only once this process is gone: a copy started while this window is still closing
+        // would find it, hand itself over to it and exit, leaving nothing open.
         std::process::Command::new("sh")
-            .args(["-c", "sleep 1; exec \"$0\"", &update::exe_path()])
+            .args([
+                "-c",
+                "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; exec \"$0\"",
+                &update::exe_path(),
+                &std::process::id().to_string(),
+            ])
             .spawn()
             .map_err(|e| e.to_string())?;
         app.exit(0);
@@ -688,11 +695,11 @@ async fn install_update(
 /// Opens a release's page on GitHub (what's new). Only a plain version number becomes an address.
 #[tauri::command]
 fn open_release(version: String) -> Result<()> {
-    if update::version(&version).is_none() {
+    let Some((a, b, c)) = update::version(&version) else {
         return Err(format!("not a version: {version}").into());
-    }
+    };
     std::process::Command::new("xdg-open")
-        .arg(update::release_page(&version))
+        .arg(update::release_page(&format!("{a}.{b}.{c}")))
         .spawn()
         .map(|_| ())
         .map_err(|e| e.to_string().into())
