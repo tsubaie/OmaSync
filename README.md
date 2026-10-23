@@ -276,11 +276,11 @@ mise x -- pnpm tauri dev        # the app with live reload
 mise x -- pnpm audit:all        # every check CI runs
 ```
 
-| Layer  | Built with                                                                                                                                                                                                              |
-| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Window | [Tauri 2](https://tauri.app), React 19, TypeScript, [React Aria](https://react-spectrum.adobe.com/react-aria/), Vite                                                                                                    |
-| Engine | Rust, calling chezmoi, git, gh, pacman, yay, systemd and Omarchy's commands                                                                                                                                             |
-| Checks | Oxlint, Prettier, Knip, dependency-cruiser, Vitest, Playwright with axe accessibility checks, cargo fmt, Clippy, a real two-computer sync test, and the real app on several computers in containers (`pnpm test:multi`) |
+| Layer  | Built with                                                                                                                                                                                                                                                  |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Window | [Tauri 2](https://tauri.app), React 19, TypeScript, [React Aria](https://react-spectrum.adobe.com/react-aria/), Vite                                                                                                                                        |
+| Engine | Rust, calling chezmoi, git, gh, pacman, yay, systemd and Omarchy's commands                                                                                                                                                                                 |
+| Checks | Oxlint, Prettier, Knip, dependency-cruiser, Vitest, Playwright with axe accessibility checks, cargo fmt, Clippy, a lab of real multi-computer sync scenarios (see CONTRIBUTING.md), and the real app on several computers in containers (`pnpm test:multi`) |
 
 The layout, the checks and the writing rules are in [CONTRIBUTING.md](CONTRIBUTING.md). Pull requests are checked by CI, including the page in WebKit with accessibility checks.
 

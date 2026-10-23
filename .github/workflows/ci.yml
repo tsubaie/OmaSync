@@ -3,6 +3,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Nightly: the same checks, with many more random-order sync runs (see CONTRIBUTING.md).
+  schedule:
+    - cron: '0 3 * * *'
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
@@ -56,6 +59,9 @@ jobs:
       # Tauri embeds the built page, so it has to exist before the Rust crate compiles.
       - run: pnpm install --frozen-lockfile && pnpm build
       - run: pnpm audit:rust
+        env:
+          LAB_SEEDS: ${{ github.event_name == 'schedule' && 60 || 3 }}
+          LAB_STEPS: ${{ github.event_name == 'schedule' && 20 || 12 }}
 
   e2e:
     name: The page in WebKit, with accessibility checks
