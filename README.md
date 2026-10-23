@@ -29,6 +29,7 @@ mise x -- pnpm install
 mise x -- pnpm tauri build --no-bundle
 install -Dm755 src-tauri/target/release/omarchy-sync ~/.local/bin/omarchy-sync
 install -Dm644 omarchy-sync.desktop ~/.local/share/applications/omarchy-sync.desktop
+install -Dm644 src-tauri/icons/icon.png ~/.local/share/icons/hicolor/512x512/apps/omarchy-sync.png
 ```
 
 Then open **Omarchy Sync** from the app launcher. The first run says exactly what it will install and do before each step: install the tools it needs, sign you in to GitHub, and then either save this computer's settings (your first computer) or bring in your synced ones (every other computer, after backing up the current ones to `~/.local/share/omarchy-sync/backups/`).
