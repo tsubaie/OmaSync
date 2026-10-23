@@ -1,5 +1,5 @@
 // Stands in for the Rust side when the page runs in a plain browser for the end-to-end tests
-// (`vite --mode e2e`). Pick a scenario with ?scenario=setup|synced|conflict. Every call is
+// (`vite --mode e2e`). Pick a scenario with ?scenario=setup|synced|conflict|syncing|checking. Every call is
 // recorded on window.e2eCalls so tests can check what the page asked for.
 
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
@@ -16,6 +16,7 @@ const scenario = new URLSearchParams(location.search).get('scenario') ?? 'synced
 const theme = new URLSearchParams(location.search).get('theme');
 const LATTE = [
   'background = "#eff1f5"',
+  'dark_background = "#e3e4e8"',
   'foreground = "#4c4f69"',
   'accent = "#1e66f5"',
   'lighter_background = "#ccd0da"',
@@ -29,39 +30,32 @@ const LATTE = [
 ].join('\n');
 const now = Math.floor(Date.now() / 1000);
 
+// The same folders as FOLDERS in sync.rs: [path, name, synced by default].
+const FOLDERS: [string, string, boolean][] = [
+  ['.config/omarchy', 'Other Omarchy settings', true],
+  ['.config/omarchy/themes', 'Current theme', true],
+  ['.config/omarchy/extensions', 'Omarchy menu additions', true],
+  ['.config/omarchy/hooks', 'Hooks', true],
+  ['.config/omarchy/plugins', 'Plugins', true],
+  ['.config/omarchy/shell.json', 'Bar layout and plugin settings', true],
+  ['.config/hypr', 'Other window settings', true],
+  ['.config/hypr/bindings.lua', 'Keyboard shortcuts', true],
+  ['.config/hypr/input.lua', 'Keyboard, mouse and touchpad', true],
+  ['.config/hypr/looknfeel.lua', 'Look and feel', true],
+  ['.config/hypr/autostart.lua', 'Apps that start with Omarchy', true],
+  ['.config/hypr/hyprsunset.conf', 'Night light', true],
+  ['.local/share/applications', 'Web apps and their icons', true],
+  ['.config/ghostty', 'Ghostty terminal', true],
+  ['.config/nvim', 'Neovim editor', false],
+  ['.config/btop', 'System monitor', false],
+];
 const catalog: Catalog = {
   data_label: 'Apps and sync choices',
-  folders: [
-    {
-      path: '.config/omarchy',
-      name: 'Other Omarchy settings',
-      default: true,
-      exists: true,
-    },
-    { path: '.config/omarchy/plugins', name: 'Plugins', default: true, exists: true },
-    {
-      path: '.config/omarchy/shell.json',
-      name: 'Bar layout and plugin settings',
-      default: true,
-      exists: true,
-    },
-    {
-      path: '.config/hypr',
-      name: 'Windows, keyboard shortcuts and input',
-      default: true,
-      exists: true,
-    },
-    { path: '.config/nvim', name: 'Neovim editor', default: false, exists: true },
-  ],
+  folders: FOLDERS.map(([path, name, on]) => ({ path, name, default: on, exists: true })),
 };
 
 let data: Data = {
-  folders: [
-    '.config/omarchy',
-    '.config/omarchy/plugins',
-    '.config/omarchy/shell.json',
-    '.config/hypr',
-  ],
+  folders: FOLDERS.filter(([, , on]) => on).map(([path]) => path),
   apps: ['brave-bin', 'yazi'],
   plugins: ['timezones', 'webcam'],
   computers: {
@@ -132,7 +126,7 @@ const status = (): Status => ({
         sha: 'a'.repeat(40),
         computer: 'bbbb33334444',
         when: now - 3600,
-        labels: ['Windows, keyboard shortcuts and input'],
+        labels: ['Keyboard shortcuts', 'Keyboard, mouse and touchpad'],
         is_undo: false,
         first: false,
         files: [
@@ -165,6 +159,28 @@ const conflict: Problem = {
 };
 
 window.e2eCalls = [];
+const SYNC_STEPS = [
+  "Saving this computer's changes",
+  'Saving changed settings',
+  'Looking for new files',
+  'Getting changes from your other computers',
+  'Updating this computer',
+  'Sharing with your other computers',
+  'Checking your apps and plugins',
+];
+
+/** Sends progress lines to a page Channel, as the Rust side does. */
+function emit(channel: unknown, lines: string[]) {
+  const id = (channel as { id: number } | undefined)?.id;
+  if (id === undefined) return;
+  // Tauri's mock IPC delivers a message to a Channel by its id.
+  const internals: { runCallback: (id: number, data: unknown) => void } = Reflect.get(
+    window,
+    '__TAURI_INTERNALS__',
+  );
+  lines.forEach((message, index) => internals.runCallback(id, { index, message }));
+}
+
 mockWindows('main');
 mockIPC((cmd, args) => {
   window.e2eCalls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
@@ -177,12 +193,23 @@ mockIPC((cmd, args) => {
     case 'probe':
       return setup;
     case 'overview':
+      // After a sync, its last step carries on the sync's progress.
+      if (a.justSynced) emit(a.onStep, [SYNC_STEPS.at(-1)!]);
       // "checking" never finishes its first check, to show the app before there's anything to see.
       return scenario === 'checking' ? new Promise(() => {}) : status();
-    case 'sync_now':
+    case 'sync_now': {
+      // Reports its steps like sync.rs. "syncing" stops partway, sharing at 62%, to show (and
+      // photograph) the progress.
+      emit(a.onStep, [
+        `\u0001plan\t${SYNC_STEPS.join('\t')}`,
+        ...SYNC_STEPS.slice(0, -1),
+        ...(scenario === 'syncing' ? ['\u0001percent\t62'] : []),
+      ]);
+      if (scenario === 'syncing') return new Promise(() => {});
       return scenario === 'conflict' && a.prefer === 'Ask'
         ? Promise.reject(conflict)
         : { notes: [], waiting: [] };
+    }
     case 'add_apps':
       data = { ...data, apps: [...new Set([...data.apps, ...(a.apps as string[])])] };
       return data;

@@ -1,7 +1,6 @@
 import { Button } from 'react-aria-components';
 import {
   Check,
-  Circle,
   Cloud,
   Download,
   Package,
@@ -14,9 +13,9 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { api } from '../api';
-import { ago, byFolder, plural, progress, shortList } from '../format';
+import { ago, byFolder, plural, shortList } from '../format';
 import type { SyncState } from '../state';
-import { Group, OmarchyLogo, Push, Row, Tile } from '../ui';
+import { Group, OmarchyLogo, Progress, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
 
 /** One fixed set of states, each with a headline, a detail line, an icon and its colour. */
@@ -64,38 +63,6 @@ function status(s: SyncState): [string, string, LucideIcon, string] {
     Download,
     'sync',
   ];
-}
-
-/**
- * The real progress of the running job: the steps it announced, ticked as they finish, the
- * current one with its upload or download percentage, and the ones still to come.
- */
-function Progress({ s }: { s: SyncState }) {
-  if (s.plan.length === 0 || s.steps.length === 0) return null;
-  const { items, share } = progress(s.steps, s.plan, s.percent);
-  return (
-    <div className="progress">
-      <progress className="bar" aria-label="Progress" value={share} max={1} />
-      <ol className="steps">
-        {items.map((step, i) => {
-          const state = i < s.steps.length - 1 ? 'done' : i === s.steps.length - 1 ? 'now' : 'next';
-          return (
-            <li key={`${i}${step}`} className={state}>
-              {state === 'done' ? (
-                <Check size={12} aria-hidden="true" />
-              ) : state === 'now' ? (
-                <RefreshCw size={12} aria-hidden="true" />
-              ) : (
-                <Circle size={12} aria-hidden="true" />
-              )}
-              {step}
-              {state === 'now' && s.percent !== null && ` ${s.percent}%`}
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
 }
 
 /** One computer in the picture: a rounded screen, its name, and when it last shared changes. */
@@ -181,7 +148,7 @@ function Hero({ s }: { s: SyncState }) {
         <h2>{head}</h2>
         {detail && <p className="detail">{detail}</p>}
       </output>
-      <Progress s={s} />
+      <Progress steps={s.steps} plan={s.plan} percent={s.percent} />
       {!s.conflict && (
         <Push prominent large disabled={!s.idle} onPress={() => s.sync()} tip="Sync Now  Ctrl+R">
           {s.syncing ? 'Syncing…' : 'Sync Now'}
@@ -256,11 +223,22 @@ function AddComputer({ s }: { s: SyncState }) {
   );
 }
 
+/** What the app does, in a sentence, for anyone opening it for the first time. */
+function About() {
+  return (
+    <p className="lede">
+      Keeps your Omarchy settings, themes, plugins and apps the same on all your computers. Changes
+      travel through a private space in your GitHub account, and you choose what syncs.
+    </p>
+  );
+}
+
 export function SyncPane({ s }: { s: SyncState }) {
   const ov = s.overview;
   if (s.conflict) {
     return (
       <>
+        <About />
         <Hero s={s} />
         <NoticeLine s={s} />
         <ConflictGroup s={s} />
@@ -276,6 +254,7 @@ export function SyncPane({ s }: { s: SyncState }) {
       : 'From your other computers.';
   return (
     <>
+      <About />
       <Hero s={s} />
       <NoticeLine s={s} />
       {ov && (

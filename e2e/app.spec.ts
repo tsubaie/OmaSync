@@ -40,6 +40,21 @@ test('sync pane shows the state and syncs on request', async ({ page }) => {
   ]);
 });
 
+test('a sync shows its steps once, then clears them', async ({ page }) => {
+  await page.goto('/?scenario=syncing');
+  await page.getByRole('button', { name: 'Sync Now' }).click();
+  // While it runs: the steps so far, the upload's percentage, and no second sync.
+  await expect(page.getByText('Sharing with your other computers 62%')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Syncing…' })).toBeDisabled();
+
+  // A finished round (sync, then the look afterwards) leaves nothing behind.
+  await page.goto('/?scenario=synced');
+  await page.getByRole('button', { name: 'Sync Now' }).click();
+  await expect(page.locator('.toast').getByText('Synced')).toBeVisible();
+  await expect(page.locator('.progress')).toBeHidden();
+  await expect(page.getByRole('button', { name: 'Sync Now' })).toBeEnabled();
+});
+
 test('every pane is reachable from the keyboard and passes axe', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await expect(page.getByRole('tab', { name: 'Sync', exact: true })).toHaveAttribute(
@@ -104,10 +119,12 @@ test('undo asks before changing every computer', async ({ page }) => {
   expect(await calls(page, 'undo')).toEqual([]);
   // Each sync lists the files it changed, and Undo shows them before going ahead.
   await page.getByRole('button', { name: 'Show 2 Files' }).click();
-  await expect(page.getByText('Changed bindings.lua, Added input.lua')).toBeVisible();
+  await expect(page.getByText('Changed bindings.lua')).toBeVisible();
+  await expect(page.getByText('Added input.lua')).toBeVisible();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByText('Undo puts these back as they were before this sync')).toBeVisible();
-  await expect(page.getByText('Changed bindings.lua, Added input.lua')).toBeVisible();
+  await expect(page.getByText('Changed bindings.lua')).toBeVisible();
+  await expect(page.getByText('Added input.lua')).toBeVisible();
 });
 
 test('settings names this computer and shows the sync space', async ({ page }) => {

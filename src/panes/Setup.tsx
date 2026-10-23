@@ -1,7 +1,8 @@
-import { Check, Package, RefreshCw } from 'lucide-react';
+import { Check, Package } from 'lucide-react';
 import { api, type SetupState } from '../api';
 import type { SyncState } from '../state';
-import { Group, Link, Push, Row, Tile } from '../ui';
+import appIcon from '../assets/app-icon.png';
+import { Group, Link, Progress, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
 
 /** What step 1 installs, named so nobody has to trust an unnamed "helper". */
@@ -25,28 +26,12 @@ function action(s: SyncState, st: SetupState): [string, () => void] {
   if (st.found) {
     return [
       'Use My Synced Settings',
-      () =>
-        s.act(
-          'Getting ready',
-          () => api.join(() => {}),
-          async () => {
-            await s.probe();
-            await s.sync();
-          },
-        ),
+      () => s.act('Getting ready', (onStep) => api.join(onStep), s.finishSetup, 'first'),
     ];
   }
   return [
     'Start Syncing',
-    () =>
-      s.act(
-        'Getting ready',
-        () => api.start(() => {}),
-        async () => {
-          await s.probe();
-          await s.sync();
-        },
-      ),
+    () => s.act('Getting ready', (onStep) => api.start(onStep), s.finishSetup, 'first'),
   ];
 }
 
@@ -101,7 +86,7 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
   return (
     <div className="setup">
       <div className="intro">
-        <Tile icon={RefreshCw} kind="sync" size={64} />
+        <img className="app-icon" src={appIcon} alt="" width={88} height={88} />
         <h1>Keep Your Computers in Step</h1>
         <p>Your Omarchy settings, themes, plugins and apps, the same on every computer.</p>
         <p className="sub">Step {current + 1} of 3</p>
@@ -144,10 +129,13 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
       )}
       <div className="actions">
         {s.busy ? (
-          <output className="loading">
-            <span className="dot" />
-            {s.busy}…
-          </output>
+          <div className="working">
+            <output className="loading">
+              <span className="dot" />
+              {s.busy}…
+            </output>
+            <Progress steps={s.steps} plan={s.plan} percent={s.percent} />
+          </div>
         ) : (
           <>
             {s.signingIn && !st.signed_in && (

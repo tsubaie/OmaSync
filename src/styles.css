@@ -118,8 +118,47 @@ output {
   box-shadow: inset -0.5px 0 0 var(--line);
   display: flex;
   flex-direction: column;
-  gap: 2px;
   overflow-y: auto;
+}
+.sections {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  outline: none;
+}
+/* The logo above the sections, in its own green (a darker shade on light themes, to read). */
+.brand {
+  --brand: #8dbf6a;
+  --brand-2: #77a659;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 18px 10px 22px;
+}
+:root[style*='color-scheme: light'] .brand {
+  --brand: #4f8a2e;
+  --brand-2: #3f7424;
+}
+.brand .mark {
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+.brand .mark .one {
+  fill: var(--brand);
+}
+.brand .mark .two {
+  fill: var(--brand-2);
+}
+.brand .name {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.brand .sync {
+  color: var(--brand);
 }
 .nav {
   display: flex;
@@ -522,6 +561,14 @@ kbd {
 
 /* ---------- Sync: the picture of your computers ---------- */
 
+/* One line under the Sync heading saying what the app does. */
+.lede {
+  margin: 6px 4px 2px;
+  max-width: 62ch;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--quiet);
+}
 .hero {
   --state: var(--good);
   position: relative;
@@ -909,6 +956,12 @@ kbd {
     var(--shadow-lg),
     inset 0 0.5px 0 rgb(255 255 255 / 0.25);
 }
+/* The app's own icon greets people on the first run. */
+.setup .app-icon {
+  display: block;
+  margin: 0 auto 6px;
+  filter: drop-shadow(0 8px 18px rgb(0 0 0 / 0.25));
+}
 .setup h1 {
   font-size: 26px;
   font-weight: 700;
@@ -973,6 +1026,13 @@ kbd {
   }
   .nav {
     justify-content: center;
+  }
+  .brand {
+    justify-content: center;
+    padding: 4px 0 14px;
+  }
+  .brand .name {
+    display: none;
   }
   .nav[data-heading] {
     margin-top: 14px;
