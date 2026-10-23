@@ -68,10 +68,17 @@ jobs:
           useradd -m builder
           chown -R builder .
           sed -i "s/^pkgver=.*/pkgver=$VERSION/" packaging/arch/PKGBUILD
-          cd packaging/arch
-          sudo -u builder makepkg -Rfd --noconfirm
-          mkdir -p ../../release && cp ./*.pkg.tar.zst ../../release/
-          cd ../../release && sha256sum ./*.pkg.tar.zst | sed 's|\./||' > SHA256SUMS && cat SHA256SUMS
+          (cd packaging/arch && sudo -u builder makepkg -Rfd --noconfirm)
+          # The same files as a plain tarball, which the AUR recipe (omarchy-sync-bin) installs from.
+          dir="omarchy-sync-$VERSION"
+          mkdir -p "release/$dir/icons"
+          cp src-tauri/target/release/omarchy-sync omarchy-sync.desktop LICENSE "release/$dir/"
+          cp -r packaging/icons/. "release/$dir/icons/"
+          tar -C release -czf "release/$dir-x86_64-linux.tar.gz" "$dir" && rm -r "release/$dir"
+          cp packaging/arch/*.pkg.tar.zst release/
+          sha="$(sha256sum "release/$dir-x86_64-linux.tar.gz" | cut -d' ' -f1)"
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$sha/" packaging/aur/omarchy-sync-bin/PKGBUILD > release/PKGBUILD
+          cd release && sha256sum ./*.pkg.tar.zst ./*.tar.gz PKGBUILD | sed 's|\./||' > SHA256SUMS && cat SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
           name: arch
@@ -86,6 +93,10 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+    env:
+      # The SSH key of the AUR account that owns omarchy-sync-bin. Until it's set, the AUR step
+      # is skipped and the recipe is only attached to the release.
+      AUR_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -95,8 +106,21 @@ jobs:
       - name: Build provenance for the release files
         uses: actions/attest-build-provenance@v2
         with:
-          subject-path: release/*.pkg.tar.zst
+          subject-path: |
+            release/*.pkg.tar.zst
+            release/*.tar.gz
       - uses: softprops/action-gh-release@v2
         with:
           files: release/*
           generate_release_notes: true
+      # The first push creates the AUR package; later ones update it. .SRCINFO is generated there.
+      - name: Publish to the AUR
+        if: env.AUR_KEY != ''
+        uses: KSXGitHub/github-actions-deploy-aur@v4.2.0
+        with:
+          pkgname: omarchy-sync-bin
+          pkgbuild: release/PKGBUILD
+          commit_username: tsubaie
+          commit_email: t.subaie@gmail.com
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Update to ${{ needs.validate.outputs.version }}
