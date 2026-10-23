@@ -84,7 +84,8 @@ function Device({
   s: SyncState;
 }) {
   const seen = when ? ago(when, s.now) : 'Not synced yet';
-  const label = more ? `${name} +${more}` : name;
+  // Several other computers show as one stack: how many, and when the latest synced.
+  const label = more ? `${more + 1} Other Computers` : name;
   return (
     // Its name and time are visible text, so screen readers need no extra label.
     <div className={`device ${here ? 'here' : ''}`}>

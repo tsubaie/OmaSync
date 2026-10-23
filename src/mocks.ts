@@ -63,6 +63,14 @@ let data: Data = {
   computers: {
     aaaa11112222: { name: 'Laptop', plugins: ['timezones'] },
     bbbb33334444: { name: 'Desktop', skip_apps: ['yazi'], plugins: ['timezones', 'webcam'] },
+    ...(scenario === 'many'
+      ? {
+          cccc55556666: { name: 'Work Laptop' },
+          dddd77778888: { name: 'Studio' },
+          eeee99990000: { name: 'Living Room' },
+          ffff11112222: { name: 'Travel' },
+        }
+      : {}),
   },
 };
 
@@ -115,6 +123,15 @@ const status = (): Status => ({
     computers: [
       ['aaaa11112222', now - 120],
       ['bbbb33334444', now - 3600],
+      // "many": six computers syncing together.
+      ...(scenario === 'many'
+        ? ([
+            ['cccc55556666', now - 600],
+            ['dddd77778888', now - 7200],
+            ['eeee99990000', now - 86400],
+            ['ffff11112222', now - 3 * 86400],
+          ] as [string, number][])
+        : []),
     ],
     apps: {
       installed: ['brave-bin', 'yazi', 'tapecalc'],

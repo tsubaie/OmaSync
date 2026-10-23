@@ -1069,6 +1069,24 @@ kbd {
   display: grid;
   grid-template-columns: 1fr repeat(var(--n), 104px);
 }
+/* Many computers: one column for the app, its computers as a list it opens. */
+.matrix.many {
+  grid-template-columns: 1fr;
+}
+.computer-list ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-width: 360px;
+}
+.computer-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+  font-size: 12.5px;
+  border-top: 0.5px solid var(--line);
+}
 /* Switches sit at the right edge of their column, as in System Settings. */
 .matrix > .cell,
 .matrix.head > span:not(:first-child) {

@@ -1,6 +1,6 @@
 import { api, type Folder } from '../api';
 import type { SyncState } from '../state';
-import { Group, Link, Row, Toggle } from '../ui';
+import { ComputerList, Group, Link, Row, Toggle } from '../ui';
 
 /** Omarchy's own parts, its window settings and its plugins, each listed in the order shown
  * ("other" last); every other folder is an app's data. */
@@ -130,6 +130,8 @@ export function PluginsPane({ s }: { s: SyncState }) {
   // This computer's column is simply "Sync"; the others are named after their computer.
   const column = (c: string) => (c === host ? 'Sync' : s.nameOf(c));
   const columns = { '--n': computers.length } as React.CSSProperties;
+  // Past three computers a column each gets too narrow: each plugin lists its computers instead.
+  const many = computers.length > 3;
   const onlyOn = (id: string) => {
     const where = [...(mine.includes(id) ? ['this computer'] : []), ...s.whoHas(id)];
     return where.length ? `Only on ${where.join(' and ')}` : '';
@@ -150,7 +152,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
             <Row title="No plugins on any computer yet." />
           ) : (
             <>
-              {computers.length > 1 && (
+              {computers.length > 1 && !many && (
                 <div className="row matrix head" style={columns} aria-hidden="true">
                   <span>Plugin</span>
                   {computers.map((c) => (
@@ -162,7 +164,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
                 const synced = !!data?.plugins?.includes(p.id);
                 const missingHere = synced && s.wantsPlugin(host, p.id) && !mine.includes(p.id);
                 return (
-                  <div className="row matrix" style={columns} key={p.id}>
+                  <div className={`row matrix ${many ? 'many' : ''}`} style={columns} key={p.id}>
                     <div className="text">
                       <div>{p.name}</div>
                       {missingHere ? (
@@ -171,17 +173,30 @@ export function PluginsPane({ s }: { s: SyncState }) {
                         <div className="detail">{synced ? p.description : onlyOn(p.id)}</div>
                       )}
                     </div>
-                    {computers.map((c) => (
-                      <div className="cell" key={c}>
-                        <span className="cell-label">{column(c)}</span>
-                        <Toggle
-                          on={s.wantsPlugin(c, p.id)}
-                          label={`${p.name} synced on ${name(c)}`}
-                          disabled={!s.idle}
-                          onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
-                        />
-                      </div>
-                    ))}
+                    {many ? (
+                      <ComputerList
+                        subject={p.name}
+                        computers={computers.map((c) => ({
+                          id: c,
+                          name: name(c),
+                          on: s.wantsPlugin(c, p.id),
+                        }))}
+                        disabled={!s.idle}
+                        onChange={(c, on) => s.edit(() => api.setPlugin(c, p.id, on))}
+                      />
+                    ) : (
+                      computers.map((c) => (
+                        <div className="cell" key={c}>
+                          <span className="cell-label">{column(c)}</span>
+                          <Toggle
+                            on={s.wantsPlugin(c, p.id)}
+                            label={`${p.name} synced on ${name(c)}`}
+                            disabled={!s.idle}
+                            onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
+                          />
+                        </div>
+                      ))
+                    )}
                   </div>
                 );
               })}

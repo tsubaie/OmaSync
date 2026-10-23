@@ -3,7 +3,7 @@ import { Search } from 'lucide-react';
 import { Input, Label, SearchField, Text, TextArea, TextField } from 'react-aria-components';
 import { api } from '../api';
 import type { SyncState } from '../state';
-import { Caution, Group, Link, Push, Row, Toggle } from '../ui';
+import { Caution, ComputerList, Group, Link, Push, Row, Toggle } from '../ui';
 
 /** Where an app comes from, as a short tag and what it means. */
 function source(from: string | undefined): [string, string] {
@@ -75,6 +75,8 @@ export function AppsPane({ s }: { s: SyncState }) {
   // This computer's column is simply "Sync"; the others are named after their computer.
   const column = (c: string) => (c === host ? 'Sync' : s.nameOf(c));
   const columns = { '--n': computers.length } as React.CSSProperties;
+  // Past three computers a column each gets too narrow: each app lists its computers instead.
+  const many = computers.length > 3;
   const apps = [...new Set([...data.apps, ...ov.apps.mine])].toSorted();
   // Sync All leaves out apps that can't sync yet (no install steps).
   const needsScript = (a: string) =>
@@ -109,7 +111,7 @@ export function AppsPane({ s }: { s: SyncState }) {
           <Row title={`No apps match “${query.trim()}”.`} />
         ) : (
           <>
-            {computers.length > 1 && (
+            {computers.length > 1 && !many && (
               <div className="row matrix head" style={columns} aria-hidden="true">
                 <span>App</span>
                 {computers.map((c) => (
@@ -126,7 +128,7 @@ export function AppsPane({ s }: { s: SyncState }) {
               const script = data.outside?.[app] ?? null;
               const [tag, meaning] = source(ov.apps.source[app]);
               return (
-                <div className="row matrix" style={columns} key={app}>
+                <div className={`row matrix ${many ? 'many' : ''}`} style={columns} key={app}>
                   <div className="text">
                     <div>
                       {app}
@@ -171,17 +173,30 @@ export function AppsPane({ s }: { s: SyncState }) {
                       <ScriptForm s={s} app={app} onDone={() => setEditing(null)} />
                     )}
                   </div>
-                  {computers.map((c) => (
-                    <div className="cell" key={c}>
-                      <span className="cell-label">{column(c)}</span>
-                      <Toggle
-                        on={s.wants(c, app)}
-                        label={`${app} synced on ${name(c)}`}
-                        disabled={!s.idle || (outside && !script)}
-                        onChange={(on) => s.edit(() => api.setApp(c, app, on))}
-                      />
-                    </div>
-                  ))}
+                  {many ? (
+                    <ComputerList
+                      subject={app}
+                      computers={computers.map((c) => ({
+                        id: c,
+                        name: name(c),
+                        on: s.wants(c, app),
+                      }))}
+                      disabled={!s.idle || (outside && !script)}
+                      onChange={(c, on) => s.edit(() => api.setApp(c, app, on))}
+                    />
+                  ) : (
+                    computers.map((c) => (
+                      <div className="cell" key={c}>
+                        <span className="cell-label">{column(c)}</span>
+                        <Toggle
+                          on={s.wants(c, app)}
+                          label={`${app} synced on ${name(c)}`}
+                          disabled={!s.idle || (outside && !script)}
+                          onChange={(on) => s.edit(() => api.setApp(c, app, on))}
+                        />
+                      </div>
+                    ))
+                  )}
                 </div>
               );
             })}
