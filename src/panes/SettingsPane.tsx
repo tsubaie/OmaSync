@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Monitor } from 'lucide-react';
+import { CircleCheck, Download, Monitor } from 'lucide-react';
 import { Input, TextField } from 'react-aria-components';
 import { api, type Update } from '../api';
 import { ago } from '../format';
@@ -50,14 +50,25 @@ function Updates({ s }: { s: SyncState }) {
       </Group>
     );
   }
+  // The answer sits in the row itself, marked the way the Sync page marks good news and updates.
   const detail =
-    found === undefined
-      ? s.installedHow === 'Aur'
-        ? 'Installed from the AUR'
-        : 'Installed from the release package'
-      : found === null
-        ? 'You have the latest version.'
-        : `${found.version} is available.`;
+    found === undefined ? (
+      s.installedHow === 'Aur' ? (
+        'Installed from the AUR'
+      ) : (
+        'Installed from the release package'
+      )
+    ) : found === null ? (
+      <span className="good">
+        <CircleCheck size={13} strokeWidth={2.25} aria-hidden="true" />
+        You have the latest version.
+      </span>
+    ) : (
+      <span className="accent">
+        <Download size={13} strokeWidth={2.25} aria-hidden="true" />
+        {found.version} is available.
+      </span>
+    );
   const checking = s.busy === 'Checking for updates';
   const check = () =>
     s.act(
