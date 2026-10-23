@@ -291,6 +291,8 @@ mockIPC((cmd, args) => {
     }
     case 'resolve_conflict':
       return { notes: [], waiting: [] };
+    case 'report':
+      return null;
     case 'set_bar_indicator':
       barIndicator = !!a.on;
       return null;

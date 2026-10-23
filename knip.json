@@ -1,7 +1,8 @@
 {
   "$schema": "https://unpkg.com/knip/schema.json",
-  "entry": ["src/mocks.ts", "e2e/**/*.spec.ts"],
-  "project": ["src/**/*.{ts,tsx}", "e2e/**/*.ts"],
+  "entry": ["src/mocks.ts", "e2e/**/*.spec.ts", "e2e/multi/*.test.mjs"],
+  "project": ["src/**/*.{ts,tsx}", "e2e/**/*.{ts,mjs}"],
   "ignoreDependencies": ["@swc/core"],
-  "ignoreExportsUsedInFile": true
+  "ignoreExportsUsedInFile": true,
+  "ignoreBinaries": ["tauri-driver"]
 }

@@ -3,6 +3,7 @@ import {
   CircleCheck,
   FolderCog,
   History,
+  MessageSquareWarning,
   Package,
   Puzzle,
   RefreshCw,
@@ -10,7 +11,7 @@ import {
   SlidersHorizontal,
   type LucideIcon,
 } from 'lucide-react';
-import { Tab, TabList, TabPanel, Tabs } from 'react-aria-components';
+import { Button, Tab, TabList, TabPanel, Tabs } from 'react-aria-components';
 import { AppsPane } from './panes/AppsPane';
 import { AppDataPane, OmarchyPane, PluginsPane } from './panes/FoldersPane';
 import { HistoryPane } from './panes/HistoryPane';
@@ -19,17 +20,19 @@ import { SettingsPane } from './panes/SettingsPane';
 import { Setup } from './panes/Setup';
 import { SyncPane } from './panes/SyncPane';
 import { type Tab as TabId, useSync } from './state';
-import { Push } from './ui';
+import { api } from './api';
+import { Push, Tip } from './ui';
 
-// Grouped like a Finder sidebar: a quiet heading starts each group; Settings sits at the bottom.
+// Grouped like a Finder sidebar: a quiet heading starts each group; History and Settings sit at
+// the bottom.
 const SECTIONS: { id: TabId; name: string; icon: LucideIcon; heading?: string; end?: boolean }[] = [
   { id: 'sync', name: 'Sync', icon: RefreshCw },
-  { id: 'history', name: 'History', icon: History },
   { id: 'omarchy', name: 'Configurations', icon: SlidersHorizontal, heading: 'Omarchy' },
   { id: 'plugins', name: 'Plugins', icon: Puzzle },
   { id: 'apps', name: 'Installed Apps', icon: Package, heading: 'Apps' },
   { id: 'data', name: 'App Data', icon: FolderCog },
-  { id: 'settings', name: 'Settings', icon: Settings, end: true },
+  { id: 'history', name: 'History', icon: History, end: true },
+  { id: 'settings', name: 'Settings', icon: Settings },
 ];
 
 /**
@@ -113,6 +116,16 @@ export function App() {
             </Tab>
           ))}
         </TabList>
+        {/* Beside Settings: report a problem, suggest something, or ask (GitHub issues). */}
+        <Tip label="Report a Problem or Suggest Something">
+          <Button
+            className="report"
+            aria-label="Report a Problem or Suggest Something"
+            onPress={() => api.report().catch(s.fail)}
+          >
+            <MessageSquareWarning size={15} strokeWidth={1.75} aria-hidden="true" />
+          </Button>
+        </Tip>
       </div>
       {SECTIONS.map((sec) => {
         const Pane = PANES[sec.id];

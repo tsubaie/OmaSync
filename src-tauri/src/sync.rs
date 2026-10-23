@@ -617,7 +617,11 @@ impl Ctx {
             .unwrap_or(home.join(".local/share"));
         let hostname = run(None, "uname", &["-n"]).unwrap_or_default();
         let hostname = hostname.split('.').next().unwrap_or("").to_string();
-        let id = std::fs::read_to_string("/etc/machine-id").unwrap_or_default();
+        // OMARCHY_SYNC_HOST stands in for the machine ID where several "computers" share one
+        // machine (the end-to-end tests); the ignore rules read it too. Nothing else sets it.
+        let id = std::env::var("OMARCHY_SYNC_HOST")
+            .or_else(|_| std::fs::read_to_string("/etc/machine-id"))
+            .unwrap_or_default();
         let id: String = id.trim().chars().take(12).collect();
         Ctx {
             // shortcut: assumes chezmoi's default source folder, upgrade to `chezmoi source-path` if anyone sets sourceDir.

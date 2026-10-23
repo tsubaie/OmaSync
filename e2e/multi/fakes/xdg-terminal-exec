@@ -1,0 +1,4 @@
+#!/bin/bash
+# Stands in for the terminal: runs the command right here, with no window (and no Enter to press).
+. "$(dirname "$0")/_record"
+"$@" < /dev/null

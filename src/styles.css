@@ -200,6 +200,33 @@ output {
 .nav[data-disabled] {
   opacity: 0.4;
 }
+/* Beside Settings, on its right: report a problem or suggest something. */
+.sidebar {
+  position: relative;
+}
+.report {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: inherit;
+  opacity: 0.75;
+  outline: none;
+  z-index: 1;
+}
+.report[data-hovered] {
+  opacity: 1;
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+.report[data-focus-visible] {
+  box-shadow: var(--focus);
+}
 /* Settings sits at the very bottom of the sidebar. */
 .nav.end {
   margin-top: auto;
@@ -1204,6 +1231,11 @@ kbd {
   }
   .nav {
     justify-content: center;
+  }
+  /* No room beside Settings: it sits just above it. */
+  .report {
+    right: 19px;
+    bottom: 56px;
   }
   .brand {
     justify-content: center;

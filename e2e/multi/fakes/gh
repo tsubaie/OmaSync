@@ -1,0 +1,20 @@
+#!/bin/bash
+# Stands in for GitHub's CLI: always signed in as "tester", and the private sync space is a
+# bare repository on disk ($E2E_REMOTE). git reaches it at its GitHub address through the
+# url.insteadOf setting each test computer has.
+. "$(dirname "$0")/_record"
+case "$1 $2" in
+  "--version "*) echo "gh version 2.0.0 (e2e)" ;;
+  "auth status") echo "Logged in to github.com account tester" ;;
+  "auth setup-git") ;;
+  "api user") echo tester ;;
+  "repo view") [ -d "$E2E_REMOTE" ] || { echo "not found" >&2; exit 1; } ;;
+  "repo create")
+    # gh repo create omarchy-sync --private --source <dir> --remote origin --push
+    src=""; while [ $# -gt 0 ]; do [ "$1" = --source ] && src="$2"; shift; done
+    git init -q --bare -b main "$E2E_REMOTE"
+    git -C "$src" remote add origin https://github.com/tester/omarchy-sync.git
+    git -C "$src" push -q -u origin HEAD
+    ;;
+  *) echo "fake gh: unexpected: $*" >&2; exit 1 ;;
+esac

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { CircleAlert, CircleCheck } from 'lucide-react';
+import { api } from '../api';
 import type { SyncState } from '../state';
 import { Link } from '../ui';
 
@@ -15,14 +16,16 @@ export function NoticeLine({ s }: { s: SyncState }) {
         <Icon size={15} aria-hidden="true" />
         <span>{n.text}</span>
       </div>
-      {n.details &&
-        (open ? (
-          <pre className="details">{n.details}</pre>
-        ) : (
-          <div className="indent">
-            <Link onPress={() => setOpen(true)}>Show Details</Link>
-          </div>
-        ))}
+      {open && n.details && <pre className="details">{n.details}</pre>}
+      {(!n.good || (n.details && !open)) && (
+        <div className="indent inline">
+          {n.details && !open && <Link onPress={() => setOpen(true)}>Show Details</Link>}
+          {/* Any error can be reported as it is: the issue opens on GitHub, filled in. */}
+          {!n.good && (
+            <Link onPress={() => api.report(n.text, n.details).catch(s.fail)}>Report This…</Link>
+          )}
+        </div>
+      )}
     </output>
   );
 }

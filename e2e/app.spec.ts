@@ -62,11 +62,11 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
     'true',
   );
   for (const [key, name] of [
-    ['2', 'History'],
-    ['3', 'Configurations'],
-    ['4', 'Plugins'],
-    ['5', 'Installed Apps'],
-    ['6', 'App Data'],
+    ['2', 'Configurations'],
+    ['3', 'Plugins'],
+    ['4', 'Installed Apps'],
+    ['5', 'App Data'],
+    ['6', 'History'],
     ['7', 'Settings'],
   ]) {
     await page.keyboard.press(`Control+${key}`);
@@ -313,5 +313,13 @@ test('the bar indicator is on by default and flips off at once', async ({ page }
   await expect(bar).not.toBeChecked();
   expect(await calls(page, 'set_bar_indicator')).toEqual([
     { cmd: 'set_bar_indicator', args: { on: false } },
+  ]);
+});
+
+test('problems and ideas can be reported from beside Settings', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('button', { name: 'Report a Problem or Suggest Something' }).click();
+  expect(await calls(page, 'report')).toEqual([
+    { cmd: 'report', args: { message: null, details: null } },
   ]);
 });

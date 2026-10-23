@@ -1,0 +1,26 @@
+name: Something went wrong
+description: Omarchy Sync showed an error or did something it shouldn't.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you saw, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What were you doing?
+      description: The steps that led to it, if you remember them.
+  - type: textarea
+    id: details
+    attributes:
+      label: Error details
+      description: Filled in when you use Report This in the app. Check it has nothing private before you send it.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Omarchy Sync version

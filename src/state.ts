@@ -19,7 +19,7 @@ import {
 import { applyLook } from './theme';
 
 export type Tab = 'sync' | 'history' | 'omarchy' | 'plugins' | 'apps' | 'data' | 'settings';
-export const TABS: Tab[] = ['sync', 'history', 'omarchy', 'plugins', 'apps', 'data', 'settings'];
+export const TABS: Tab[] = ['sync', 'omarchy', 'plugins', 'apps', 'data', 'history', 'settings'];
 
 export type Notice = { good: boolean; text: string; details?: string };
 

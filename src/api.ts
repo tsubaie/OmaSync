@@ -135,6 +135,9 @@ export const api = {
   /** Returns where this computer's previous settings were backed up. */
   join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
   installApps: () => invoke<void>('install_apps'),
+  /** Opens a new GitHub issue: the choice of kind, or a problem report filled in with an error. */
+  report: (message?: string, details?: string) =>
+    invoke<void>('report', { message: message ?? null, details: details ?? null }),
   /** Puts the sync indicator on the Omarchy bar, or takes it off. */
   setBarIndicator: (on: boolean) => invoke<void>('set_bar_indicator', { on }),
   setAppScript: (app: string, command: string) => invoke<Data>('set_app_script', { app, command }),

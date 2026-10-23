@@ -1,0 +1,5 @@
+#!/bin/bash
+# Only records the call: nothing on the system changes during the tests.
+. "$(dirname "$0")/_record"
+[ "$1" = --version ] && echo "fake (e2e)"
+exit 0

@@ -41,6 +41,7 @@ fn main() {
             install_plugins,
             set_app_script,
             set_bar_indicator,
+            report,
             remove_app_script,
             install_with_script,
             choices_changed,
@@ -551,6 +552,60 @@ async fn open_sync_space() -> Result<()> {
     })
     .await
     .map_err(Problem::from)
+}
+
+/// Where problems and ideas are reported.
+const ISSUES: &str = "https://github.com/tsubaie/OmaSync/issues/new";
+
+/// Opens a new GitHub issue in the browser: with no message, the choice of kind (problem,
+/// suggestion, something else); with an error's message and details, a problem report filled
+/// in with them. The person reads it on GitHub and sends it themselves. The home folder in the
+/// details becomes `~`, and the text is trimmed to what fits in a web address.
+#[tauri::command]
+fn report(message: Option<String>, details: Option<String>) -> Result<()> {
+    let clean = |s: &str, max: usize| -> String {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let s = if home.len() > 1 {
+            s.replace(&home, "~")
+        } else {
+            s.to_string()
+        };
+        s.chars()
+            .filter(|c| !c.is_control() || *c == '\n')
+            .take(max)
+            .collect()
+    };
+    let url = match message {
+        None => format!("{ISSUES}/choose"),
+        Some(message) => {
+            let message = clean(&message, 500);
+            let title: String = message.chars().take(100).collect();
+            format!(
+                "{ISSUES}?template=bug.yml&title={}&what-happened={}&details={}&version={}",
+                encode(&title),
+                encode(&message),
+                encode(&clean(&details.unwrap_or_default(), 4000)),
+                encode(env!("CARGO_PKG_VERSION")),
+            )
+        }
+    };
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string().into())
+}
+
+/// Percent-encodes text for a web address's query.
+fn encode(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
 }
 
 /// Stops syncing this computer. Returns where the local sync folder was moved.
