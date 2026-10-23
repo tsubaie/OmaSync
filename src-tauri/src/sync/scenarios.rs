@@ -1333,3 +1333,18 @@ fn a_plugin_that_is_a_symlink_stops_being_shared_cleanly() {
     lab.sync_ok("a");
     assert!(lab.exists("a", ".config/omarchy/plugins/link/manifest.json"));
 }
+
+#[test]
+#[ignore]
+fn apps_from_the_standard_repositories_record_no_extra_repository() {
+    let mut lab = pair();
+    lab.packages("a", "firefox mpv");
+    lab.sync_ok("a");
+    let data = lab.data("a");
+    assert!(data.repositories.is_empty() && data.app_repo.is_empty());
+    let ov = overview(lab.ctx("a"), &|_| {}, false).unwrap();
+    assert_eq!(
+        ov.apps.source.get("firefox").map(String::as_str),
+        Some("aur")
+    );
+}
