@@ -306,6 +306,8 @@ test('an install command runs only after a warning and a second yes', async ({ p
 
 test('the bar indicator is on by default and flips off at once', async ({ page }) => {
   await page.goto('/?scenario=synced');
+  // Pane shortcuts only work once the page is ready; the first check must have answered.
+  await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
   await page.keyboard.press('Control+8');
   const bar = page.getByRole('switch', { name: 'Show in the bar' });
   await expect(bar).toBeChecked();
