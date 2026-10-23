@@ -81,6 +81,8 @@ export type Status = {
   /** The private GitHub repo everything syncs through, as a web address. */
   sync_space: string | null;
   schedule_error: string | null;
+  /** Whether the sync indicator is on the Omarchy bar. */
+  bar_indicator: boolean;
 };
 
 export type Report = { notes: string[]; waiting: string[] };
@@ -110,6 +112,8 @@ export const api = {
   /** Returns where this computer's previous settings were backed up. */
   join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
   installApps: () => invoke<void>('install_apps'),
+  /** Puts the sync indicator on the Omarchy bar, or takes it off. */
+  setBarIndicator: (on: boolean) => invoke<void>('set_bar_indicator', { on }),
   setAppScript: (app: string, command: string) => invoke<Data>('set_app_script', { app, command }),
   removeAppScript: (app: string) => invoke<Data>('remove_app_script', { app }),
   /** Installs one waiting app with its script, in a terminal window the person can see. */

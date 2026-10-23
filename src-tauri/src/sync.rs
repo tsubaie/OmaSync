@@ -1363,7 +1363,103 @@ fn settle_data(ctx: &Ctx) -> Result<bool, String> {
     Ok(true)
 }
 
+/// Syncs, and records how it went for the bar indicator (see `write_status`).
 pub fn sync(
+    ctx: &Ctx,
+    prefer: Prefer,
+    install: bool,
+    step: &dyn Fn(&str),
+) -> Result<Report, SyncError> {
+    write_status(ctx, "syncing", "Syncing…");
+    let result = sync_inner(ctx, prefer, install, step);
+    match &result {
+        Ok(_) => {
+            let data = ctx.load_data();
+            let installed = installed();
+            let waiting = missing_apps(&data, &ctx.host, &installed).len()
+                + missing_scripted(&data, &ctx.host, &installed).len()
+                + data.missing_plugins(&ctx.host).len();
+            if waiting > 0 {
+                let what = plural(waiting, "app or plugin");
+                write_status(ctx, "attention", &format!("{what} waiting for you"));
+            } else {
+                write_status(ctx, "synced", "Everything matches your other computers");
+            }
+        }
+        Err(SyncError::Conflict(_)) => write_status(
+            ctx,
+            "attention",
+            "The same setting changed on two computers: choose which to keep",
+        ),
+        Err(SyncError::Failed(e)) => write_status(ctx, "error", &friendly(e)),
+    }
+    result
+}
+
+/// What the bar indicator shows (packaging/bar-plugin): `state` is synced, syncing, attention
+/// or error, and `text` says it in a sentence. Best effort: a failed write only leaves the
+/// indicator a step behind.
+pub fn write_status(ctx: &Ctx, state: &str, text: &str) {
+    let path = state_file(ctx).with_file_name("status.json");
+    let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
+    let json = serde_json::json!({ "state": state, "text": text });
+    // Written whole and then renamed into place, so the bar never reads half a file.
+    let tmp = path.with_extension("tmp");
+    if std::fs::write(&tmp, json.to_string()).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
+/// The optional bar indicator: a small Omarchy shell plugin, kept with the app.
+pub const BAR_PLUGIN: &str = "io.github.tsubaie.omarchy-sync";
+const BAR_FILES: &[(&str, &str)] = &[
+    (
+        "manifest.json",
+        include_str!("../../packaging/bar-plugin/manifest.json"),
+    ),
+    (
+        "BarWidget.qml",
+        include_str!("../../packaging/bar-plugin/BarWidget.qml"),
+    ),
+];
+
+pub fn bar_indicator(ctx: &Ctx) -> bool {
+    ctx.home
+        .join(PLUGIN_DIR)
+        .join(BAR_PLUGIN)
+        .join("manifest.json")
+        .exists()
+}
+
+/// Puts the indicator on the bar, or takes it off, through Omarchy's own plugin commands.
+pub fn set_bar_indicator(ctx: &Ctx, on: bool) -> Result<(), String> {
+    let dir = ctx.home.join(PLUGIN_DIR).join(BAR_PLUGIN);
+    if on {
+        std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+        for (name, text) in BAR_FILES {
+            std::fs::write(dir.join(name), text).map_err(|e| e.to_string())?;
+        }
+        run(None, "omarchy-shell", &["shell", "rescanPlugins"])?;
+        // The shell scans in the background, so the new plugin may take a moment to be known.
+        let mut last = String::new();
+        for _ in 0..20 {
+            match run(None, "omarchy", &["plugin", "enable", BAR_PLUGIN]) {
+                Ok(_) => return Ok(()),
+                Err(e) => last = e,
+            }
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        Err(last)
+    } else {
+        // Already off (or never on) is fine: the goal is that it's gone.
+        let _ = run(None, "omarchy", &["plugin", "disable", BAR_PLUGIN]);
+        std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
+        let _ = run(None, "omarchy-shell", &["shell", "rescanPlugins"]);
+        Ok(())
+    }
+}
+
+fn sync_inner(
     ctx: &Ctx,
     prefer: Prefer,
     install: bool,
@@ -2840,6 +2936,16 @@ mod tests {
         assert_eq!(read(&b, "monitors.lua"), "screen-b");
 
         let on_b = |p: &str| b.home.join(p).exists();
+        // The bar indicator's status: B has a plugin waiting for it.
+        let status = |ctx: &Ctx| {
+            let text = std::fs::read_to_string(state_file(ctx).with_file_name("status.json"))
+                .unwrap_or_default();
+            serde_json::from_str::<serde_json::Value>(&text).unwrap_or_default()["state"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string()
+        };
+        assert_eq!(status(&b), "attention");
         assert_eq!(b.load_data().background.as_deref(), Some("hills.jpg"));
         // Only the current theme's folder travels.
         assert!(on_b(".config/omarchy/themes/mine/colors.toml"));
@@ -2865,6 +2971,7 @@ mod tests {
         assert!(b_dock.exists());
         assert!(b.load_data().missing_plugins(&b.host).is_empty());
         ok(sync(&b, Prefer::Ask, false, &quiet));
+        assert_eq!(status(&b), "synced");
 
         // A plugin nobody switched on stays on the computer that has it.
         enter(&a);

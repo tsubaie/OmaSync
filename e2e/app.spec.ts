@@ -268,3 +268,15 @@ test('an install command runs only after a warning and a second yes', async ({ p
     expect.objectContaining({ args: expect.objectContaining({ app: 'quicknote' }) }),
   ]);
 });
+
+test('the bar indicator is off until it is switched on in Settings', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.keyboard.press('Control+7');
+  const bar = page.getByRole('switch', { name: 'Show in the bar' });
+  await expect(bar).not.toBeChecked();
+  await bar.focus();
+  await page.keyboard.press('Space');
+  expect(await calls(page, 'set_bar_indicator')).toEqual([
+    { cmd: 'set_bar_indicator', args: { on: true } },
+  ]);
+});

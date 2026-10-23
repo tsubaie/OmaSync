@@ -319,6 +319,7 @@ export function useSync() {
     toast,
     nameOf,
     syncSpace: status?.sync_space ?? null,
+    barIndicator: !!status?.bar_indicator,
     setSetup,
     setNotice,
     now,

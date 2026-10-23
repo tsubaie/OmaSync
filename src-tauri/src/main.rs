@@ -29,6 +29,7 @@ fn main() {
             install_apps,
             install_plugins,
             set_app_script,
+            set_bar_indicator,
             remove_app_script,
             install_with_script,
             choices_changed,
@@ -177,6 +178,8 @@ struct Status {
     sync_space: Option<String>,
     /// Set when the background timer couldn't be turned on or off.
     schedule_error: Option<String>,
+    /// Whether the sync indicator is on the Omarchy bar.
+    bar_indicator: bool,
 }
 
 #[tauri::command]
@@ -193,6 +196,7 @@ async fn overview(on_step: Channel<String>, just_synced: bool) -> Result<Status>
             host: ctx.host.clone(),
             sync_space: sync::sync_space(ctx),
             schedule_error,
+            bar_indicator: sync::bar_indicator(ctx),
         })
     })
     .await
@@ -318,6 +322,14 @@ async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> 
         blocking(move |ctx| sync::track_plugin(ctx, &plugin, on)).await?;
     }
     Ok(data)
+}
+
+/// Shows the sync indicator on the Omarchy bar, or takes it off.
+#[tauri::command]
+async fn set_bar_indicator(on: bool) -> Result<()> {
+    blocking(move |ctx| sync::set_bar_indicator(ctx, on))
+        .await
+        .map_err(Problem::from)
 }
 
 #[tauri::command]

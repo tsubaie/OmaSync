@@ -103,6 +103,7 @@ const status = (): Status => ({
   host: 'aaaa11112222',
   sync_space: 'https://github.com/someone/omarchy-sync',
   schedule_error: null,
+  bar_indicator: false,
   data,
   overview: {
     unshared: scenario === 'conflict' ? ['.config/hypr/bindings.lua'] : [],
@@ -232,6 +233,7 @@ mockIPC((cmd, args) => {
       return data;
     }
     case 'install_with_script':
+    case 'set_bar_indicator':
       return null;
     case 'set_app_script':
       data = {
