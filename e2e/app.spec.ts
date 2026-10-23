@@ -155,6 +155,8 @@ test('undo asks before changing every computer', async ({ page }) => {
   await expect(page.getByText('Added input.lua')).toBeVisible();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
   await expect(page.getByText('Undo puts these back as they were before this sync')).toBeVisible();
+  // Undo never deletes a file, so it says so when the sync added one.
+  await expect(page.getByText('Files it added stay on each computer')).toBeVisible();
   await expect(page.getByText('Changed bindings.lua')).toBeVisible();
   await expect(page.getByText('Added input.lua')).toBeVisible();
 });

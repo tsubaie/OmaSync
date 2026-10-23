@@ -89,7 +89,9 @@ export function HistoryPane({ s }: { s: SyncState }) {
             )}
             {confirming && (
               <p className="detail">
-                Undo puts these back as they were before this sync, on every computer:
+                Undo puts these back as they were before this sync, on every computer.
+                {e.files.some((f) => f.how === 'Added') &&
+                  ' Files it added stay on each computer until you delete them yourself.'}
               </p>
             )}
             {shown && <Changes e={e} s={s} />}
