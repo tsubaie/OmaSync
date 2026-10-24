@@ -907,11 +907,15 @@ impl Ctx {
             .collect()
     }
 
-    fn theme_file(&self) -> PathBuf {
-        let state = std::env::var("XDG_STATE_HOME")
+    /// Where Omarchy keeps what's current (theme, background) and the app its status.
+    pub fn state_dir(&self) -> PathBuf {
+        std::env::var("XDG_STATE_HOME")
             .map(PathBuf::from)
-            .unwrap_or(self.home.join(".local/state"));
-        state.join("omarchy/current/theme.name")
+            .unwrap_or(self.home.join(".local/state"))
+    }
+
+    fn theme_file(&self) -> PathBuf {
+        self.state_dir().join("omarchy/current/theme.name")
     }
 
     /// The image the desktop shows now (Omarchy links it from its state folder).
@@ -2938,10 +2942,7 @@ pub fn notify(title: &str, body: &str) {
 
 /// A tiny key=value file remembering what the background sync already told the person.
 fn state_file(ctx: &Ctx) -> PathBuf {
-    let state = std::env::var("XDG_STATE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or(ctx.home.join(".local/state"));
-    state.join("omarchy-sync/background")
+    ctx.state_dir().join("omarchy-sync/background")
 }
 
 fn read_state(ctx: &Ctx) -> BTreeMap<String, String> {
