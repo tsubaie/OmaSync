@@ -6,7 +6,22 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 export type Look = { colors_toml: string; motion: boolean };
 export type Folder = { path: string; name: string; default: boolean; exists: boolean };
 export type Catalog = { folders: Folder[]; data_label: string };
-export type Plugin = { id: string; name: string; description: string };
+/** A plugin as Omarchy sees it here: `enabled` is null when this computer doesn't have it. */
+export type Plugin = {
+  id: string;
+  name: string;
+  description: string;
+  /** What it adds: bar-widget, panel, overlay, service, bar. */
+  kinds: string[];
+  /** Part of Omarchy itself: only ever on or off. */
+  first_party: boolean;
+  here: boolean;
+  enabled: boolean | null;
+  /** The active bar can't be switched off. */
+  can_disable: boolean;
+  /** Its git address, when it came from git (so it can be updated). */
+  source: string | null;
+};
 /** An extra package repository another computer has, and the apps here that need it. */
 export type MissingRepo = {
   name: string;
@@ -180,6 +195,14 @@ export const api = {
     invoke<Data>('set_plugin', { computer, plugin, on }),
   /** Adds the synced plugins this computer is waiting for. */
   installPlugins: () => invoke<Data>('install_plugins'),
+  /** Switches a plugin on or off in the Omarchy shell on this computer. */
+  setPluginEnabled: (id: string, on: boolean) => invoke<void>('set_plugin_enabled', { id, on }),
+  /** Adds a plugin from its git address and switches it on here. */
+  addPlugin: (url: string) => invoke<void>('add_plugin', { url }),
+  /** Updates one plugin from git, or all of them; returns what Omarchy said. */
+  updatePlugins: (id?: string) => invoke<string>('update_plugins', { id: id ?? null }),
+  /** Removes a plugin from this computer only. */
+  removePlugin: (id: string) => invoke<void>('remove_plugin', { id }),
   setApp: (computer: string, app: string, on: boolean) =>
     invoke<Data>('set_app', { computer, app, on }),
   addApps: (apps: string[]) => invoke<Data>('add_apps', { apps }),

@@ -30,6 +30,11 @@ pub struct Data {
     /// never from the AUR instead.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub app_repo: BTreeMap<String, String>,
+    /// The git address of each plugin that came from git (`omarchy plugin add`). Such a plugin
+    /// isn't copied file by file: a computer that takes it adds it from git too, so every copy
+    /// can be updated.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub plugin_sources: BTreeMap<String, String>,
     /// The layout of this file; older layouts are upgraded when read.
     #[serde(default)]
     pub version: u32,
@@ -266,6 +271,11 @@ impl Data {
             outside: merge_map(&base.outside, &theirs.outside, &mine.outside),
             repositories: merge_map(&base.repositories, &theirs.repositories, &mine.repositories),
             app_repo: merge_map(&base.app_repo, &theirs.app_repo, &mine.app_repo),
+            plugin_sources: merge_map(
+                &base.plugin_sources,
+                &theirs.plugin_sources,
+                &mine.plugin_sources,
+            ),
             version: theirs.version.max(mine.version),
         }
     }
@@ -313,12 +323,24 @@ pub fn is_plugin_id(id: &str) -> bool {
     !id.is_empty() && !id.starts_with('.') && !id.contains(['/', '\\'])
 }
 
-/// A plugin as people see it: its manifest's name and description.
-#[derive(Clone, Debug, Serialize)]
+/// A plugin as people see it: its manifest's name and description, and how Omarchy sees it here.
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct Plugin {
     pub id: String,
     pub name: String,
     pub description: String,
+    /// What it adds: bar-widget, panel, overlay, service, bar.
+    pub kinds: Vec<String>,
+    /// Part of Omarchy itself (only ever on or off), not added by anyone.
+    pub first_party: bool,
+    /// Whether it's on this computer.
+    pub here: bool,
+    /// Switched on in the Omarchy shell here (None when Omarchy doesn't know it here).
+    pub enabled: Option<bool>,
+    /// The active bar can't be switched off.
+    pub can_disable: bool,
+    /// Its git address, when it came from git (so it can be updated).
+    pub source: Option<String>,
 }
 
 /// Adds or removes `item` so that `list.contains(item) == present`.

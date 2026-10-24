@@ -49,6 +49,11 @@ case "$1 $2" in
   "version ") echo "$LAB_OMARCHY_VERSION" ;;
   "theme set") mkdir -p "$XDG_STATE_HOME/omarchy/current"; echo "$3" > "$XDG_STATE_HOME/omarchy/current/theme.name" ;;
   "theme bg") mkdir -p "$XDG_STATE_HOME/omarchy/current"; ln -sfn "$4" "$XDG_STATE_HOME/omarchy/current/background" ;;
+  "plugin list"|"plugin catalog") echo "${LAB_PLUGIN_JSON:-[]}" ;;
+  "plugin add") d="$HOME/.config/omarchy/plugins/$(basename "$3" .git)"; mkdir -p "$d"
+    echo "{\"name\":\"$(basename "$3" .git)\"}" > "$d/manifest.json"
+    git init -q "$d" && git -C "$d" remote add origin "$3" ;;
+  "plugin remove") rm -rf "$HOME/.config/omarchy/plugins/$3" ;;
 esac"#,
     ),
     (

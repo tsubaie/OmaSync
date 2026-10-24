@@ -1,4 +1,4 @@
-//! What the Sync page shows, and taking other computers' plugins.
+//! What the Sync page shows.
 
 use super::*;
 
@@ -84,19 +84,7 @@ pub fn overview(
     step("Checking your apps and plugins");
     let apps = apps(data);
     let here = repos_here();
-    let mut ids: BTreeSet<String> = ctx.local_plugins().into_iter().collect();
-    ids.extend(data.plugins.iter().cloned());
-    ids.extend(
-        data.computers
-            .values()
-            .flat_map(|c| c.plugins.iter().cloned()),
-    );
-    let mut plugins: Vec<Plugin> = ids
-        .iter()
-        .filter(|id| is_plugin_id(id))
-        .map(|id| ctx.plugin(id))
-        .collect();
-    plugins.sort_by_key(|p| p.name.to_lowercase());
+    let plugins = all_plugins(ctx, data);
     let mut unshared: Vec<String> = parse_status(&status)
         .iter()
         .filter(|p| !p.starts_with(".chezmoiignore"))
@@ -130,31 +118,6 @@ pub fn overview(
         repos_here: repos_with_apps(data, &here),
         apps,
     })
-}
-
-/// Takes other computers' plugins onto this one: it now counts as having them, so the ignore
-/// rules let them through, and they're written out straight away.
-pub fn install_plugins(ctx: &Ctx, ids: &[String]) -> Result<(), String> {
-    let _lock = lock_wait(ctx)?;
-    let mut data = ctx.load_data();
-    let me = data.computers.entry(ctx.host.clone()).or_default();
-    for id in ids {
-        toggle(&mut me.plugins, id, true);
-    }
-    ctx.save_data(&data)?;
-    let paths: Vec<String> = ids
-        .iter()
-        .map(|id| {
-            ctx.home
-                .join(PLUGIN_DIR)
-                .join(id)
-                .to_string_lossy()
-                .into_owned()
-        })
-        .collect();
-    let mut args = vec!["apply", "--force"];
-    args.extend(paths.iter().map(|s| s.as_str()));
-    run(None, "chezmoi", &args).map(|_| ())
 }
 
 /// Maps paths inside the sync folder to paths under home.

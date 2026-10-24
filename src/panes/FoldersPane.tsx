@@ -1,6 +1,9 @@
-import { api, type Folder } from '../api';
+import { useState } from 'react';
+import { Puzzle } from 'lucide-react';
+import { Input, Label, Text, TextField } from 'react-aria-components';
+import { api, type Folder, type Plugin } from '../api';
 import type { SyncState } from '../state';
-import { ComputerList, Group, Link, Row, Toggle } from '../ui';
+import { Caution, ComputerList, Group, Link, Push, Row, Tile, Toggle } from '../ui';
 
 /** Omarchy's own parts, its window settings and its plugins, each listed in the order shown
  * ("other" last); every other folder is an app's data. */
@@ -121,21 +124,22 @@ export function AppDataPane({ s }: { s: SyncState }) {
 
 /** Like Apps: one list in a fixed order, one switch per computer. */
 export function PluginsPane({ s }: { s: SyncState }) {
-  const { data, host } = s;
+  const { data } = s;
   const plugins = s.overview?.plugins ?? [];
-  const mine = s.me.plugins ?? [];
   const pluginsOn = !!data?.folders.includes('.config/omarchy/plugins');
-  const computers = [host, ...Object.keys(data?.computers ?? {}).filter((c) => c !== host)];
-  const name = (c: string) => (c === host ? 'This Computer' : s.nameOf(c));
-  // This computer's column is simply "Sync"; the others are named after their computer.
-  const column = (c: string) => (c === host ? 'Sync' : s.nameOf(c));
-  const columns = { '--n': computers.length } as React.CSSProperties;
-  // Past three computers a column each gets too narrow: each plugin lists its computers instead.
-  const many = computers.length > 3;
-  const onlyOn = (id: string) => {
-    const where = [...(mine.includes(id) ? ['this computer'] : []), ...s.whoHas(id)];
-    return where.length ? `Only on ${where.join(' and ')}` : '';
-  };
+  const mine = plugins.filter((p) => !p.first_party);
+  const omarchys = plugins.filter((p) => p.first_party);
+  const fromGit = mine.filter((p) => p.here && p.source);
+  const [adding, setAdding] = useState(false);
+  const [removing, setRemoving] = useState<string | null>(null);
+  /** Runs one of Omarchy's plugin commands, then looks again. */
+  const omarchy = (label: string, work: () => Promise<unknown>, said?: (out: string) => void) =>
+    s.act(label, work, (out) => {
+      said?.(String(out ?? ''));
+      return s.refresh();
+    });
+  const updated = (out: string) =>
+    s.setNotice({ good: true, text: out.trim() || 'Your plugins are up to date.' });
   return (
     <>
       <FolderGroup
@@ -144,66 +148,250 @@ export function PluginsPane({ s }: { s: SyncState }) {
         footer="Plugins are the add-ons themselves; their settings, and where they sit on the bar, are kept in the bar layout."
       />
       {pluginsOn && (
-        <Group
-          title="Your Plugins"
-          footer="Switch a plugin on for a computer to have it there; it's added after you approve it. Switching it off never removes it."
-        >
-          {plugins.length === 0 ? (
-            <Row title="No plugins on any computer yet." />
-          ) : (
-            <>
-              {computers.length > 1 && !many && (
-                <div className="row matrix head" style={columns} aria-hidden="true">
-                  <span>Plugin</span>
-                  {computers.map((c) => (
-                    <span key={c}>{column(c)}</span>
-                  ))}
-                </div>
+        <>
+          <Group
+            title="Your Plugins"
+            footer="On and Off is part of your bar layout, so it reaches your other computers with the next sync. Sync puts a plugin on a computer after you approve it there; switching it off never removes it. Update and Remove only change this computer."
+          >
+            <Row
+              title="Add a plugin from its git address"
+              detail="Omarchy downloads it and switches it on here; your other computers get it when you sync it to them."
+              end={
+                !adding && (
+                  <Push disabled={!s.idle} onPress={() => setAdding(true)}>
+                    Add Plugin…
+                  </Push>
+                )
+              }
+            >
+              {adding && (
+                <AddPluginForm
+                  s={s}
+                  onDone={() => setAdding(false)}
+                  onAdd={(url) => omarchy('Adding the plugin', () => api.addPlugin(url))}
+                />
               )}
-              {plugins.map((p) => {
-                const synced = !!data?.plugins?.includes(p.id);
-                const missingHere = synced && s.wantsPlugin(host, p.id) && !mine.includes(p.id);
-                return (
-                  <div className={`row matrix ${many ? 'many' : ''}`} style={columns} key={p.id}>
-                    <div className="text">
-                      <div>{p.name}</div>
-                      {missingHere ? (
-                        <div className="detail warn">Added here after you approve it</div>
-                      ) : (
-                        <div className="detail">{synced ? p.description : onlyOn(p.id)}</div>
-                      )}
-                    </div>
-                    {many ? (
-                      <ComputerList
-                        subject={p.name}
-                        computers={computers.map((c) => ({
-                          id: c,
-                          name: name(c),
-                          on: s.wantsPlugin(c, p.id),
-                        }))}
-                        disabled={!s.idle}
-                        onChange={(c, on) => s.edit(() => api.setPlugin(c, p.id, on))}
-                      />
-                    ) : (
-                      computers.map((c) => (
-                        <div className="cell" key={c}>
-                          <span className="cell-label">{column(c)}</span>
-                          <Toggle
-                            on={s.wantsPlugin(c, p.id)}
-                            label={`${p.name} synced on ${name(c)}`}
-                            disabled={!s.idle}
-                            onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
-                          />
-                        </div>
-                      ))
-                    )}
-                  </div>
-                );
-              })}
-            </>
+            </Row>
+            {mine.length === 0 && <Row title="No plugins of your own on any computer yet." />}
+            {mine.map((p) => (
+              <PluginRow
+                key={p.id}
+                s={s}
+                p={p}
+                removing={removing === p.id}
+                onRemoving={(on) => setRemoving(on ? p.id : null)}
+                onUpdate={() =>
+                  omarchy(`Updating ${p.name}`, () => api.updatePlugins(p.id), updated)
+                }
+                onRemove={() => omarchy(`Removing ${p.name}`, () => api.removePlugin(p.id))}
+              />
+            ))}
+          </Group>
+          {fromGit.length > 1 && (
+            <div className="actions">
+              <Push
+                disabled={!s.idle}
+                onPress={() => omarchy('Updating your plugins', () => api.updatePlugins(), updated)}
+              >
+                Update All {fromGit.length} Plugins
+              </Push>
+            </div>
           )}
-        </Group>
+          {omarchys.length > 0 && (
+            <Group
+              title="Omarchy's Own Plugins"
+              footer="These come with Omarchy, so there's nothing to sync: switch them on or off here, and the bar layout carries the choice to your other computers."
+            >
+              {omarchys.map((p) => (
+                <PluginRow key={p.id} s={s} p={p} />
+              ))}
+            </Group>
+          )}
+        </>
       )}
     </>
+  );
+}
+
+/** What a plugin adds, in plain words. */
+const KINDS: Record<string, string> = {
+  'bar-widget': 'Bar widget',
+  panel: 'Panel',
+  overlay: 'Overlay',
+  service: 'Service',
+  bar: 'Bar',
+};
+
+/** A git address without the noise: github.com/acme/weather. */
+const place = (url: string) =>
+  url
+    .replace(/^https:\/\//, '')
+    .replace(/^git@([^:]+):/, '$1/')
+    .replace(/\.git$/, '');
+
+/**
+ * One plugin: its On switch for this computer at the end, and under its description, the sync
+ * switches per computer and Update and Remove for one that's here.
+ */
+function PluginRow({
+  s,
+  p,
+  removing = false,
+  onRemoving,
+  onUpdate,
+  onRemove,
+}: {
+  s: SyncState;
+  p: Plugin;
+  removing?: boolean;
+  onRemoving?: (on: boolean) => void;
+  onUpdate?: () => void;
+  onRemove?: () => void;
+}) {
+  const { data, host } = s;
+  const computers = [host, ...Object.keys(data?.computers ?? {}).filter((c) => c !== host)];
+  const name = (c: string) => (c === host ? 'This Computer' : s.nameOf(c));
+  const synced = !!data?.plugins?.includes(p.id);
+  const missingHere = synced && s.wantsPlugin(host, p.id) && !p.here;
+  const where = [...(p.here ? ['this computer'] : []), ...s.whoHas(p.id)];
+  const detail = missingHere
+    ? 'Added here after you approve it'
+    : p.description ||
+      (p.first_party ? '' : synced ? '' : where.length ? `Only on ${where.join(' and ')}` : '');
+  const kinds = p.kinds.map((k) => KINDS[k] ?? k).join(', ');
+  return (
+    <Row
+      lead={<Tile icon={Puzzle} kind={p.enabled ? 'accent' : 'plain'} size={24} />}
+      title={
+        <>
+          {p.name}
+          {kinds && <span className="source">{kinds}</span>}
+        </>
+      }
+      detail={detail}
+      warn={missingHere}
+      end={
+        p.here && (
+          <Toggle
+            on={!!p.enabled}
+            label={`${p.name} on this computer`}
+            disabled={!s.idle || !p.can_disable}
+            onChange={(on) =>
+              s.act(
+                on ? `Switching on ${p.name}` : `Switching off ${p.name}`,
+                () => api.setPluginEnabled(p.id, on),
+                () => s.refresh(),
+              )
+            }
+          />
+        )
+      }
+    >
+      {p.source && <div className="detail">From {place(p.source)}</div>}
+      {!p.first_party && (
+        <div className="sync-on">
+          <span className="who">Sync</span>
+          {computers.length > 3 ? (
+            <ComputerList
+              subject={p.name}
+              computers={computers.map((c) => ({
+                id: c,
+                name: name(c),
+                on: s.wantsPlugin(c, p.id),
+              }))}
+              disabled={!s.idle}
+              onChange={(c, on) => s.edit(() => api.setPlugin(c, p.id, on))}
+            />
+          ) : (
+            computers.map((c) => (
+              <span className="who" key={c}>
+                {name(c)}
+                <Toggle
+                  on={s.wantsPlugin(c, p.id)}
+                  label={`${p.name} synced on ${name(c)}`}
+                  disabled={!s.idle}
+                  onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
+                />
+              </span>
+            ))
+          )}
+          {p.here && !removing && (
+            <span className="inline">
+              {p.source && (
+                <Link disabled={!s.idle} onPress={() => onUpdate?.()}>
+                  Update
+                </Link>
+              )}
+              <Link disabled={!s.idle} onPress={() => onRemoving?.(true)}>
+                Remove…
+              </Link>
+            </span>
+          )}
+        </div>
+      )}
+      {removing && (
+        <div className="confirm">
+          <p className="detail">
+            Removes {p.name} from this computer only. Your other computers keep it, and the bar
+            layout keeps its settings.
+          </p>
+          <div className="actions">
+            <Link onPress={() => onRemoving?.(false)}>Cancel</Link>
+            <Push
+              disabled={!s.idle}
+              onPress={() => {
+                onRemoving?.(false);
+                onRemove?.();
+              }}
+            >
+              Remove from This Computer
+            </Push>
+          </div>
+        </div>
+      )}
+    </Row>
+  );
+}
+
+/** The address of a plugin to add, with the warning that it runs with your access. */
+function AddPluginForm({
+  s,
+  onDone,
+  onAdd,
+}: {
+  s: SyncState;
+  onDone: () => void;
+  onAdd: (url: string) => void;
+}) {
+  const [url, setUrl] = useState('');
+  const address = url.trim();
+  const plausible = /^(https:\/\/|git@)\S+$/.test(address);
+  return (
+    <div className="script-form">
+      <Caution>
+        <b>Only add plugins from a source you fully trust.</b> A plugin runs with your access: it
+        can read, change or delete anything you can, and it stays on this computer until you remove
+        it.
+      </Caution>
+      <TextField className="field labelled" value={url} onChange={setUrl} isRequired>
+        <Label>Git address</Label>
+        <Input placeholder="https://github.com/someone/omarchy-plugin.git" spellCheck={false} />
+        <Text slot="description">
+          The address you would give to git clone. Omarchy checks the plugin before it goes on.
+        </Text>
+      </TextField>
+      <div className="actions">
+        <Link onPress={onDone}>Cancel</Link>
+        <Push
+          disabled={!s.idle || !plausible}
+          onPress={() => {
+            onDone();
+            onAdd(address);
+          }}
+        >
+          Add Plugin
+        </Push>
+      </div>
+    </div>
   );
 }

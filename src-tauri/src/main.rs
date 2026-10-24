@@ -55,6 +55,10 @@ fn main() {
             install_with_script,
             choices_changed,
             set_plugin,
+            set_plugin_enabled,
+            add_plugin,
+            update_plugins,
+            remove_plugin,
             set_app,
             add_apps,
             set_folder,
@@ -392,6 +396,52 @@ async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> 
         blocking(move |ctx| sync::track_plugin(ctx, &plugin, after)).await?;
     }
     Ok(data)
+}
+
+/// Switches a plugin on or off in the Omarchy shell on this computer.
+#[tauri::command]
+async fn set_plugin_enabled(id: String, on: bool) -> Result<()> {
+    plugin_id(&id)?;
+    blocking(move |ctx| sync::set_plugin_enabled(ctx, &id, on))
+        .await
+        .map_err(Problem::from)
+}
+
+/// Adds a plugin from its git address (after the person read the warning). Only a plain https
+/// or ssh address reaches the command.
+#[tauri::command]
+async fn add_plugin(url: String) -> Result<()> {
+    let url = url.trim().to_string();
+    if !sync::is_git_address(&url) {
+        return Err(
+            "A plugin's address starts with https:// or git@ and has no spaces."
+                .to_string()
+                .into(),
+        );
+    }
+    blocking(move |ctx| sync::add_plugin(ctx, &url))
+        .await
+        .map_err(Problem::from)
+}
+
+/// Updates one plugin from git, or all of them. Returns what Omarchy said.
+#[tauri::command]
+async fn update_plugins(id: Option<String>) -> Result<String> {
+    if let Some(id) = &id {
+        plugin_id(id)?;
+    }
+    blocking(move |ctx| sync::update_plugins(ctx, id.as_deref()))
+        .await
+        .map_err(Problem::from)
+}
+
+/// Removes a plugin from this computer only (after the person confirmed).
+#[tauri::command]
+async fn remove_plugin(id: String) -> Result<()> {
+    plugin_id(&id)?;
+    blocking(move |ctx| sync::remove_plugin(ctx, &id))
+        .await
+        .map_err(Problem::from)
 }
 
 /// Adds an extra package repository on this computer, as another computer has it (after the
