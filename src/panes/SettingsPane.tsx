@@ -39,8 +39,8 @@ function Updates({ s }: { s: SyncState }) {
   // Not checked yet (undefined), up to date (null), or the newer release.
   const [found, setFound] = useState<Update | null | undefined>(undefined);
   const [confirm, setConfirm] = useState(false);
-  // Only the update's own progress shows here, not a sync's that may run meanwhile.
-  const [updating, setUpdating] = useState(false);
+  // Only an update's own progress shows here, not a sync's: both update plans end this way.
+  const updating = s.plan.includes('Restarting Omarchy Sync');
   const title = `Omarchy Sync ${s.version}`;
   if (s.installedHow === 'Source') {
     return (
@@ -100,10 +100,9 @@ function Updates({ s }: { s: SyncState }) {
                   disabled={!s.idle}
                   onPress={() => {
                     setConfirm(false);
-                    setUpdating(true);
                     s.act(`Updating to ${found.version}`, (onStep) =>
                       api.installUpdate(found.version, onStep),
-                    ).finally(() => setUpdating(false));
+                    );
                   }}
                 >
                   Update

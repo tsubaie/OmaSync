@@ -137,34 +137,14 @@ fn download_and_install(dir: &Path, version: &str, step: &dyn Fn(&str)) -> Resul
     let path = dir.join(&file);
     let package = path.to_string_lossy();
     step(&format!("Downloading Omarchy Sync {version}"));
-    // The package is the long download (megabytes), so its percentage shows on the page.
-    sync::run_progress(
-        Some(dir),
-        "curl",
-        &[
-            "-fSL",
-            "-#",
-            "--max-time",
-            "300",
-            "-o",
-            &file,
-            &format!("{base}/{file}"),
-        ],
-        sync::curl_percent,
-        step,
-    )?;
-    run(
-        Some(dir),
-        "curl",
-        &[
-            "-fsSL",
-            "--max-time",
-            "300",
-            "-o",
-            "SHA256SUMS",
-            &format!("{base}/SHA256SUMS"),
-        ],
-    )?;
+    // curl's progress bar (-#) gives the page the download's percentage.
+    let fetch = |name: &str| {
+        let url = format!("{base}/{name}");
+        let args = ["-fSL", "-#", "--max-time", "300", "-o", name, &url];
+        sync::run_progress(Some(dir), "curl", &args, sync::curl_percent, step)
+    };
+    fetch(&file)?;
+    fetch("SHA256SUMS")?;
     step("Checking it's genuine");
     let sums = std::fs::read_to_string(dir.join("SHA256SUMS")).map_err(|e| e.to_string())?;
     let line = checksum_line(&sums, &file)

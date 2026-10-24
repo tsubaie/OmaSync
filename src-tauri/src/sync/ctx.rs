@@ -349,7 +349,9 @@ pub(crate) fn run_progress(
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
     } else {
+        // Only what follows the last progress update: the error itself, not rows of bars.
         let err = String::from_utf8_lossy(&all);
+        let err = err.rsplit('\r').next().unwrap_or(&err);
         Err(format!("{prog} {}: {}", args.join(" "), err.trim()))
     }
 }
