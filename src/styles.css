@@ -455,6 +455,10 @@ output {
   font-size: 14px;
   padding: 7px 26px;
 }
+.push.bad {
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, var(--card));
+}
 .push[data-disabled] {
   opacity: 0.5;
   filter: none;
@@ -478,6 +482,9 @@ output {
 }
 .link.accent {
   color: var(--accent);
+}
+.link.bad[data-hovered] {
+  color: var(--bad);
 }
 /* Text and its mark stay on one line (a link out of the app ends in the outward arrow). */
 .link {

@@ -425,13 +425,13 @@ async fn add_plugin(url: String) -> Result<()> {
         .map_err(Problem::from)
 }
 
-/// Updates one plugin from git, or all of them. Returns what Omarchy said.
+/// Updates one plugin from git, or all of them, a step each. Returns what Omarchy said.
 #[tauri::command]
-async fn update_plugins(id: Option<String>) -> Result<String> {
+async fn update_plugins(id: Option<String>, on_step: Channel<String>) -> Result<String> {
     if let Some(id) = &id {
         plugin_id(id)?;
     }
-    blocking(move |ctx| sync::update_plugins(ctx, id.as_deref()))
+    blocking(move |ctx| sync::update_plugins(ctx, id.as_deref(), &steps(on_step)))
         .await
         .map_err(Problem::from)
 }

@@ -87,6 +87,7 @@ export function Push({
   children,
   prominent,
   large,
+  bad,
   disabled,
   onPress,
   tip,
@@ -95,13 +96,15 @@ export function Push({
   prominent?: boolean;
   /** The one main action on a screen, a size up. */
   large?: boolean;
+  /** Takes something away: red. */
+  bad?: boolean;
   disabled?: boolean;
   onPress: () => void;
   tip?: string;
 }) {
   const button = (
     <Button
-      className={`push ${prominent ? 'prominent' : ''} ${large ? 'large' : ''}`}
+      className={`push ${prominent ? 'prominent' : ''} ${large ? 'large' : ''} ${bad ? 'bad' : ''}`}
       isDisabled={disabled}
       onPress={onPress}
     >
@@ -118,6 +121,7 @@ export function Link({
   label,
   out,
   accent,
+  bad,
   onPress,
 }: {
   children: ReactNode;
@@ -128,11 +132,13 @@ export function Link({
   out?: boolean;
   /** The one thing worth doing in its row, in the accent colour. */
   accent?: boolean;
+  /** Takes something away: red when pointed at. */
+  bad?: boolean;
   onPress: () => void;
 }) {
   return (
     <Button
-      className={accent ? 'link accent' : 'link'}
+      className={accent ? 'link accent' : bad ? 'link bad' : 'link'}
       isDisabled={disabled}
       aria-label={label}
       onPress={onPress}

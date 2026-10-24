@@ -40,6 +40,7 @@ describe('palette', () => {
       ['ink', 'sidebar', 4.5],
       ['quiet', 'sidebar', 4.5],
       ['warn', 'card', 4.5],
+      ['bad', 'card', 4.5],
       ['on-accent', 'accent', 4.5],
       ['on-knob', 'accent', 3],
       ['accent-mark', 'bg', 3],

@@ -3,7 +3,8 @@ import { Input, Label, Text, TextField } from 'react-aria-components';
 import { api, type Folder, type Plugin } from '../api';
 import type { SyncState } from '../state';
 import { CircleCheck, Download } from 'lucide-react';
-import { Caution, ComputerList, Group, Link, Push, Row, Toggle } from '../ui';
+import { plural } from '../format';
+import { Caution, ComputerList, Group, Link, Progress, Push, Row, Toggle } from '../ui';
 
 /** Omarchy's own parts, its window settings and its plugins, each listed in the order shown
  * ("other" last); every other folder is an app's data. */
@@ -134,13 +135,29 @@ export function PluginsPane({ s }: { s: SyncState }) {
   const [removing, setRemoving] = useState<string | null>(null);
   const { computers, name, column, columns, many } = s.matrix;
   /** Runs one of Omarchy's plugin commands, then looks again. */
-  const omarchy = (label: string, work: () => Promise<unknown>, said?: (out: string) => void) =>
+  const omarchy = (
+    label: string,
+    work: (onStep: (step: string) => void) => Promise<unknown>,
+    said?: (out: string) => void,
+  ) =>
     s.act(label, work, (out) => {
       said?.(String(out ?? ''));
       return s.refresh();
     });
-  const updated = (out: string) =>
-    s.setNotice({ good: true, text: out.trim() || 'Your plugins are up to date.' });
+  /** Omarchy's word, a line per plugin: one line as it is, several summed up. */
+  const updated = (out: string) => {
+    const lines = out.trim().split('\n').filter(Boolean);
+    const changed = lines.filter((l) => l.startsWith('Updated')).length;
+    const text =
+      lines.length > 1
+        ? changed
+          ? `Updated ${plural(changed, 'plugin')}; the rest were up to date.`
+          : 'All your plugins are up to date.'
+        : lines[0] || 'Your plugins are up to date.';
+    s.setNotice({ good: true, text });
+  };
+  const newer = fromGit.filter((p) => p.update === true).length;
+  const updatingAll = s.plan.length > 0 && s.plan.every((step) => step.startsWith('Updating '));
   return (
     <>
       <FolderGroup
@@ -154,6 +171,35 @@ export function PluginsPane({ s }: { s: SyncState }) {
             title="Your Plugins"
             footer="Sync puts a plugin on a computer after you approve it there; switching it off never removes it. Enabled is part of your bar layout, so it reaches every computer."
           >
+            {fromGit.length > 0 && (
+              <Row
+                title="Update your plugins"
+                detail={`${plural(fromGit.length, 'plugin')} came from git; Omarchy fetches the newest version of each. ${
+                  newer
+                    ? `${plural(newer, 'update')} available.`
+                    : fromGit.some((p) => p.update !== null)
+                      ? 'All up to date.'
+                      : ''
+                }`}
+                end={
+                  <Push
+                    prominent={newer > 0}
+                    disabled={!s.idle}
+                    onPress={() =>
+                      omarchy(
+                        'Updating your plugins',
+                        (onStep) => api.updatePlugins(undefined, onStep),
+                        updated,
+                      )
+                    }
+                  >
+                    {updatingAll ? 'Updating…' : 'Update All'}
+                  </Push>
+                }
+              >
+                {updatingAll && <Progress steps={s.steps} plan={s.plan} percent={s.percent} />}
+              </Row>
+            )}
             <Row
               title="Add a plugin from its git address"
               detail="Omarchy downloads it and enables it here; your other computers get it when you sync it to them."
@@ -190,7 +236,11 @@ export function PluginsPane({ s }: { s: SyncState }) {
                   removing={removing === p.id}
                   onRemoving={(on) => setRemoving(on ? p.id : null)}
                   onUpdate={() =>
-                    omarchy(`Updating ${p.name}`, () => api.updatePlugins(p.id), updated)
+                    omarchy(
+                      `Updating ${p.name}`,
+                      (onStep) => api.updatePlugins(p.id, onStep),
+                      updated,
+                    )
                   }
                   onRemove={() => omarchy(`Removing ${p.name}`, () => api.removePlugin(p.id))}
                 />
@@ -221,18 +271,6 @@ export function PluginsPane({ s }: { s: SyncState }) {
               </div>
             ))}
           </Group>
-          {fromGit.length > 1 && (
-            <div className="actions">
-              <Push
-                disabled={!s.idle}
-                onPress={() => omarchy('Updating your plugins', () => api.updatePlugins(), updated)}
-              >
-                {s.busy === 'Updating your plugins'
-                  ? 'Updating…'
-                  : `Update All ${fromGit.length} Plugins`}
-              </Push>
-            </div>
-          )}
           {omarchys.length > 0 && (
             <Group
               title="Omarchy's Own Plugins"
@@ -367,7 +405,12 @@ function PluginText({
             </Link>
           )}
           {onRemoving && (
-            <Link label={`Remove… (${p.name})`} disabled={!s.idle} onPress={() => onRemoving(true)}>
+            <Link
+              bad
+              label={`Remove… (${p.name})`}
+              disabled={!s.idle}
+              onPress={() => onRemoving(true)}
+            >
               Remove…
             </Link>
           )}
@@ -382,6 +425,7 @@ function PluginText({
           <div className="actions">
             <Link onPress={() => onRemoving?.(false)}>Cancel</Link>
             <Push
+              bad
               disabled={!s.idle}
               onPress={() => {
                 onRemoving?.(false);

@@ -373,7 +373,8 @@ mockIPC((cmd, args) => {
       return { notes: [], waiting: [] };
     case 'update_plugins':
       timezonesUpdated = true;
-      return a.id ? `${a.id} is up to date.` : 'timezones is up to date.';
+      if (!a.id) emit(a.onStep, ['\u0001plan\tUpdating Timezones', 'Updating Timezones']);
+      return a.id ? `${a.id} is up to date.` : 'Updated timezones.';
     case 'set_plugin_enabled':
     case 'add_plugin':
     case 'remove_plugin':

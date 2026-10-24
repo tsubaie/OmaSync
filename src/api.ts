@@ -204,8 +204,9 @@ export const api = {
   setPluginEnabled: (id: string, on: boolean) => invoke<void>('set_plugin_enabled', { id, on }),
   /** Adds a plugin from its git address and switches it on here. */
   addPlugin: (url: string) => invoke<void>('add_plugin', { url }),
-  /** Updates one plugin from git, or all of them; returns what Omarchy said. */
-  updatePlugins: (id?: string) => invoke<string>('update_plugins', { id: id ?? null }),
+  /** Updates one plugin from git, or all of them (a step each); returns what Omarchy said. */
+  updatePlugins: (id: string | undefined, onStep: OnStep) =>
+    invoke<string>('update_plugins', { id: id ?? null, onStep: steps(onStep) }),
   /** Removes a plugin from this computer only. */
   removePlugin: (id: string) => invoke<void>('remove_plugin', { id }),
   setApp: (computer: string, app: string, on: boolean) =>

@@ -286,7 +286,14 @@ test('plugins are switched on, added from git, updated and removed here', async 
   // Omarchy's own plugins link to their folder in Omarchy's repository.
   await expect(page.getByRole('button', { name: 'Open github.com (Clock)' })).toBeVisible();
   expect(await calls(page, 'update_plugins')).toEqual([
-    { cmd: 'update_plugins', args: { id: 'timezones' } },
+    expect.objectContaining({ args: expect.objectContaining({ id: 'timezones' }) }),
+  ]);
+  // Update All, at the top, goes plugin by plugin and sums up what Omarchy said.
+  await page.getByRole('button', { name: 'Update All' }).click();
+  await expect(page.getByText('Updated timezones.')).toBeVisible();
+  expect(await calls(page, 'update_plugins')).toEqual([
+    expect.objectContaining({ args: expect.objectContaining({ id: 'timezones' }) }),
+    expect.objectContaining({ args: expect.objectContaining({ id: null }) }),
   ]);
   // Adding asks for the address, warns, and only then runs.
   await page.getByRole('button', { name: 'Add Plugin…' }).click();

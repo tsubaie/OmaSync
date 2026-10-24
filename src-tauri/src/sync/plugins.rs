@@ -229,14 +229,32 @@ pub fn add_plugin(ctx: &Ctx, url: &str) -> Result<(), String> {
     .map(|_| ())
 }
 
-/// Updates one plugin from git, or every one that came from git. Returns what Omarchy said.
-pub fn update_plugins(ctx: &Ctx, id: Option<&str>) -> Result<String, String> {
+/// Updates one plugin from git, or every one that came from git, one at a time so the page
+/// shows each. Returns what Omarchy said, a line per plugin.
+pub fn update_plugins(ctx: &Ctx, id: Option<&str>, step: &dyn Fn(&str)) -> Result<String, String> {
     let _lock = lock_wait(ctx)?;
-    let mut args = vec!["plugin", "update"];
-    args.extend(id);
-    args.push("--yes");
     forget_plugin_updates(ctx);
-    run(None, "omarchy", &args)
+    let ids: Vec<String> = match id {
+        Some(id) => vec![id.to_string()],
+        None => ctx
+            .local_plugins()
+            .into_iter()
+            .filter(|id| ctx.home.join(PLUGIN_DIR).join(id).join(".git").exists())
+            .collect(),
+    };
+    let labels: Vec<String> = ids
+        .iter()
+        .map(|id| format!("Updating {}", ctx.plugin(id).name))
+        .collect();
+    if id.is_none() {
+        plan(step, &labels.iter().map(String::as_str).collect::<Vec<_>>());
+    }
+    let mut said = Vec::new();
+    for (id, label) in ids.iter().zip(&labels) {
+        step(label);
+        said.push(run(None, "omarchy", &["plugin", "update", id, "--yes"])?);
+    }
+    Ok(said.join("\n"))
 }
 
 /// Removes a plugin from this computer only; the other computers keep theirs.

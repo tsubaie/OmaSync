@@ -90,7 +90,7 @@ export function palette(toml: string): Record<string, Rgb> {
     'on-knob': contrast(bg, accent) >= 3 ? bg : onAccent,
     good: ensure(get('green', '#a6e3a1'), surfaces, 3, ink),
     warn: ensure(get('yellow', '#f9e2af'), surfaces, 4.5, ink),
-    bad: ensure(get('red', '#f38ba8'), surfaces, 3, ink),
+    bad: ensure(get('red', '#f38ba8'), surfaces, 4.5, ink),
     'off-edge': ensure(mix(raised, ink, 0.3), surfaces, 3, ink),
     'off-knob': ensure(mix(raised, ink, 0.5), [raised], 3, ink),
   };

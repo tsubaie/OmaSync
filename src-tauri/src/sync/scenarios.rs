@@ -1412,6 +1412,11 @@ fn a_plugin_from_git_says_when_its_source_has_something_newer_once_a_day() {
     assert_eq!(plugin_updates_today(a).get("gitty"), Some(&false));
     forget_plugin_updates(a);
     assert_eq!(plugin_updates_today(a).get("gitty"), Some(&true));
+    // Update All asks Omarchy plugin by plugin, only for the ones from git.
+    update_plugins(a, None, &|_| {}).unwrap();
+    let log = lab.calls("a");
+    assert!(log.contains("plugin update gitty --yes"), "{log}");
+    assert!(!log.contains("plugin update dock"), "{log}");
 }
 
 #[test]
@@ -1473,7 +1478,7 @@ fn a_plugin_from_git_is_added_from_git_on_the_other_computer_not_copied() {
     lab.write("a", ".config/omarchy/plugins/gitty/Widget.qml", "v2\n");
     lab.settle();
     assert!(!lab.exists("b", ".config/omarchy/plugins/gitty/Widget.qml"));
-    assert!(update_plugins(lab.ctx("b"), Some("gitty")).is_ok());
+    assert!(update_plugins(lab.ctx("b"), Some("gitty"), &|_| {}).is_ok());
     assert!(lab.calls("b").contains("plugin update gitty --yes"));
     // Removed here only: gone from b, still on a, and b no longer counts as having it.
     remove_plugin(lab.ctx("b"), "gitty").unwrap();
