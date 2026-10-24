@@ -239,9 +239,17 @@ export function useSync() {
   async function edit(work: () => Promise<Data>) {
     try {
       const data = await work();
-      setStatus((s) => (s ? { ...s, data } : s));
       // Compared with what was last shared, so flipping a switch back hides the banner again.
-      setPending(await api.choicesChanged());
+      const changed = await api.choicesChanged();
+      setPending(changed);
+      // The Sync page counts the choices among the changes to share straight away, as the next
+      // look would, rather than saying everything matches until then.
+      setStatus((s) => {
+        if (!s?.overview) return s ? { ...s, data } : s;
+        const rest = s.overview.unshared.filter((u) => u !== catalog.data_label);
+        const unshared = changed ? [...rest, catalog.data_label] : rest;
+        return { ...s, data, overview: { ...s.overview, unshared } };
+      });
     } catch (e) {
       fail(e);
     }

@@ -104,6 +104,10 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
   await expect(
     page.getByText('Your other computers get this change the next time you sync.'),
   ).toBeVisible();
+  // The Sync page counts the choice among the changes to share straight away.
+  await page.keyboard.press('Control+1');
+  await expect(page.getByText("1 change on this computer isn't shared yet.")).toBeVisible();
+  await expect(page.getByText('Apps and sync choices')).toBeVisible();
 });
 
 test('a conflict shows both versions and keeps the one chosen for each setting', async ({
