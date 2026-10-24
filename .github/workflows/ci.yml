@@ -15,6 +15,9 @@ concurrency:
 jobs:
   static:
     name: Lint, types, format, unused code, layering, unit tests
+    # A version bump ("Version X.Y.Z", only the numbers) is already-tested code: skip it. Not
+    # `[skip ci]` in the commit, which would also skip the release the tag starts.
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Version ')
     runs-on: ubuntu-latest
     # A hung download (an apt mirror, say) fails the run instead of holding it for 6 hours.
     timeout-minutes: 10
@@ -31,6 +34,7 @@ jobs:
 
   rust:
     name: Rust format, Clippy, tests
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Version ')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -65,6 +69,7 @@ jobs:
 
   e2e:
     name: The page in WebKit, with accessibility checks
+    if: github.event_name != 'push' || !startsWith(github.event.head_commit.message, 'Version ')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
