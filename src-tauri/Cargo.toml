@@ -1,6 +1,6 @@
 [package]
 name = "omarchy-sync"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2024"
 description = "Keep Omarchy settings, themes, plugins and apps the same on all your computers"
 license = "MIT"
