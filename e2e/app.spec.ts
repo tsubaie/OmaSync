@@ -247,6 +247,43 @@ test('each plugin is switched on per computer, like apps', async ({ page }) => {
   ]);
 });
 
+test('plugins are switched on, added from git, updated and removed here', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'Plugins' }).click();
+  expect(await a11y(page)).toEqual([]);
+  // Omarchy's own plugins only go on and off; a plugin from git can be updated and removed.
+  const clock = page.getByRole('switch', { name: 'Clock on this computer' });
+  await expect(clock).toBeChecked();
+  await clock.focus();
+  await page.keyboard.press('Space');
+  expect(await calls(page, 'set_plugin_enabled')).toEqual([
+    { cmd: 'set_plugin_enabled', args: { id: 'omarchy.clock', on: false } },
+  ]);
+  await expect(page.getByText('From github.com/sspaeti/omarchy-plugin-timezones')).toBeVisible();
+  await page.getByRole('button', { name: 'Update', exact: true }).click();
+  await expect(page.getByText('timezones is up to date.')).toBeVisible();
+  expect(await calls(page, 'update_plugins')).toEqual([
+    { cmd: 'update_plugins', args: { id: 'timezones' } },
+  ]);
+  // Adding asks for the address, warns, and only then runs.
+  await page.getByRole('button', { name: 'Add Plugin…' }).click();
+  await expect(page.getByText('Only add plugins from a source you fully trust.')).toBeVisible();
+  const add = page.getByRole('button', { name: 'Add Plugin', exact: true });
+  await expect(add).toBeDisabled();
+  await page.getByLabel('Git address').fill('https://github.com/acme/omarchy-weather.git');
+  await add.click();
+  expect(await calls(page, 'add_plugin')).toEqual([
+    { cmd: 'add_plugin', args: { url: 'https://github.com/acme/omarchy-weather.git' } },
+  ]);
+  // Removing asks first and says it's this computer only.
+  await page.getByRole('button', { name: 'Remove…' }).click();
+  await expect(page.getByText('Removes Timezones from this computer only.')).toBeVisible();
+  await page.getByRole('button', { name: 'Remove from This Computer' }).click();
+  expect(await calls(page, 'remove_plugin')).toEqual([
+    { cmd: 'remove_plugin', args: { id: 'timezones' } },
+  ]);
+});
+
 test('an app from outside the repos syncs only once it has an install command', async ({
   page,
 }) => {

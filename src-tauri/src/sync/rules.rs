@@ -87,12 +87,14 @@ pub(crate) const IGNORE: &str = r#"**/.git
 {{- end }}
 {{- $mine := get $c "plugins" | default list }}
 {{- $skip := get $c "skip_plugins" | default list }}
+{{- $fromGit := get . "plugin_sources" | default dict }}
 .config/omarchy/plugins/*
 .config/omarchy/plugins/*/**
 {{- /* Exceptions win over every other rule, so they're only made while the folder syncs here. */}}
 {{- if and (has ".config/omarchy/plugins" .folders) (not (has ".config/omarchy" $skipFiles)) (not (has ".config/omarchy/plugins" $skipFiles)) }}
 {{- range .plugins | default list }}
-{{- if and (has . $mine) (not (has . $skip)) }}
+{{- /* A plugin from git is added from git on each computer, never copied. */}}
+{{- if and (has . $mine) (not (has . $skip)) (not (hasKey $fromGit .)) }}
 !.config/omarchy/plugins/{{ . }}
 !.config/omarchy/plugins/{{ . }}/**
 {{- end }}

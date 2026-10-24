@@ -248,6 +248,13 @@ pub(crate) fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String
     let me = data.computers.entry(ctx.host.clone()).or_default();
     me.plugins = ctx.local_plugins();
     (me.web_apps, me.web_icons) = ctx.local_web_apps();
+    // Plugins from git aren't copied: each computer adds them from git (see plugin_sources).
+    for id in ctx.local_plugins() {
+        if let Some(url) = ctx.plugin_source(&id) {
+            data.plugin_sources.insert(id.clone(), url);
+            track_plugin(ctx, &id, false)?;
+        }
+    }
     prune_web_apps(ctx, &data);
     ctx.save_data(&data)?;
     stage(ctx, &data, step)?;

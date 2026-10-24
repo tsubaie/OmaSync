@@ -57,7 +57,7 @@ You set up Omarchy just the way you like it: keyboard shortcuts, a theme, a few 
   </tr>
   <tr>
     <td><b>Apps.</b> Choose which apps go on which computer. They install after you approve them, or automatically if you allow it. Switching one off never uninstalls it.</td>
-    <td><b>Plugins.</b> Omarchy shell plugins, chosen the same way, plus your bar layout and plugin settings.</td>
+    <td><b>Plugins.</b> Every Omarchy shell plugin, on or off, with a sync switch per computer; add one from its git address, update it or remove it, plus your bar layout and plugin settings.</td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/history.png" alt="History: a sync with the files it changed, and Undo asking first." /></td>
@@ -151,6 +151,9 @@ If another computer already uses this computer's name (Omarchy names every compu
 - When a synced app or plugin isn't on this computer yet, it waits on the Sync screen with **Install** (or **Add**) and **Not Now**, and you get a notification.
 - To skip the waiting, turn on **Add synced apps and plugins without asking** in Settings.
 - Switching anything off never uninstalls it.
+
+**Managing plugins.** **Plugins** also lists every plugin Omarchy knows on this computer, its own ones included, each with an **On** switch; on and off is part of your bar layout, so it reaches your other computers with the next sync. **Add Plugin…** takes a plugin's git address and adds it the way `omarchy plugin add` does, after a warning: a plugin runs with your access, so only add one from a source you trust. A plugin that came from git shows where it's from and can be updated with **Update** (or all of them at once); another computer that syncs it adds it from git too, rather than copying its files, so every copy can be updated. **Remove…** takes a plugin off this computer only.
+
 - Each app's row says where it comes from: Arch's repositories, Omarchy's, its maker's own repository, or the AUR (used only as a last resort).
 - Apps from their maker's own repository (like ChatGPT's) never fall back to the AUR. Each computer records its extra repositories and their signing keys. **Apps → Repositories** lists the ones this computer has, and **Repositories to Add** the ones it still needs, with the repository's address and its key's owner and fingerprint. **Add Repository…** adds one only after you agree, with your password, and **Show Commands** gives the same steps to run in a terminal yourself. Until then, the apps that need it stay off and locked on this computer, and the Sync page points to Repositories.
 - Apps that aren't in Arch's repos or the AUR (ones you built from your own repository, say) can't install through `yay`. Their row says so and offers **Add Install Steps…**: the commands that install it, one per line, such as cloning its repository, building it and running its install script. They run in order and stop at the first step that fails. Other computers then offer **Install**, which runs it in an empty folder in a terminal window you can watch. Without one, the app stays on the computers that have it.

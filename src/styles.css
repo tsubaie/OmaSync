@@ -1345,3 +1345,26 @@ kbd {
     transition: none !important;
   }
 }
+
+/* ---------- Plugins ---------- */
+
+/* Under a plugin: its sync switch per computer, then Update and Remove. */
+.sync-on {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin-top: 6px;
+}
+.sync-on .who {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--quiet);
+}
+.confirm {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}

@@ -1367,3 +1367,88 @@ fn the_package_list_is_read_once_per_sync_and_once_per_look() {
     overview(lab.ctx("a"), &lab.data("a"), &|_| {}, false).unwrap();
     assert_eq!(calls(&lab) - before, 1, "{}", lab.calls("a"));
 }
+
+#[test]
+#[ignore]
+fn a_plugin_from_git_is_added_from_git_on_the_other_computer_not_copied() {
+    let mut lab = pair();
+    lab.join("b");
+    // a added a plugin with `omarchy plugin add`: a clone with its address.
+    let dir = lab.ctx("a").home.join(".config/omarchy/plugins/gitty");
+    lab.write(
+        "a",
+        ".config/omarchy/plugins/gitty/manifest.json",
+        r#"{"name":"Gitty"}"#,
+    );
+    run(None, "git", &["init", "-q", &dir.to_string_lossy()]).unwrap();
+    run(
+        Some(&dir),
+        "git",
+        &["remote", "add", "origin", "https://example.com/gitty.git"],
+    )
+    .unwrap();
+    lab.edit("a", |d, host| d.place_plugin(host, "gitty", true));
+    track_plugin(lab.ctx("a"), "gitty", true).unwrap();
+    lab.sync_ok("a");
+    let data = lab.data("a");
+    assert_eq!(
+        data.plugin_sources.get("gitty").map(String::as_str),
+        Some("https://example.com/gitty.git")
+    );
+    // Its files never enter the sync folder.
+    assert!(
+        !lab.ctx("a")
+            .src
+            .join("dot_config/omarchy/plugins/gitty")
+            .exists()
+    );
+    // b takes it: added from git, on and updatable there, and listed by name meanwhile.
+    lab.sync_ok("b");
+    assert!(
+        lab.data("b")
+            .missing_plugins("b")
+            .contains(&"gitty".to_string())
+    );
+    let listed = all_plugins(lab.ctx("b"), &lab.data("b"));
+    let gitty = listed.iter().find(|p| p.id == "gitty").unwrap();
+    assert!(!gitty.here && gitty.source.is_some());
+    install_plugins(lab.ctx("b"), &["gitty".into()]).unwrap();
+    assert!(
+        lab.calls("b")
+            .contains("plugin add https://example.com/gitty.git --enable --yes")
+    );
+    assert!(lab.exists("b", ".config/omarchy/plugins/gitty/.git"));
+    assert_eq!(
+        lab.ctx("b").plugin_source("gitty").as_deref(),
+        Some("https://example.com/gitty.git")
+    );
+    lab.settle();
+    // A change to a's clone stays a's until b updates its own clone.
+    lab.write("a", ".config/omarchy/plugins/gitty/Widget.qml", "v2\n");
+    lab.settle();
+    assert!(!lab.exists("b", ".config/omarchy/plugins/gitty/Widget.qml"));
+    assert!(update_plugins(lab.ctx("b"), Some("gitty")).is_ok());
+    assert!(lab.calls("b").contains("plugin update gitty --yes"));
+    // Removed here only: gone from b, still on a, and b no longer counts as having it.
+    remove_plugin(lab.ctx("b"), "gitty").unwrap();
+    assert!(!lab.exists("b", ".config/omarchy/plugins/gitty"));
+    assert!(
+        !lab.data("b").computers["b"]
+            .plugins
+            .contains(&"gitty".to_string())
+    );
+    lab.settle();
+    assert!(lab.exists("a", ".config/omarchy/plugins/gitty/manifest.json"));
+    // Plain plugins still travel as files, as before.
+    assert!(!lab.data("b").plugin_sources.contains_key("dock"));
+    // Bad addresses never reach a command.
+    for bad in [
+        "http://x",
+        "https://a b",
+        "https://x;rm -rf ~",
+        "git@host:a/../b",
+    ] {
+        assert!(!is_git_address(bad), "{bad}");
+    }
+    assert!(is_git_address("git@github.com:acme/omarchy-weather.git"));
+}

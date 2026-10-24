@@ -194,8 +194,39 @@ const status = (): Status => ({
           ]
         : [],
     plugins: [
-      { id: 'timezones', name: 'Timezones', description: 'World clock with an hour-grid popup.' },
-      { id: 'webcam', name: 'Webcam Controls', description: 'Control any webcam from the bar.' },
+      {
+        id: 'omarchy.clock',
+        name: 'Clock',
+        description: 'Date/time label with a calendar popup',
+        kinds: ['bar-widget'],
+        first_party: true,
+        here: true,
+        enabled: true,
+        can_disable: true,
+        source: null,
+      },
+      {
+        id: 'timezones',
+        name: 'Timezones',
+        description: 'World clock with an hour-grid popup.',
+        kinds: ['bar-widget'],
+        first_party: false,
+        here: true,
+        enabled: true,
+        can_disable: true,
+        source: 'https://github.com/sspaeti/omarchy-plugin-timezones.git',
+      },
+      {
+        id: 'webcam',
+        name: 'Webcam Controls',
+        description: 'Control any webcam from the bar.',
+        kinds: ['bar-widget', 'panel'],
+        first_party: false,
+        here: false,
+        enabled: null,
+        can_disable: true,
+        source: null,
+      },
     ],
     history: [
       {
@@ -333,6 +364,12 @@ mockIPC((cmd, args) => {
     }
     case 'resolve_conflict':
       return { notes: [], waiting: [] };
+    case 'update_plugins':
+      return a.id ? `${a.id} is up to date.` : 'timezones is up to date.';
+    case 'set_plugin_enabled':
+    case 'add_plugin':
+    case 'remove_plugin':
+      return null;
     case 'report':
     case 'add_repository':
     case 'update_omarchy':

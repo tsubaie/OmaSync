@@ -12,6 +12,7 @@ mod history;
 #[cfg(test)]
 mod lab;
 mod overview;
+mod plugins;
 mod rules;
 #[cfg(test)]
 mod scenarios;
@@ -24,13 +25,14 @@ pub use apps::{
 };
 pub use background::{background, schedule};
 pub use bar::{bar_indicator, ensure_bar_indicator, set_bar_indicator};
-pub use ctx::{Ctx, edit, friendly, run, sync_space};
+pub use ctx::{Ctx, edit, friendly, is_git_address, run, sync_space};
 // What the updater shares with a sync.
 pub(crate) use ctx::{lock, lock_wait, plan};
 pub use data::{Data, Script, is_plugin_id, name_taken, toggle};
 pub use engine::{Conflict, Keep, Report, SyncError, disconnect, put_back_omarchy, resolve, sync};
 pub use history::undo;
-pub use overview::{Overview, install_plugins, overview};
+pub use overview::{Overview, overview};
+pub use plugins::{add_plugin, install_plugins, remove_plugin, set_plugin_enabled, update_plugins};
 pub use rules::{DATA_LABEL, FOLDERS};
 pub use setup::{SetupState, install_helpers, join, probe, sign_in, start};
 pub use stage::{track, track_plugin};
@@ -44,6 +46,7 @@ use data::*;
 use engine::*;
 use history::*;
 use overview::*;
+use plugins::*;
 use rules::*;
 use serde::{Deserialize, Serialize};
 use setup::*;

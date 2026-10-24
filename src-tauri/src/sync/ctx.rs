@@ -116,14 +116,12 @@ impl Ctx {
     /// Names a plugin from its manifest, here or (for one this computer doesn't have) in the
     /// sync folder.
     pub fn plugin(&self, id: &str) -> Plugin {
-        let manifest = [
-            self.home.join(PLUGIN_DIR).join(id),
-            self.src.join("dot_config/omarchy/plugins").join(id),
-        ]
-        .iter()
-        .find_map(|dir| std::fs::read(dir.join("manifest.json")).ok())
-        .and_then(|m| serde_json::from_slice::<serde_json::Value>(&m).ok())
-        .unwrap_or_default();
+        let dir = self.home.join(PLUGIN_DIR).join(id);
+        let manifest = [&dir, &self.src.join("dot_config/omarchy/plugins").join(id)]
+            .iter()
+            .find_map(|dir| std::fs::read(dir.join("manifest.json")).ok())
+            .and_then(|m| serde_json::from_slice::<serde_json::Value>(&m).ok())
+            .unwrap_or_default();
         let text = |k: &str| manifest[k].as_str().unwrap_or_default().trim().to_string();
         let name = text("name");
         Plugin {
@@ -134,7 +132,27 @@ impl Ctx {
                 name
             },
             description: text("description"),
+            kinds: manifest["kinds"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|k| k.as_str().map(String::from))
+                .collect(),
+            here: dir.is_dir(),
+            source: self.plugin_source(id),
+            ..Default::default()
         }
+    }
+
+    /// The git address a plugin here was added from, if it was.
+    pub fn plugin_source(&self, id: &str) -> Option<String> {
+        let dir = self.home.join(PLUGIN_DIR).join(id);
+        if !dir.join(".git").exists() {
+            return None;
+        }
+        run(Some(&dir), "git", &["remote", "get-url", "origin"])
+            .ok()
+            .filter(|url| is_git_address(url))
     }
 
     pub fn load_data(&self) -> Data {
@@ -216,6 +234,17 @@ impl Ctx {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
     }
+}
+
+/// A git address a plugin can be added from: https or ssh, with nothing a shell could read
+/// into it. Checked before anything from the page or the shared file is passed to a command.
+pub fn is_git_address(url: &str) -> bool {
+    (url.starts_with("https://") || url.starts_with("git@"))
+        && url.len() <= 200
+        && !url.contains("..")
+        && !url
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || "'\"`$;&|<>(){}".contains(c))
 }
 
 pub fn run(dir: Option<&Path>, prog: &str, args: &[&str]) -> Result<String, String> {
