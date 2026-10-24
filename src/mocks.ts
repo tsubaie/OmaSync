@@ -441,6 +441,7 @@ mockIPC((cmd, args) => {
       // The real one goes on to install and restart; the mock stays here to show the progress.
       return new Promise(() => {});
     case 'open_release':
+    case 'open_page':
       return null;
     default:
       return null;

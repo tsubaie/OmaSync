@@ -222,4 +222,7 @@ export const api = {
     invoke<void>('install_update', { version, onStep: steps(onStep) }),
   /** Opens a release's page on GitHub. */
   openRelease: (version: string) => invoke<void>('open_release', { version }),
+  /** Opens an app's package page (Arch or the AUR) or a plugin's source in the browser. */
+  openPage: (kind: 'arch' | 'aur' | 'plugin', name: string) =>
+    invoke<void>('open_page', { kind, name }),
 };

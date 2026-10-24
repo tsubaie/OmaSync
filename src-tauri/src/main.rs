@@ -72,6 +72,7 @@ fn main() {
             check_update,
             install_update,
             open_release,
+            open_page,
         ])
         .run(tauri::generate_context!())
         .expect("Omarchy Sync couldn't start");
@@ -769,6 +770,39 @@ fn open_release(version: String) -> Result<()> {
         .map_err(|e| e.to_string().into())
 }
 
+/// The web page of an app's package or a plugin's source: only a package name on Arch's or
+/// the AUR's site, or a git address, becomes one.
+fn page_url(kind: &str, name: &str) -> Option<String> {
+    match kind {
+        "arch" if sync::is_package_name(name) => {
+            Some(format!("https://archlinux.org/packages/?q={name}"))
+        }
+        "aur" if sync::is_package_name(name) => {
+            Some(format!("https://aur.archlinux.org/packages/{name}"))
+        }
+        "plugin" if sync::is_git_address(name) => {
+            // A browser opens neither git@host:path nor .git: the same page, as https.
+            let path = name.trim_start_matches("https://").trim_end_matches(".git");
+            let path = match path.strip_prefix("git@") {
+                Some(ssh) => ssh.replacen(':', "/", 1),
+                None => path.to_string(),
+            };
+            Some(format!("https://{path}"))
+        }
+        _ => None,
+    }
+}
+
+#[tauri::command]
+fn open_page(kind: String, name: String) -> Result<()> {
+    let url = page_url(&kind, &name).ok_or_else(|| format!("nothing to open for {kind} {name}"))?;
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string().into())
+}
+
 /// Where problems and ideas are reported.
 fn issues() -> String {
     format!("https://github.com/{}/issues/new", update::GITHUB_REPO)
@@ -832,4 +866,32 @@ async fn disconnect() -> Result<String> {
     blocking(|ctx| sync::disconnect(ctx).map(|p| p.display().to_string()))
         .await
         .map_err(Problem::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::page_url;
+
+    #[test]
+    fn only_known_pages_open() {
+        assert_eq!(
+            page_url("arch", "yazi").as_deref(),
+            Some("https://archlinux.org/packages/?q=yazi")
+        );
+        assert_eq!(
+            page_url("aur", "spotify").as_deref(),
+            Some("https://aur.archlinux.org/packages/spotify")
+        );
+        assert_eq!(
+            page_url("plugin", "https://github.com/acme/weather.git").as_deref(),
+            Some("https://github.com/acme/weather")
+        );
+        assert_eq!(
+            page_url("plugin", "git@github.com:acme/weather.git").as_deref(),
+            Some("https://github.com/acme/weather")
+        );
+        assert_eq!(page_url("arch", "yazi; rm -rf /"), None);
+        assert_eq!(page_url("plugin", "file:///etc/passwd"), None);
+        assert_eq!(page_url("omarchy", "yazi"), None);
+    }
 }

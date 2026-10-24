@@ -3,6 +3,7 @@ import { Search } from 'lucide-react';
 import { Input, Label, SearchField, Text, TextArea, TextField } from 'react-aria-components';
 import { api } from '../api';
 import type { SyncState } from '../state';
+import { Button } from 'react-aria-components';
 import { Caution, ComputerList, Group, Link, Push, Row, Toggle } from '../ui';
 
 /** Where an app comes from, as a short tag and what it means. */
@@ -123,7 +124,8 @@ export function AppsPane({ s }: { s: SyncState }) {
               // Not in Arch's repos or the AUR: it syncs only with its install steps.
               const outside = ov.apps.outside.includes(app) || app in (data.outside ?? {});
               const script = data.outside?.[app] ?? null;
-              const [tag, meaning] = source(ov.apps.source[app]);
+              const from = ov.apps.source[app];
+              const [tag, meaning] = source(from);
               // Needs an extra repository this computer doesn't have yet: off and locked here
               // until it's added (it never comes from the AUR instead).
               const repo = ov.missing_repos.find((r) => r.apps.includes(app))?.name;
@@ -132,11 +134,21 @@ export function AppsPane({ s }: { s: SyncState }) {
                   <div className="text">
                     <div>
                       {app}
-                      {tag && (
-                        <span className={`source ${ov.apps.source[app]}`} title={meaning}>
-                          {tag}
-                        </span>
-                      )}
+                      {tag &&
+                        (from === 'arch' || from === 'aur' ? (
+                          // Its package page, for what the app is and who maintains it.
+                          <Button
+                            className={`source ${from}`}
+                            aria-label={`${app} on ${tag}`}
+                            onPress={() => api.openPage(from, app).catch(s.fail)}
+                          >
+                            {tag}
+                          </Button>
+                        ) : (
+                          <span className={`source ${from}`} title={meaning}>
+                            {tag}
+                          </span>
+                        ))}
                     </div>
                     {missingHere ? (
                       <div className="detail warn">

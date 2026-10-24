@@ -302,7 +302,14 @@ function PluginText({
         {kinds && <span className="source">{kinds}</span>}
       </div>
       {detail && <div className={`detail ${missingHere ? 'warn' : ''}`}>{detail}</div>}
-      {p.source && <div className="detail">From {place(p.source)}</div>}
+      {p.source && (
+        <div className="detail">
+          From{' '}
+          <Link onPress={() => api.openPage('plugin', p.source!).catch(s.fail)}>
+            {place(p.source)}
+          </Link>
+        </div>
+      )}
       {p.here && !removing && (
         <div className="plugin-here">
           <span className="who">
