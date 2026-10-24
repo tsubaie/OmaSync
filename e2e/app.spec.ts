@@ -270,28 +270,21 @@ test('plugins are switched on, added from git, updated and removed here', async 
   expect(await calls(page, 'set_plugin_enabled')).toEqual([
     { cmd: 'set_plugin_enabled', args: { id: 'omarchy.clock', on: false } },
   ]);
-  await expect(page.getByText('From github.com/sspaeti/omarchy-plugin-timezones')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open github.com (Timezones)' })).toBeVisible();
   // Its source opens in the browser; Rust turns the git address into the page.
-  await page
-    .getByRole('button', { name: 'From github.com/sspaeti/omarchy-plugin-timezones' })
-    .click();
+  await page.getByRole('button', { name: 'Open github.com (Timezones)' }).click();
   expect(await calls(page, 'open_page')).toEqual([
     {
       cmd: 'open_page',
       args: { kind: 'plugin', name: 'https://github.com/sspaeti/omarchy-plugin-timezones.git' },
     },
   ]);
-  // The day's check marks a plugin from git; updating it marks it up to date.
-  await expect(page.getByText('Update available')).toBeVisible();
-  await page.getByRole('button', { name: 'Update Plugin', exact: true }).click();
+  // The day's check found an update: Update Plugin stands out; updating marks it up to date.
+  await page.getByRole('button', { name: /^Update Plugin \(an update is available/ }).click();
   await expect(page.getByText('timezones is up to date.')).toBeVisible();
   await expect(page.getByText('Up to date', { exact: true })).toBeVisible();
   // Omarchy's own plugins link to their folder in Omarchy's repository.
-  await expect(
-    page.getByRole('button', {
-      name: 'From github.com/omacom/omarchy/tree/HEAD/shell/plugins/bar/widgets',
-    }),
-  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Open github.com (Clock)' })).toBeVisible();
   expect(await calls(page, 'update_plugins')).toEqual([
     { cmd: 'update_plugins', args: { id: 'timezones' } },
   ]);

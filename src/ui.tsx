@@ -117,6 +117,7 @@ export function Link({
   disabled,
   label,
   out,
+  accent,
   onPress,
 }: {
   children: ReactNode;
@@ -125,10 +126,17 @@ export function Link({
   label?: string;
   /** Opens a web page outside the app: the text ends in the outward mark. */
   out?: boolean;
+  /** The one thing worth doing in its row, in the accent colour. */
+  accent?: boolean;
   onPress: () => void;
 }) {
   return (
-    <Button className="link" isDisabled={disabled} aria-label={label} onPress={onPress}>
+    <Button
+      className={accent ? 'link accent' : 'link'}
+      isDisabled={disabled}
+      aria-label={label}
+      onPress={onPress}
+    >
       {children}
       {out && <ExternalLink size={11} aria-hidden="true" />}
     </Button>

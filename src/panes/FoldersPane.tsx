@@ -266,8 +266,10 @@ const place = (url: string) =>
     .replace(/\.git$/, '');
 
 /**
- * A plugin's name, kind and description, and under them, for one that's on this computer, its
- * Enabled switch (the shell's on or off, kept in the bar layout) and Update and Remove.
+ * A plugin in three lines: its name and kind; its description, cut to one line (the whole on
+ * hover); and a quiet line of short things: the Enabled switch (the shell's on or off, kept in
+ * the bar layout), the day's word on updates (Up to date, or Update Plugin in the accent colour
+ * when there's one), its source, and Remove.
  */
 function PluginText({
   s,
@@ -302,52 +304,57 @@ function PluginText({
         {p.name}
         {kinds && <span className="source">{kinds}</span>}
       </div>
-      {detail && <div className={`detail ${missingHere ? 'warn' : ''}`}>{detail}</div>}
-      {p.update !== null && (
-        <div className="detail">
-          {p.update ? (
-            <span className="accent">
-              <Download size={13} strokeWidth={2.25} aria-hidden="true" />
-              Update available
+      {detail && (
+        <div className={`detail ${missingHere ? 'warn' : 'clipped'}`} title={detail}>
+          {detail}
+        </div>
+      )}
+      {!removing && (
+        <div className="plugin-here">
+          {p.here && (
+            <span className="who">
+              Enabled
+              <Toggle
+                on={!!p.enabled}
+                label={`${p.name} enabled`}
+                disabled={!s.idle || !p.can_disable}
+                onChange={(on) =>
+                  s.act(
+                    on ? `Enabling ${p.name}` : `Disabling ${p.name}`,
+                    () => api.setPluginEnabled(p.id, on),
+                    () => s.refresh(),
+                  )
+                }
+              />
             </span>
-          ) : (
-            <span className="good">
+          )}
+          {p.update === false && (
+            <span className="who good">
               <CircleCheck size={13} strokeWidth={2.25} aria-hidden="true" />
               Up to date
             </span>
           )}
-        </div>
-      )}
-      {p.source && (
-        <div className="inline">
-          <Link out onPress={() => api.openPage('plugin', p.source!).catch(s.fail)}>
-            From {place(p.source)}
-          </Link>
-        </div>
-      )}
-      {p.here && !removing && (
-        <div className="plugin-here">
-          <span className="who">
-            Enabled
-            <Toggle
-              on={!!p.enabled}
-              label={`${p.name} enabled`}
-              disabled={!s.idle || !p.can_disable}
-              onChange={(on) =>
-                s.act(
-                  on ? `Enabling ${p.name}` : `Disabling ${p.name}`,
-                  () => api.setPluginEnabled(p.id, on),
-                  () => s.refresh(),
-                )
-              }
-            />
-          </span>
-          {onUpdate && p.source && (
-            <Link disabled={!s.idle} onPress={onUpdate}>
+          {p.here && onUpdate && p.source && p.update !== false && (
+            <Link
+              accent={p.update === true}
+              label={p.update ? `Update Plugin (an update is available for ${p.name})` : undefined}
+              disabled={!s.idle}
+              onPress={onUpdate}
+            >
+              {p.update && <Download size={13} strokeWidth={2.25} aria-hidden="true" />}
               Update Plugin
             </Link>
           )}
-          {onRemoving && (
+          {p.source && (
+            <Link
+              out
+              label={`Open ${place(p.source).split('/')[0]} (${p.name})`}
+              onPress={() => api.openPage('plugin', p.source!).catch(s.fail)}
+            >
+              Open {place(p.source).split('/')[0]}
+            </Link>
+          )}
+          {p.here && onRemoving && (
             <Link disabled={!s.idle} onPress={() => onRemoving(true)}>
               Remove Plugin…
             </Link>
