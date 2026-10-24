@@ -1353,3 +1353,17 @@ fn apps_from_the_standard_repositories_record_no_extra_repository() {
         Some("aur")
     );
 }
+
+#[test]
+#[ignore]
+fn the_package_list_is_read_once_per_sync_and_once_per_look() {
+    let mut lab = pair();
+    lab.packages("a", "firefox");
+    let calls = |lab: &Lab| lab.calls("a").matches("pacman -Qq\n").count();
+    let before = calls(&lab);
+    lab.sync_ok("a");
+    assert_eq!(calls(&lab) - before, 1, "{}", lab.calls("a"));
+    let before = calls(&lab);
+    overview(lab.ctx("a"), &|_| {}, false).unwrap();
+    assert_eq!(calls(&lab) - before, 1, "{}", lab.calls("a"));
+}
