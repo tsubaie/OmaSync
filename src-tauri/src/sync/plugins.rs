@@ -91,7 +91,13 @@ pub(crate) fn plugin_updates(ctx: &Ctx) -> BTreeMap<String, bool> {
             .map(|(id, dir)| {
                 scope.spawn(move || {
                     let here = run(Some(dir), "git", &["rev-parse", "HEAD"]).ok()?;
-                    let there = run(Some(dir), "git", &["ls-remote", "origin", "HEAD"]).ok()?;
+                    // A source that doesn't answer gets 20 seconds, not the whole look.
+                    let there = run(
+                        Some(dir),
+                        "timeout",
+                        &["20", "git", "ls-remote", "origin", "HEAD"],
+                    )
+                    .ok()?;
                     Some((id.clone(), there.split_whitespace().next()? != here))
                 })
             })

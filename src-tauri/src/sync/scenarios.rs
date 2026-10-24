@@ -1390,7 +1390,12 @@ fn an_apps_settings_folder_syncs_from_the_start_only_when_the_app_is_installed()
         folders.contains(&".config/alacritty".to_string()),
         "{folders:?}"
     );
-    // With Kitty installed, its settings sync from the start.
+}
+
+#[test]
+#[ignore]
+fn an_apps_settings_folder_syncs_from_the_start_when_the_app_is_installed() {
+    // One lab at a time: a second one here would wait on the first's lock forever.
     let mut lab = Lab::new();
     lab.add("k");
     lab.packages("k", "kitty");
