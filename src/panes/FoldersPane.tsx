@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { Input, Label, Text, TextField } from 'react-aria-components';
 import { api, type Folder, type Plugin } from '../api';
 import type { SyncState } from '../state';
@@ -132,7 +132,9 @@ export function PluginsPane({ s }: { s: SyncState }) {
   const fromGit = mine.filter((p) => p.here && p.source);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
-  const { computers, name, column, columns, many } = s.matrix;
+  const { computers, name, column, many } = s.matrix;
+  // The switch columns: Enabled (the bar layout's, so it syncs), then one per computer.
+  const columns = { '--n': computers.length + 1 } as CSSProperties;
   /** Runs one of Omarchy's plugin commands, then looks again. */
   const omarchy = (label: string, work: () => Promise<unknown>, said?: (out: string) => void) =>
     s.act(label, work, (out) => {
@@ -152,7 +154,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
         <>
           <Group
             title="Your Plugins"
-            footer="Sync puts a plugin on a computer after you approve it there; switching it off never removes it. Enabled is part of your bar layout, so it reaches every computer. Update and Remove only change this computer."
+            footer="Sync puts a plugin on a computer after you approve it there; switching it off never removes it. Enabled is part of your bar layout, so it reaches every computer."
           >
             <Row
               title="Add a plugin from its git address"
@@ -174,9 +176,10 @@ export function PluginsPane({ s }: { s: SyncState }) {
               )}
             </Row>
             {mine.length === 0 && <Row title="No plugins of your own on any computer yet." />}
-            {mine.length > 0 && computers.length > 1 && !many && (
+            {mine.length > 0 && !many && (
               <div className="row matrix head" style={columns} aria-hidden="true">
                 <span>Plugin</span>
+                <span>Enabled</span>
                 {computers.map((c) => (
                   <span key={c}>{column(c)}</span>
                 ))}
@@ -187,6 +190,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
                 <PluginText
                   s={s}
                   p={p}
+                  enabledInline={many}
                   removing={removing === p.id}
                   onRemoving={(on) => setRemoving(on ? p.id : null)}
                   onUpdate={() =>
@@ -206,17 +210,23 @@ export function PluginsPane({ s }: { s: SyncState }) {
                     onChange={(c, on) => s.edit(() => api.setPlugin(c, p.id, on))}
                   />
                 ) : (
-                  computers.map((c) => (
-                    <div className="cell" key={c}>
-                      <span className="cell-label">{column(c)}</span>
-                      <Toggle
-                        on={s.wantsPlugin(c, p.id)}
-                        label={`${p.name} synced on ${name(c)}`}
-                        disabled={!s.idle}
-                        onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
-                      />
+                  <>
+                    <div className="cell">
+                      <span className="cell-label">Enabled</span>
+                      {p.here && <EnabledToggle s={s} p={p} />}
                     </div>
-                  ))
+                    {computers.map((c) => (
+                      <div className="cell" key={c}>
+                        <span className="cell-label">{column(c)}</span>
+                        <Toggle
+                          on={s.wantsPlugin(c, p.id)}
+                          label={`${p.name} synced on ${name(c)}`}
+                          disabled={!s.idle}
+                          onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
+                        />
+                      </div>
+                    ))}
+                  </>
                 )}
               </div>
             ))}
@@ -241,6 +251,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
               {omarchys.map((p) => (
                 <div className="row" key={p.id}>
                   <PluginText s={s} p={p} />
+                  <EnabledToggle s={s} p={p} />
                 </div>
               ))}
             </Group>
@@ -267,15 +278,34 @@ const place = (url: string) =>
     .replace(/^git@([^:]+):/, '$1/')
     .replace(/\.git$/, '');
 
+/** The shell's on or off for a plugin here, kept in the bar layout (so it syncs). */
+function EnabledToggle({ s, p }: { s: SyncState; p: Plugin }) {
+  return (
+    <Toggle
+      on={!!p.enabled}
+      label={`${p.name} enabled`}
+      disabled={!s.idle || !p.can_disable}
+      onChange={(on) =>
+        s.act(
+          on ? `Enabling ${p.name}` : `Disabling ${p.name}`,
+          () => api.setPluginEnabled(p.id, on),
+          () => s.refresh(),
+        )
+      }
+    />
+  );
+}
+
 /**
- * A plugin in three lines: its name and kind; its description, cut to one line (the whole on
- * hover); and a quiet line of short things: the Enabled switch (the shell's on or off, kept in
- * the bar layout), the day's word on updates (Up to date, or Update Plugin in the accent colour
- * when there's one), its source, and Remove.
+ * A plugin in three lines: its name, kind and source; its description, cut to one line (the
+ * whole on hover); and what changes this computer alone, said so: the day's word on updates
+ * (Up to date, or Update in the accent colour when there's one) and Remove. The switches that
+ * sync sit in the row's columns; with many computers, Enabled comes along here.
  */
 function PluginText({
   s,
   p,
+  enabledInline = false,
   removing = false,
   onRemoving,
   onUpdate,
@@ -283,6 +313,7 @@ function PluginText({
 }: {
   s: SyncState;
   p: Plugin;
+  enabledInline?: boolean;
   removing?: boolean;
   onRemoving?: (on: boolean) => void;
   onUpdate?: () => void;
@@ -302,63 +333,57 @@ function PluginText({
   const kinds = p.kinds.map((k) => KINDS[k] ?? k).join(', ');
   return (
     <div className="text">
-      <div>
+      <div className="plugin-name">
         {p.name}
         {kinds && <span className="source">{kinds}</span>}
+        {p.source && (
+          <Link
+            out
+            label={`Open ${place(p.source).split('/')[0]} (${p.name})`}
+            onPress={() => api.openPage('plugin', p.source!).catch(s.fail)}
+          >
+            {place(p.source).split('/')[0]}
+          </Link>
+        )}
       </div>
       {detail && (
         <div className={`detail ${missingHere ? 'warn' : 'clipped'}`} title={detail}>
           {detail}
         </div>
       )}
-      {!removing && (
+      {enabledInline && p.here && (
         <div className="plugin-here">
-          {p.here && (
-            <span className="who">
-              Enabled
-              <Toggle
-                on={!!p.enabled}
-                label={`${p.name} enabled`}
-                disabled={!s.idle || !p.can_disable}
-                onChange={(on) =>
-                  s.act(
-                    on ? `Enabling ${p.name}` : `Disabling ${p.name}`,
-                    () => api.setPluginEnabled(p.id, on),
-                    () => s.refresh(),
-                  )
-                }
-              />
-            </span>
-          )}
+          <span className="who">
+            Enabled
+            <EnabledToggle s={s} p={p} />
+          </span>
+        </div>
+      )}
+      {p.here && !removing && (onUpdate || onRemoving) && (
+        <div className="plugin-here">
+          <span className="who">This computer:</span>
           {p.update === false && (
             <span className="who good">
               <CircleCheck size={13} strokeWidth={2.25} aria-hidden="true" />
               Up to date
             </span>
           )}
-          {p.here && onUpdate && p.source && p.update !== false && (
+          {onUpdate && p.source && p.update !== false && (
             <Link
               accent={p.update === true}
-              label={p.update ? `Update Plugin (an update is available for ${p.name})` : undefined}
+              label={
+                p.update ? `Update (an update is available for ${p.name})` : `Update (${p.name})`
+              }
               disabled={!s.idle}
               onPress={onUpdate}
             >
               {p.update && <Download size={13} strokeWidth={2.25} aria-hidden="true" />}
-              {s.busy === `Updating ${p.name}` ? 'Updating…' : 'Update Plugin'}
+              {s.busy === `Updating ${p.name}` ? 'Updating…' : 'Update'}
             </Link>
           )}
-          {p.source && (
-            <Link
-              out
-              label={`Open ${place(p.source).split('/')[0]} (${p.name})`}
-              onPress={() => api.openPage('plugin', p.source!).catch(s.fail)}
-            >
-              Open {place(p.source).split('/')[0]}
-            </Link>
-          )}
-          {p.here && onRemoving && (
-            <Link disabled={!s.idle} onPress={() => onRemoving(true)}>
-              Remove Plugin…
+          {onRemoving && (
+            <Link label={`Remove… (${p.name})`} disabled={!s.idle} onPress={() => onRemoving(true)}>
+              Remove…
             </Link>
           )}
         </div>

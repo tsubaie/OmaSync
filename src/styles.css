@@ -1379,6 +1379,11 @@ kbd {
 .plugin-here .who.good {
   color: var(--good);
 }
+/* A plugin's source sits with its name and kind, as short as its host. */
+.plugin-name .link {
+  margin-left: 8px;
+  padding: 0;
+}
 /* A plugin's description is its maker's paragraph: one line here, the whole on hover. */
 .detail.clipped {
   white-space: nowrap;
