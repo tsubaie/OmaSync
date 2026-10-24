@@ -123,7 +123,19 @@ export function AppsPane({ s }: { s: SyncState }) {
               // Not in Arch's repos or the AUR: it syncs only with its install steps.
               const outside = ov.apps.outside.includes(app) || app in (data.outside ?? {});
               const script = data.outside?.[app] ?? null;
-              const [tag, meaning] = source(ov.apps.source[app]);
+              const from = ov.apps.source[app];
+              const [tag, meaning] = source(from);
+              // Where its link goes: Arch's or the AUR's package page, which say everything
+              // about it; an app from Omarchy's repository (no pages) links to its own website.
+              const website = ov.apps.website[app];
+              const page =
+                from === 'arch'
+                  ? (['arch', 'archlinux.org'] as const)
+                  : from === 'aur'
+                    ? (['aur', 'the AUR'] as const)
+                    : from === 'omarchy' && website
+                      ? (['website', new URL(website).host] as const)
+                      : null;
               // Needs an extra repository this computer doesn't have yet: off and locked here
               // until it's added (it never comes from the AUR instead).
               const repo = ov.missing_repos.find((r) => r.apps.includes(app))?.name;
@@ -133,7 +145,7 @@ export function AppsPane({ s }: { s: SyncState }) {
                     <div>
                       {app}
                       {tag && (
-                        <span className={`source ${ov.apps.source[app]}`} title={meaning}>
+                        <span className={`source ${from}`} title={meaning}>
                           {tag}
                         </span>
                       )}
@@ -157,6 +169,17 @@ export function AppsPane({ s }: { s: SyncState }) {
                         {script
                           ? `Not in Arch's repos or the AUR. Installs with ${steps(script.command)}.`
                           : "Not in Arch's repos or the AUR. Add its install steps to sync it."}
+                      </div>
+                    )}
+                    {page && (
+                      <div className="inline">
+                        <Link
+                          out
+                          label={`Open ${page[1]} (${app})`}
+                          onPress={() => api.openPage(page[0], app).catch(s.fail)}
+                        >
+                          Open {page[1]}
+                        </Link>
                       </div>
                     )}
                     {outside && editing !== app && (

@@ -455,6 +455,10 @@ output {
   font-size: 14px;
   padding: 7px 26px;
 }
+.push.bad {
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, var(--card));
+}
 .push[data-disabled] {
   opacity: 0.5;
   filter: none;
@@ -475,6 +479,18 @@ output {
 }
 .link[data-hovered] {
   color: var(--ink);
+}
+.link.accent {
+  color: var(--accent);
+}
+.link.bad[data-hovered] {
+  color: var(--bad);
+}
+/* Text and its mark stay on one line (a link out of the app ends in the outward arrow). */
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .link[data-disabled] {
   opacity: 0.5;
@@ -1366,6 +1382,20 @@ kbd {
   gap: 6px;
   font-size: 11px;
   color: var(--quiet);
+}
+.plugin-here .who.good {
+  color: var(--good);
+}
+/* A plugin's source sits with its name and kind, as short as its host. */
+.plugin-name .link {
+  margin-left: 8px;
+  padding: 0;
+}
+/* A plugin's description is its maker's paragraph: one line here, the whole on hover. */
+.detail.clipped {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .confirm {
   display: grid;

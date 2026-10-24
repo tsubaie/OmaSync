@@ -26,9 +26,7 @@ test('first run names exactly what it installs', async ({ page }) => {
 
 test('sync pane shows the state and syncs on request', async ({ page }) => {
   await page.goto('/?scenario=synced');
-  const status = page
-    .getByRole('status')
-    .filter({ hasText: 'Everything matches your other computers.' });
+  const status = page.getByRole('status').filter({ hasText: 'All your computers are in sync.' });
   await expect(status).toBeVisible();
   expect(await a11y(page)).toEqual([]);
 
@@ -83,6 +81,17 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
   const yazi = page.getByRole('switch', { name: 'yazi synced on This Computer' });
   await expect(yazi).toBeChecked();
+  // An Arch or AUR app links to its package page; one from Omarchy's repository (no pages)
+  // to its own website; one with install steps has neither.
+  await page.getByRole('button', { name: 'Open archlinux.org (yazi)' }).click();
+  await page.getByRole('button', { name: 'Open the AUR (spotify)' }).click();
+  await page.getByRole('button', { name: 'Open brave.com (brave-bin)' }).click();
+  expect(await calls(page, 'open_page')).toEqual([
+    { cmd: 'open_page', args: { kind: 'arch', name: 'yazi' } },
+    { cmd: 'open_page', args: { kind: 'aur', name: 'spotify' } },
+    { cmd: 'open_page', args: { kind: 'website', name: 'brave-bin' } },
+  ]);
+  await expect(page.getByRole('button', { name: /\(tapecalc\)$/ })).toHaveCount(0);
   // Toggle it the way a keyboard user does; it works the same in WebKit and Chromium.
   await yazi.focus();
   await page.keyboard.press('Space');
@@ -91,7 +100,16 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
     { cmd: 'set_app', args: { computer: 'aaaa11112222', app: 'yazi', on: false } },
   ]);
   await expect(
-    page.getByText('Your other computers get this change the next time you sync.'),
+    page.getByText('Your other computers get this the next time you sync.', { exact: false }),
+  ).toBeVisible();
+  // The Sync page counts the changed choices straight away, one row each, and says what.
+  await page.keyboard.press('Control+1');
+  await expect(page.getByText("2 changes on this computer aren't synced yet.")).toBeVisible();
+  await expect(
+    page.getByText('yazi switched off for this computer', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Kitty terminal left out on this computer', { exact: true }),
   ).toBeVisible();
 });
 
@@ -208,7 +226,9 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await expect(desk).toBeChecked();
   await expect(page.getByRole('switch', { name: 'spotify synced on This Computer' })).toBeChecked();
   await expect(rows).toHaveText([/^brave-bin/, /^quicknote/, /^spotify/, /^tapecalc/, /^yazi/]);
-  const banner = page.getByText('Your other computers get this change the next time you sync.');
+  const banner = page.getByText('Your other computers get this the next time you sync.', {
+    exact: false,
+  });
   await expect(banner).toBeVisible();
   // Every computer switched off again: nothing is left to share, so the banner goes away.
   const here = page.getByRole('switch', { name: 'spotify synced on This Computer' });
@@ -259,11 +279,30 @@ test('plugins are switched on, added from git, updated and removed here', async 
   expect(await calls(page, 'set_plugin_enabled')).toEqual([
     { cmd: 'set_plugin_enabled', args: { id: 'omarchy.clock', on: false } },
   ]);
-  await expect(page.getByText('From github.com/sspaeti/omarchy-plugin-timezones')).toBeVisible();
-  await page.getByRole('button', { name: 'Update Plugin', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Open github.com (Timezones)' })).toBeVisible();
+  // Its source opens in the browser; Rust turns the git address into the page.
+  await page.getByRole('button', { name: 'Open github.com (Timezones)' }).click();
+  expect(await calls(page, 'open_page')).toEqual([
+    {
+      cmd: 'open_page',
+      args: { kind: 'plugin', name: 'https://github.com/sspaeti/omarchy-plugin-timezones.git' },
+    },
+  ]);
+  // The day's check found an update: Update stands out; updating marks it up to date.
+  await page.getByRole('button', { name: /^Update \(an update is available/ }).click();
   await expect(page.getByText('timezones is up to date.')).toBeVisible();
+  await expect(page.getByText('Up to date', { exact: true })).toBeVisible();
+  // Omarchy's own plugins link to their folder in Omarchy's repository.
+  await expect(page.getByRole('button', { name: 'Open github.com (Clock)' })).toBeVisible();
   expect(await calls(page, 'update_plugins')).toEqual([
-    { cmd: 'update_plugins', args: { id: 'timezones' } },
+    expect.objectContaining({ args: expect.objectContaining({ id: 'timezones' }) }),
+  ]);
+  // Update All, at the top, goes plugin by plugin and sums up what Omarchy said.
+  await page.getByRole('button', { name: 'Update All' }).click();
+  await expect(page.getByText('Updated timezones.')).toBeVisible();
+  expect(await calls(page, 'update_plugins')).toEqual([
+    expect.objectContaining({ args: expect.objectContaining({ id: 'timezones' }) }),
+    expect.objectContaining({ args: expect.objectContaining({ id: null }) }),
   ]);
   // Adding asks for the address, warns, and only then runs.
   await page.getByRole('button', { name: 'Add Plugin…' }).click();
@@ -276,7 +315,7 @@ test('plugins are switched on, added from git, updated and removed here', async 
     { cmd: 'add_plugin', args: { url: 'https://github.com/acme/omarchy-weather.git' } },
   ]);
   // Removing asks first and says it's this computer only.
-  await page.getByRole('button', { name: 'Remove Plugin…' }).click();
+  await page.getByRole('button', { name: 'Remove… (Timezones)' }).click();
   await expect(page.getByText('Removes Timezones from this computer only.')).toBeVisible();
   await page.getByRole('button', { name: 'Remove from This Computer' }).click();
   expect(await calls(page, 'remove_plugin')).toEqual([

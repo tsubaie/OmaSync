@@ -72,6 +72,7 @@ fn main() {
             check_update,
             install_update,
             open_release,
+            open_page,
         ])
         .run(tauri::generate_context!())
         .expect("Omarchy Sync couldn't start");
@@ -424,13 +425,13 @@ async fn add_plugin(url: String) -> Result<()> {
         .map_err(Problem::from)
 }
 
-/// Updates one plugin from git, or all of them. Returns what Omarchy said.
+/// Updates one plugin from git, or all of them, a step each. Returns what Omarchy said.
 #[tauri::command]
-async fn update_plugins(id: Option<String>) -> Result<String> {
+async fn update_plugins(id: Option<String>, on_step: Channel<String>) -> Result<String> {
     if let Some(id) = &id {
         plugin_id(id)?;
     }
-    blocking(move |ctx| sync::update_plugins(ctx, id.as_deref()))
+    blocking(move |ctx| sync::update_plugins(ctx, id.as_deref(), &steps(on_step)))
         .await
         .map_err(Problem::from)
 }
@@ -470,9 +471,10 @@ async fn set_bar_indicator(on: bool) -> Result<()> {
         .map_err(Problem::from)
 }
 
+/// What changed in the choices since they were last shared, in sentences; none when nothing.
 #[tauri::command]
-fn choices_changed() -> bool {
-    Ctx::load().choices_changed()
+fn choices_changed() -> Vec<String> {
+    Ctx::load().choice_changes()
 }
 
 /// Loads the shared data, applies one change, saves it, and hands the result back to the page.
@@ -769,6 +771,62 @@ fn open_release(version: String) -> Result<()> {
         .map_err(|e| e.to_string().into())
 }
 
+/// The web page of an app's package or a plugin's source: only a package name on Arch's or
+/// the AUR's site, or a git address, becomes one. `info` is `pacman -Si` for an Arch package:
+/// its repository makes it the package's own page (archlinux.org sends an `any` package on
+/// from the x86_64 address), and without one it's the search.
+fn page_url(kind: &str, name: &str, info: &str) -> Option<String> {
+    match kind {
+        "arch" if sync::is_package_name(name) => {
+            let repo = info
+                .lines()
+                .find_map(|l| l.strip_prefix("Repository"))
+                .map(|l| l.trim_start_matches([' ', ':']).trim())
+                .filter(|r| !r.is_empty());
+            Some(match repo {
+                Some(repo) => format!("https://archlinux.org/packages/{repo}/x86_64/{name}/"),
+                None => format!("https://archlinux.org/packages/?q={name}"),
+            })
+        }
+        "aur" if sync::is_package_name(name) => {
+            Some(format!("https://aur.archlinux.org/packages/{name}"))
+        }
+        // The app's own website, as its package names it (Omarchy's repository has no pages).
+        // shortcut: https only, as is_git_address checks; an http:// site stays unlinked.
+        "website" if sync::is_package_name(name) => info
+            .lines()
+            .find_map(|l| l.strip_prefix("URL"))
+            .map(|l| l.trim_start_matches([' ', ':']).trim().to_string())
+            .filter(|url| sync::is_git_address(url)),
+        "plugin" if sync::is_git_address(name) => {
+            // A browser opens neither git@host:path nor .git: the same page, as https.
+            let path = name.trim_start_matches("https://").trim_end_matches(".git");
+            let path = match path.strip_prefix("git@") {
+                Some(ssh) => ssh.replacen(':', "/", 1),
+                None => path.to_string(),
+            };
+            Some(format!("https://{path}"))
+        }
+        _ => None,
+    }
+}
+
+#[tauri::command]
+fn open_page(kind: String, name: String) -> Result<()> {
+    let info = if (kind == "arch" || kind == "website") && sync::is_package_name(&name) {
+        sync::run(None, "pacman", &["-Si", &name]).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let url = page_url(&kind, &name, &info)
+        .ok_or_else(|| format!("nothing to open for {kind} {name}"))?;
+    std::process::Command::new("xdg-open")
+        .arg(url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string().into())
+}
+
 /// Where problems and ideas are reported.
 fn issues() -> String {
     format!("https://github.com/{}/issues/new", update::GITHUB_REPO)
@@ -832,4 +890,44 @@ async fn disconnect() -> Result<String> {
     blocking(|ctx| sync::disconnect(ctx).map(|p| p.display().to_string()))
         .await
         .map_err(Problem::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::page_url;
+
+    #[test]
+    fn only_known_pages_open() {
+        let info = "Repository      : extra\nName            : yazi\n";
+        assert_eq!(
+            page_url("arch", "yazi", info).as_deref(),
+            Some("https://archlinux.org/packages/extra/x86_64/yazi/")
+        );
+        assert_eq!(
+            page_url("arch", "yazi", "").as_deref(),
+            Some("https://archlinux.org/packages/?q=yazi")
+        );
+        assert_eq!(
+            page_url("aur", "spotify", "").as_deref(),
+            Some("https://aur.archlinux.org/packages/spotify")
+        );
+        assert_eq!(
+            page_url("plugin", "https://github.com/acme/weather.git", "").as_deref(),
+            Some("https://github.com/acme/weather")
+        );
+        assert_eq!(
+            page_url("plugin", "git@github.com:acme/weather.git", "").as_deref(),
+            Some("https://github.com/acme/weather")
+        );
+        let info = "Name            : brave-bin\nURL             : https://brave.com\n";
+        assert_eq!(
+            page_url("website", "brave-bin", info).as_deref(),
+            Some("https://brave.com")
+        );
+        assert_eq!(page_url("website", "brave-bin", ""), None);
+        assert_eq!(page_url("website", "x", "URL : file:///etc/passwd\n"), None);
+        assert_eq!(page_url("arch", "yazi; rm -rf /", ""), None);
+        assert_eq!(page_url("plugin", "file:///etc/passwd", ""), None);
+        assert_eq!(page_url("omarchy", "yazi", ""), None);
+    }
 }

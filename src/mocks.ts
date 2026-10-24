@@ -131,6 +131,9 @@ function place(
 // On by default, like the real app.
 let barIndicator = true;
 
+/** The mock's one plugin with an update, until it's updated. */
+let timezonesUpdated = false;
+
 const status = (): Status => ({
   host: 'aaaa11112222',
   sync_space: 'https://github.com/someone/omarchy-sync',
@@ -141,6 +144,7 @@ const status = (): Status => ({
   data,
   overview: {
     unshared: scenario === 'conflict' ? ['.config/hypr/bindings.lua'] : [],
+    choice_changes: [],
     incoming: 0,
     online: true,
     computers: [
@@ -170,6 +174,7 @@ const status = (): Status => ({
         quicknote: 'elsewhere',
       },
       about: { 'brave-bin': 'Web browser', spotify: 'Music', tapecalc: 'Calculation tape' },
+      website: { 'brave-bin': 'https://brave.com', yazi: 'https://yazi-rs.github.io' },
     },
     incoming_files: [],
     incoming_from: [],
@@ -203,7 +208,8 @@ const status = (): Status => ({
         here: true,
         enabled: true,
         can_disable: true,
-        source: null,
+        source: 'https://github.com/omacom/omarchy/tree/HEAD/shell/plugins/bar/widgets',
+        update: null,
       },
       {
         id: 'timezones',
@@ -215,6 +221,7 @@ const status = (): Status => ({
         enabled: true,
         can_disable: true,
         source: 'https://github.com/sspaeti/omarchy-plugin-timezones.git',
+        update: !timezonesUpdated,
       },
       {
         id: 'webcam',
@@ -226,6 +233,7 @@ const status = (): Status => ({
         enabled: null,
         can_disable: true,
         source: null,
+        update: null,
       },
     ],
     history: [
@@ -349,8 +357,10 @@ mockIPC((cmd, args) => {
       data = { ...data, apps: [...new Set([...data.apps, ...(a.apps as string[])])] };
       return data;
     case 'choices_changed':
-      // Like the Rust side: order and empty lists don't count.
-      return same(data) !== same(shared);
+      // Like the Rust side: order and empty lists don't count. One fixed sentence stands in.
+      return same(data) !== same(shared)
+        ? ['yazi switched off for this computer', 'Kitty terminal left out on this computer']
+        : [];
     case 'install_plugins': {
       const laptop = data.computers.aaaa11112222;
       data = {
@@ -365,7 +375,9 @@ mockIPC((cmd, args) => {
     case 'resolve_conflict':
       return { notes: [], waiting: [] };
     case 'update_plugins':
-      return a.id ? `${a.id} is up to date.` : 'timezones is up to date.';
+      timezonesUpdated = true;
+      if (!a.id) emit(a.onStep, ['\u0001plan\tUpdating Timezones', 'Updating Timezones']);
+      return a.id ? `${a.id} is up to date.` : 'Updated timezones.';
     case 'set_plugin_enabled':
     case 'add_plugin':
     case 'remove_plugin':
@@ -441,6 +453,7 @@ mockIPC((cmd, args) => {
       // The real one goes on to install and restart; the mock stays here to show the progress.
       return new Promise(() => {});
     case 'open_release':
+    case 'open_page':
       return null;
     default:
       return null;

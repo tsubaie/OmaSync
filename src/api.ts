@@ -19,8 +19,11 @@ export type Plugin = {
   enabled: boolean | null;
   /** The active bar can't be switched off. */
   can_disable: boolean;
-  /** Its git address, when it came from git (so it can be updated). */
+  /** Its git address, when it came from git (so it can be updated); for one of Omarchy's own,
+   * its folder in Omarchy's repository. */
   source: string | null;
+  /** From git: whether its source has something newer, as of the day's check. */
+  update: boolean | null;
 };
 /** An extra package repository another computer has, and the apps here that need it. */
 export type MissingRepo = {
@@ -87,8 +90,10 @@ export type Entry = {
   files: { path: string; how: 'Added' | 'Changed' | 'Removed' }[];
 };
 export type Overview = {
-  /** Paths under home changed here and not shared yet. */
+  /** Paths under home changed here and not synced yet. */
   unshared: string[];
+  /** What changed in the choices (the data label's entry), in sentences. */
+  choice_changes: string[];
   incoming: number;
   online: boolean;
   /** [computer name, last sync as unix time], this computer first. */
@@ -101,6 +106,8 @@ export type Overview = {
     /** Where each app comes from: omarchy, arch, aur, elsewhere, or another repository's name. */
     source: Record<string, string>;
     about: Record<string, string>;
+    /** Each app's own website, as its package names it. */
+    website: Record<string, string>;
   };
   incoming_files: string[];
   incoming_from: string[];
@@ -190,7 +197,8 @@ export const api = {
   installWithScript: (app: string, onStep: OnStep) =>
     invoke<void>('install_with_script', { app, onStep: steps(onStep) }),
   /** Whether the sync choices differ from what was last shared. */
-  choicesChanged: () => invoke<boolean>('choices_changed'),
+  /** What changed in the choices since they were last shared, in sentences; none when nothing. */
+  choicesChanged: () => invoke<string[]>('choices_changed'),
   setPlugin: (computer: string, plugin: string, on: boolean) =>
     invoke<Data>('set_plugin', { computer, plugin, on }),
   /** Adds the synced plugins this computer is waiting for. */
@@ -199,8 +207,9 @@ export const api = {
   setPluginEnabled: (id: string, on: boolean) => invoke<void>('set_plugin_enabled', { id, on }),
   /** Adds a plugin from its git address and switches it on here. */
   addPlugin: (url: string) => invoke<void>('add_plugin', { url }),
-  /** Updates one plugin from git, or all of them; returns what Omarchy said. */
-  updatePlugins: (id?: string) => invoke<string>('update_plugins', { id: id ?? null }),
+  /** Updates one plugin from git, or all of them (a step each); returns what Omarchy said. */
+  updatePlugins: (id: string | undefined, onStep: OnStep) =>
+    invoke<string>('update_plugins', { id: id ?? null, onStep: steps(onStep) }),
   /** Removes a plugin from this computer only. */
   removePlugin: (id: string) => invoke<void>('remove_plugin', { id }),
   setApp: (computer: string, app: string, on: boolean) =>
@@ -222,4 +231,7 @@ export const api = {
     invoke<void>('install_update', { version, onStep: steps(onStep) }),
   /** Opens a release's page on GitHub. */
   openRelease: (version: string) => invoke<void>('open_release', { version }),
+  /** Opens an app's package page (Arch or the AUR), its own website, or a plugin's source. */
+  openPage: (kind: 'arch' | 'aur' | 'website' | 'plugin', name: string) =>
+    invoke<void>('open_page', { kind, name }),
 };

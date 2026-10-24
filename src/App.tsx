@@ -13,6 +13,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Button, Tab, TabList, TabPanel, Tabs } from 'react-aria-components';
+import { shortList } from './format';
 import { AppsPane } from './panes/AppsPane';
 import { AppDataPane, OmarchyPane, PluginsPane } from './panes/FoldersPane';
 import { HistoryPane } from './panes/HistoryPane';
@@ -143,10 +144,11 @@ export function App() {
                 <h1>{sec.name}</h1>
               </header>
               <div className="content">
-                {s.pending && s.idle && s.tab !== 'sync' && (
+                {s.pending.length > 0 && s.idle && s.tab !== 'sync' && (
                   <div className="box row">
                     <div className="text">
-                      Your other computers get this change the next time you sync.
+                      {shortList(s.pending, 2)}. Your other computers get this the next time you
+                      sync.
                     </div>
                     <Push onPress={() => s.sync()}>Sync Now</Push>
                   </div>

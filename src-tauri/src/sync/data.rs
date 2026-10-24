@@ -339,8 +339,12 @@ pub struct Plugin {
     pub enabled: Option<bool>,
     /// The active bar can't be switched off.
     pub can_disable: bool,
-    /// Its git address, when it came from git (so it can be updated).
+    /// Its git address, when it came from git (so it can be updated); for one of Omarchy's own,
+    /// its folder in Omarchy's repository.
     pub source: Option<String>,
+    /// From git: whether its source has something newer, as of the day's check (see
+    /// `plugin_updates_today`). None when it isn't from git or the check couldn't ask.
+    pub update: Option<bool>,
 }
 
 /// Adds or removes `item` so that `list.contains(item) == present`.
@@ -349,6 +353,134 @@ pub fn toggle(list: &mut Vec<String>, item: &str, present: bool) {
     if present {
         list.push(item.into());
     }
+}
+
+/// What changed between two versions of the choices, each a short sentence for the Sync page:
+/// folders, apps and plugins in or out of the sync, and each computer's own exceptions.
+/// `label` names a folder in plain words; `host` is this computer.
+pub fn describe_changes(
+    before: &Data,
+    after: &Data,
+    host: &str,
+    label: impl Fn(&str) -> String,
+) -> Vec<String> {
+    let name = |id: &str| {
+        if id == host {
+            return "this computer".to_string();
+        }
+        after
+            .computers
+            .get(id)
+            .or_else(|| before.computers.get(id))
+            .filter(|c| !c.name.is_empty())
+            .map_or(id.to_string(), |c| c.name.clone())
+    };
+    fn lists(
+        out: &mut Vec<String>,
+        was: &[String],
+        now: &[String],
+        added: &dyn Fn(&str) -> String,
+        gone: &dyn Fn(&str) -> String,
+    ) {
+        out.extend(now.iter().filter(|x| !was.contains(x)).map(|x| added(x)));
+        out.extend(was.iter().filter(|x| !now.contains(x)).map(|x| gone(x)));
+    }
+    let mut out = Vec::new();
+    lists(
+        &mut out,
+        &before.folders,
+        &after.folders,
+        &|f| format!("{} now syncs on every computer", label(f)),
+        &|f| format!("{} no longer syncs", label(f)),
+    );
+    lists(
+        &mut out,
+        &before.apps,
+        &after.apps,
+        &|a| format!("{a} added to the synced apps"),
+        &|a| format!("{a} taken out of the synced apps"),
+    );
+    lists(
+        &mut out,
+        &before.plugins,
+        &after.plugins,
+        &|p| format!("Plugin {p} now syncs"),
+        &|p| format!("Plugin {p} no longer syncs"),
+    );
+    let ids: BTreeSet<&String> = before
+        .computers
+        .keys()
+        .chain(after.computers.keys())
+        .collect();
+    let none = Computer::default();
+    for id in ids {
+        let (was, now) = (
+            before.computers.get(id).unwrap_or(&none),
+            after.computers.get(id).unwrap_or(&none),
+        );
+        let who = name(id);
+        lists(
+            &mut out,
+            &was.skip_files,
+            &now.skip_files,
+            &|f| format!("{} left out on {who}", label(f)),
+            &|f| format!("{} syncs on {who} again", label(f)),
+        );
+        lists(
+            &mut out,
+            &was.skip_apps,
+            &now.skip_apps,
+            &|a| format!("{a} switched off for {who}"),
+            &|a| format!("{a} switched on for {who}"),
+        );
+        lists(
+            &mut out,
+            &was.skip_plugins,
+            &now.skip_plugins,
+            &|p| format!("Plugin {p} switched off for {who}"),
+            &|p| format!("Plugin {p} switched on for {who}"),
+        );
+        if was.manual != now.manual {
+            let state = if now.manual { "off" } else { "on" };
+            out.push(format!("Automatic sync switched {state} on {who}"));
+        }
+        if was.install_without_asking != now.install_without_asking {
+            out.push(if now.install_without_asking {
+                format!("Synced apps install without asking on {who}")
+            } else {
+                format!("Synced apps wait for approval on {who}")
+            });
+        }
+        if was.no_bar_indicator != now.no_bar_indicator {
+            let state = if now.no_bar_indicator { "off" } else { "on" };
+            out.push(format!("Bar indicator switched {state} on {who}"));
+        }
+        if was.name != now.name && !now.name.is_empty() && !was.name.is_empty() {
+            out.push(format!("{} renamed to {}", was.name, now.name));
+        }
+    }
+    for (app, script) in &after.outside {
+        if before.outside.get(app) != Some(script) {
+            out.push(format!("Install steps for {app} changed"));
+        }
+    }
+    for app in before.outside.keys() {
+        if !after.outside.contains_key(app) {
+            out.push(format!("Install steps for {app} removed"));
+        }
+    }
+    if before.theme != after.theme
+        && let Some(theme) = &after.theme
+    {
+        out.push(format!("Theme set to {theme}"));
+    }
+    if before.background != after.background {
+        out.push("Background changed".to_string());
+    }
+    if out.is_empty() && before != after {
+        out.push("Other sync choices changed".to_string());
+    }
+    out
 }
 
 #[cfg(test)]
@@ -487,5 +619,51 @@ mod tests {
         assert_eq!(d.fresh_name("bbbb33334444", "omarchy"), "omarchy 2");
         assert_eq!(d.fresh_name("aaaa11112222", "omarchy"), "omarchy");
         assert_eq!(d.fresh_name("cccc", ""), "Computer");
+    }
+
+    #[test]
+    fn changed_choices_are_said_in_plain_words() {
+        let mut before = Data {
+            folders: vec![".config/hypr/bindings.lua".into()],
+            apps: vec!["yazi".into()],
+            ..Default::default()
+        };
+        before.computers.entry("aaaa".into()).or_default().name = "Desktop".into();
+        before.computers.entry("bbbb".into()).or_default().name = "Laptop".into();
+        let mut after = before.clone();
+        after.folders.clear();
+        after.apps.push("firefox".into());
+        after
+            .computers
+            .get_mut("aaaa")
+            .unwrap()
+            .skip_apps
+            .push("yazi".into());
+        after
+            .computers
+            .get_mut("bbbb")
+            .unwrap()
+            .skip_files
+            .push(".config/hypr".into());
+        after.computers.get_mut("bbbb").unwrap().manual = true;
+        let said = describe_changes(&before, &after, "aaaa", |f| format!("<{f}>"));
+        assert_eq!(
+            said,
+            vec![
+                "<.config/hypr/bindings.lua> no longer syncs",
+                "firefox added to the synced apps",
+                "yazi switched off for this computer",
+                "<.config/hypr> left out on Laptop",
+                "Automatic sync switched off on Laptop",
+            ]
+        );
+        assert!(describe_changes(&after, &after, "aaaa", |f| f.to_string()).is_empty());
+        // A difference the sentences don't cover still says something.
+        let mut odd = after.clone();
+        odd.version += 1;
+        assert_eq!(
+            describe_changes(&after, &odd, "aaaa", |f| f.to_string()),
+            vec!["Other sync choices changed"]
+        );
     }
 }

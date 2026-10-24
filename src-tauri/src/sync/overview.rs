@@ -6,6 +6,8 @@ use super::*;
 pub struct Overview {
     /// Paths under home (or DATA_LABEL) changed here and not shared yet.
     pub unshared: Vec<String>,
+    /// What changed in the choices (DATA_LABEL's entry), in sentences.
+    pub choice_changes: Vec<String>,
     pub incoming: usize,
     pub online: bool,
     /// (computer name, last sync as unix time), this computer first.
@@ -33,6 +35,8 @@ pub struct Apps {
     /// Where each app comes from: omarchy, arch, aur, elsewhere, or another repository's name.
     pub source: BTreeMap<String, String>,
     pub about: BTreeMap<String, String>,
+    /// Each app's own website, as its package names it.
+    pub website: BTreeMap<String, String>,
 }
 
 /// `just_synced`: a sync has just saved and fetched, so only the rest is looked at again (its
@@ -84,7 +88,11 @@ pub fn overview(
     step("Checking your apps and plugins");
     let apps = apps(data);
     let here = repos_here();
-    let plugins = all_plugins(ctx, data);
+    let mut plugins = all_plugins(ctx, data);
+    let updates = plugin_updates_today(ctx);
+    for p in &mut plugins {
+        p.update = updates.get(&p.id).copied();
+    }
     let mut unshared: Vec<String> = parse_status(&status)
         .iter()
         .filter(|p| !p.starts_with(".chezmoiignore"))
@@ -97,6 +105,7 @@ pub fn overview(
     }
     Ok(Overview {
         unshared,
+        choice_changes: ctx.choice_changes(),
         incoming,
         online,
         computers: computers(&parse_log(&log), data, &ctx.host),
@@ -190,19 +199,19 @@ pub(crate) fn computers(
 }
 
 /// Name -> description from `pacman -Qi` output.
-pub fn parse_info(s: &str) -> BTreeMap<String, String> {
+/// One `field` of each package in `pacman -Qi` output, by package name.
+pub fn parse_info(s: &str, field: &str) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let mut name = None;
     for line in s.lines() {
         if let Some((k, v)) = line.split_once(" : ") {
-            match k.trim() {
-                "Name" => name = Some(v.trim().to_string()),
-                "Description" => {
-                    if let Some(n) = name.take() {
-                        out.insert(n, v.trim().to_string());
-                    }
-                }
-                _ => {}
+            let k = k.trim();
+            if k == "Name" {
+                name = Some(v.trim().to_string());
+            } else if k == field
+                && let Some(n) = name.take()
+            {
+                out.insert(n, v.trim().to_string());
             }
         }
     }
@@ -234,11 +243,13 @@ mod tests {
         let log = parse_log("laptop\t300\ndesktop\t200\nlaptop\t100\n");
         assert_eq!(log["laptop"], 300);
         assert_eq!(log["desktop"], 200);
-        let info = parse_info(
-            "Name            : brave-bin\nVersion         : 1\nDescription     : Web browser\n\nName            : yazi\nDescription     : File manager\n",
-        );
+        let out = "Name            : brave-bin\nVersion         : 1\nDescription     : Web browser\nURL             : https://brave.com\n\nName            : yazi\nDescription     : File manager\n";
+        let info = parse_info(out, "Description");
         assert_eq!(info["brave-bin"], "Web browser");
         assert_eq!(info["yazi"], "File manager");
+        let sites = parse_info(out, "URL");
+        assert_eq!(sites["brave-bin"], "https://brave.com");
+        assert!(!sites.contains_key("yazi"));
     }
 
     #[test]

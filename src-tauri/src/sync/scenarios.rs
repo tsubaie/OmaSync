@@ -1374,6 +1374,53 @@ fn the_package_list_is_read_once_per_sync_and_once_per_look() {
 
 #[test]
 #[ignore]
+fn a_plugin_from_git_says_when_its_source_has_something_newer_once_a_day() {
+    let lab = pair();
+    // The plugin's source: a repository with one commit, cloned as the plugin (as
+    // `omarchy plugin add` does).
+    let upstream = lab.root.join("gitty-upstream");
+    std::fs::create_dir_all(&upstream).unwrap();
+    let git = |args: &[&str]| {
+        let mut all = vec!["-c", "user.name=lab", "-c", "user.email=lab@example.com"];
+        all.extend(args);
+        run(Some(&upstream), "git", &all).unwrap()
+    };
+    git(&["init", "-q"]);
+    std::fs::write(upstream.join("manifest.json"), r#"{"name":"Gitty"}"#).unwrap();
+    git(&["add", "."]);
+    git(&["commit", "-q", "-m", "one"]);
+    let dir = lab.ctx("a").home.join(".config/omarchy/plugins/gitty");
+    run(
+        None,
+        "git",
+        &[
+            "clone",
+            "-q",
+            &upstream.to_string_lossy(),
+            &dir.to_string_lossy(),
+        ],
+    )
+    .unwrap();
+    let a = lab.ctx("a");
+    assert_eq!(plugin_updates_today(a).get("gitty"), Some(&false));
+    // A plugin that isn't from git (dock) isn't asked about.
+    assert!(!plugin_updates_today(a).contains_key("dock"));
+    // Its maker publishes a change: the day's answer stands until the plugin is updated or
+    // added, or the day is over.
+    std::fs::write(upstream.join("manifest.json"), r#"{"name":"Gitty 2"}"#).unwrap();
+    git(&["commit", "-q", "-am", "two"]);
+    assert_eq!(plugin_updates_today(a).get("gitty"), Some(&false));
+    forget_plugin_updates(a);
+    assert_eq!(plugin_updates_today(a).get("gitty"), Some(&true));
+    // Update All asks Omarchy plugin by plugin, only for the ones from git.
+    update_plugins(a, None, &|_| {}).unwrap();
+    let log = lab.calls("a");
+    assert!(log.contains("plugin update gitty --yes"), "{log}");
+    assert!(!log.contains("plugin update dock"), "{log}");
+}
+
+#[test]
+#[ignore]
 fn a_plugin_from_git_is_added_from_git_on_the_other_computer_not_copied() {
     let mut lab = pair();
     lab.join("b");
@@ -1431,7 +1478,7 @@ fn a_plugin_from_git_is_added_from_git_on_the_other_computer_not_copied() {
     lab.write("a", ".config/omarchy/plugins/gitty/Widget.qml", "v2\n");
     lab.settle();
     assert!(!lab.exists("b", ".config/omarchy/plugins/gitty/Widget.qml"));
-    assert!(update_plugins(lab.ctx("b"), Some("gitty")).is_ok());
+    assert!(update_plugins(lab.ctx("b"), Some("gitty"), &|_| {}).is_ok());
     assert!(lab.calls("b").contains("plugin update gitty --yes"));
     // Removed here only: gone from b, still on a, and b no longer counts as having it.
     remove_plugin(lab.ctx("b"), "gitty").unwrap();

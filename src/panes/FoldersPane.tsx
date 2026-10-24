@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Input, Label, Text, TextField } from 'react-aria-components';
 import { api, type Folder, type Plugin } from '../api';
 import type { SyncState } from '../state';
-import { Caution, ComputerList, Group, Link, Push, Row, Toggle } from '../ui';
+import { CircleCheck, Download } from 'lucide-react';
+import { plural } from '../format';
+import { Caution, ComputerList, Group, Link, Progress, Push, Row, Toggle } from '../ui';
 
 /** Omarchy's own parts, its window settings and its plugins, each listed in the order shown
  * ("other" last); every other folder is an app's data. */
@@ -133,13 +135,29 @@ export function PluginsPane({ s }: { s: SyncState }) {
   const [removing, setRemoving] = useState<string | null>(null);
   const { computers, name, column, columns, many } = s.matrix;
   /** Runs one of Omarchy's plugin commands, then looks again. */
-  const omarchy = (label: string, work: () => Promise<unknown>, said?: (out: string) => void) =>
+  const omarchy = (
+    label: string,
+    work: (onStep: (step: string) => void) => Promise<unknown>,
+    said?: (out: string) => void,
+  ) =>
     s.act(label, work, (out) => {
       said?.(String(out ?? ''));
       return s.refresh();
     });
-  const updated = (out: string) =>
-    s.setNotice({ good: true, text: out.trim() || 'Your plugins are up to date.' });
+  /** Omarchy's word, a line per plugin: one line as it is, several summed up. */
+  const updated = (out: string) => {
+    const lines = out.trim().split('\n').filter(Boolean);
+    const changed = lines.filter((l) => l.startsWith('Updated')).length;
+    const text =
+      lines.length > 1
+        ? changed
+          ? `Updated ${plural(changed, 'plugin')}; the rest were up to date.`
+          : 'All your plugins are up to date.'
+        : lines[0] || 'Your plugins are up to date.';
+    s.setNotice({ good: true, text });
+  };
+  const newer = fromGit.filter((p) => p.update === true).length;
+  const updatingAll = s.plan.length > 0 && s.plan.every((step) => step.startsWith('Updating '));
   return (
     <>
       <FolderGroup
@@ -151,8 +169,37 @@ export function PluginsPane({ s }: { s: SyncState }) {
         <>
           <Group
             title="Your Plugins"
-            footer="Sync puts a plugin on a computer after you approve it there; switching it off never removes it. Enabled is part of your bar layout, so it reaches every computer. Update and Remove only change this computer."
+            footer="Sync puts a plugin on a computer after you approve it there; switching it off never removes it. Enabled is part of your bar layout, so it reaches every computer."
           >
+            {fromGit.length > 0 && (
+              <Row
+                title="Update your plugins"
+                detail={`${plural(fromGit.length, 'plugin')} came from git; Omarchy fetches the newest version of each. ${
+                  newer
+                    ? `${plural(newer, 'update')} available.`
+                    : fromGit.some((p) => p.update !== null)
+                      ? 'All up to date.'
+                      : ''
+                }`}
+                end={
+                  <Push
+                    prominent={newer > 0}
+                    disabled={!s.idle}
+                    onPress={() =>
+                      omarchy(
+                        'Updating your plugins',
+                        (onStep) => api.updatePlugins(undefined, onStep),
+                        updated,
+                      )
+                    }
+                  >
+                    {updatingAll ? 'Updating…' : 'Update All'}
+                  </Push>
+                }
+              >
+                {updatingAll && <Progress steps={s.steps} plan={s.plan} percent={s.percent} />}
+              </Row>
+            )}
             <Row
               title="Add a plugin from its git address"
               detail="Omarchy downloads it and enables it here; your other computers get it when you sync it to them."
@@ -173,7 +220,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
               )}
             </Row>
             {mine.length === 0 && <Row title="No plugins of your own on any computer yet." />}
-            {mine.length > 0 && computers.length > 1 && !many && (
+            {mine.length > 0 && !many && (
               <div className="row matrix head" style={columns} aria-hidden="true">
                 <span>Plugin</span>
                 {computers.map((c) => (
@@ -189,7 +236,11 @@ export function PluginsPane({ s }: { s: SyncState }) {
                   removing={removing === p.id}
                   onRemoving={(on) => setRemoving(on ? p.id : null)}
                   onUpdate={() =>
-                    omarchy(`Updating ${p.name}`, () => api.updatePlugins(p.id), updated)
+                    omarchy(
+                      `Updating ${p.name}`,
+                      (onStep) => api.updatePlugins(p.id, onStep),
+                      updated,
+                    )
                   }
                   onRemove={() => omarchy(`Removing ${p.name}`, () => api.removePlugin(p.id))}
                 />
@@ -220,16 +271,6 @@ export function PluginsPane({ s }: { s: SyncState }) {
               </div>
             ))}
           </Group>
-          {fromGit.length > 1 && (
-            <div className="actions">
-              <Push
-                disabled={!s.idle}
-                onPress={() => omarchy('Updating your plugins', () => api.updatePlugins(), updated)}
-              >
-                Update All {fromGit.length} Plugins
-              </Push>
-            </div>
-          )}
           {omarchys.length > 0 && (
             <Group
               title="Omarchy's Own Plugins"
@@ -238,6 +279,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
               {omarchys.map((p) => (
                 <div className="row" key={p.id}>
                   <PluginText s={s} p={p} />
+                  <EnabledToggle s={s} p={p} />
                 </div>
               ))}
             </Group>
@@ -264,9 +306,30 @@ const place = (url: string) =>
     .replace(/^git@([^:]+):/, '$1/')
     .replace(/\.git$/, '');
 
+/** The shell's on or off for a plugin here, kept in the bar layout (so it syncs). */
+function EnabledToggle({ s, p }: { s: SyncState; p: Plugin }) {
+  return (
+    <Toggle
+      on={!!p.enabled}
+      label={`${p.name} enabled`}
+      disabled={!s.idle || !p.can_disable}
+      onChange={(on) =>
+        s.act(
+          on ? `Enabling ${p.name}` : `Disabling ${p.name}`,
+          () => api.setPluginEnabled(p.id, on),
+          () => s.refresh(),
+        )
+      }
+    />
+  );
+}
+
 /**
- * A plugin's name, kind and description, and under them, for one that's on this computer, its
- * Enabled switch (the shell's on or off, kept in the bar layout) and Update and Remove.
+ * A plugin in three lines: its name, kind and source; its description, cut to one line (the
+ * whole on hover); and, for one of your own, the plugin itself, apart from the Sync switches in
+ * the row's columns: its Enabled switch (the shell's on or off, kept in the bar layout), the
+ * day's word on updates (Up to date, or Update in the accent colour when there's one), and
+ * Remove. One of Omarchy's own has only Enabled, at the end of its row.
  */
 function PluginText({
   s,
@@ -297,37 +360,58 @@ function PluginText({
   const kinds = p.kinds.map((k) => KINDS[k] ?? k).join(', ');
   return (
     <div className="text">
-      <div>
+      <div className="plugin-name">
         {p.name}
         {kinds && <span className="source">{kinds}</span>}
+        {p.source && (
+          <Link
+            out
+            label={`Open ${place(p.source).split('/')[0]} (${p.name})`}
+            onPress={() => api.openPage('plugin', p.source!).catch(s.fail)}
+          >
+            {place(p.source).split('/')[0]}
+          </Link>
+        )}
       </div>
-      {detail && <div className={`detail ${missingHere ? 'warn' : ''}`}>{detail}</div>}
-      {p.source && <div className="detail">From {place(p.source)}</div>}
-      {p.here && !removing && (
+      {detail && (
+        <div className={`detail ${missingHere ? 'warn' : 'clipped'}`} title={detail}>
+          {detail}
+        </div>
+      )}
+      {p.here && !removing && (onUpdate || onRemoving) && (
         <div className="plugin-here">
+          <span className="who">This plugin:</span>
           <span className="who">
             Enabled
-            <Toggle
-              on={!!p.enabled}
-              label={`${p.name} enabled`}
-              disabled={!s.idle || !p.can_disable}
-              onChange={(on) =>
-                s.act(
-                  on ? `Enabling ${p.name}` : `Disabling ${p.name}`,
-                  () => api.setPluginEnabled(p.id, on),
-                  () => s.refresh(),
-                )
-              }
-            />
+            <EnabledToggle s={s} p={p} />
           </span>
-          {onUpdate && p.source && (
-            <Link disabled={!s.idle} onPress={onUpdate}>
-              Update Plugin
+          {p.update === false && (
+            <span className="who good">
+              <CircleCheck size={13} strokeWidth={2.25} aria-hidden="true" />
+              Up to date
+            </span>
+          )}
+          {onUpdate && p.source && p.update !== false && (
+            <Link
+              accent={p.update === true}
+              label={
+                p.update ? `Update (an update is available for ${p.name})` : `Update (${p.name})`
+              }
+              disabled={!s.idle}
+              onPress={onUpdate}
+            >
+              {p.update && <Download size={13} strokeWidth={2.25} aria-hidden="true" />}
+              {s.busy === `Updating ${p.name}` ? 'Updating…' : 'Update'}
             </Link>
           )}
           {onRemoving && (
-            <Link disabled={!s.idle} onPress={() => onRemoving(true)}>
-              Remove Plugin…
+            <Link
+              bad
+              label={`Remove… (${p.name})`}
+              disabled={!s.idle}
+              onPress={() => onRemoving(true)}
+            >
+              Remove…
             </Link>
           )}
         </div>
@@ -341,6 +425,7 @@ function PluginText({
           <div className="actions">
             <Link onPress={() => onRemoving?.(false)}>Cancel</Link>
             <Push
+              bad
               disabled={!s.idle}
               onPress={() => {
                 onRemoving?.(false);

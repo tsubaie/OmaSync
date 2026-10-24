@@ -2,7 +2,14 @@
 // (keyboard, focus and screen-reader behaviour come from React Aria; the look is styles.css).
 
 import { useState, type ReactNode } from 'react';
-import { Check, Circle, RefreshCw, TriangleAlert, type LucideIcon } from 'lucide-react';
+import {
+  Check,
+  Circle,
+  ExternalLink,
+  RefreshCw,
+  TriangleAlert,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button, Switch, Tooltip, TooltipTrigger } from 'react-aria-components';
 import { progress } from './format';
 
@@ -80,6 +87,7 @@ export function Push({
   children,
   prominent,
   large,
+  bad,
   disabled,
   onPress,
   tip,
@@ -88,13 +96,15 @@ export function Push({
   prominent?: boolean;
   /** The one main action on a screen, a size up. */
   large?: boolean;
+  /** Takes something away: red. */
+  bad?: boolean;
   disabled?: boolean;
   onPress: () => void;
   tip?: string;
 }) {
   const button = (
     <Button
-      className={`push ${prominent ? 'prominent' : ''} ${large ? 'large' : ''}`}
+      className={`push ${prominent ? 'prominent' : ''} ${large ? 'large' : ''} ${bad ? 'bad' : ''}`}
       isDisabled={disabled}
       onPress={onPress}
     >
@@ -108,15 +118,33 @@ export function Push({
 export function Link({
   children,
   disabled,
+  label,
+  out,
+  accent,
+  bad,
   onPress,
 }: {
   children: ReactNode;
   disabled?: boolean;
+  /** A fuller name for assistive tech, when the text alone repeats down a list. */
+  label?: string;
+  /** Opens a web page outside the app: the text ends in the outward mark. */
+  out?: boolean;
+  /** The one thing worth doing in its row, in the accent colour. */
+  accent?: boolean;
+  /** Takes something away: red when pointed at. */
+  bad?: boolean;
   onPress: () => void;
 }) {
   return (
-    <Button className="link" isDisabled={disabled} onPress={onPress}>
+    <Button
+      className={accent ? 'link accent' : bad ? 'link bad' : 'link'}
+      isDisabled={disabled}
+      aria-label={label}
+      onPress={onPress}
+    >
       {children}
+      {out && <ExternalLink size={11} aria-hidden="true" />}
     </Button>
   );
 }
