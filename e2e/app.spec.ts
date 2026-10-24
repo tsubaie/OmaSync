@@ -252,7 +252,7 @@ test('plugins are switched on, added from git, updated and removed here', async 
   await page.getByRole('tab', { name: 'Plugins' }).click();
   expect(await a11y(page)).toEqual([]);
   // Omarchy's own plugins only go on and off; a plugin from git can be updated and removed.
-  const clock = page.getByRole('switch', { name: 'Clock on this computer' });
+  const clock = page.getByRole('switch', { name: 'Clock enabled' });
   await expect(clock).toBeChecked();
   await clock.focus();
   await page.keyboard.press('Space');
@@ -260,7 +260,7 @@ test('plugins are switched on, added from git, updated and removed here', async 
     { cmd: 'set_plugin_enabled', args: { id: 'omarchy.clock', on: false } },
   ]);
   await expect(page.getByText('From github.com/sspaeti/omarchy-plugin-timezones')).toBeVisible();
-  await page.getByRole('button', { name: 'Update', exact: true }).click();
+  await page.getByRole('button', { name: 'Update Plugin', exact: true }).click();
   await expect(page.getByText('timezones is up to date.')).toBeVisible();
   expect(await calls(page, 'update_plugins')).toEqual([
     { cmd: 'update_plugins', args: { id: 'timezones' } },
@@ -276,7 +276,7 @@ test('plugins are switched on, added from git, updated and removed here', async 
     { cmd: 'add_plugin', args: { url: 'https://github.com/acme/omarchy-weather.git' } },
   ]);
   // Removing asks first and says it's this computer only.
-  await page.getByRole('button', { name: 'Remove…' }).click();
+  await page.getByRole('button', { name: 'Remove Plugin…' }).click();
   await expect(page.getByText('Removes Timezones from this computer only.')).toBeVisible();
   await page.getByRole('button', { name: 'Remove from This Computer' }).click();
   expect(await calls(page, 'remove_plugin')).toEqual([

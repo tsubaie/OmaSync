@@ -328,6 +328,17 @@ export function useSync() {
   const me = data?.computers?.[host] ?? {};
   /** A computer's name for people; falls back to its ID for computers that never named themselves. */
   const nameOf = (id: string) => data?.computers?.[id]?.name || id;
+  /** One switch per computer, this one first, as Installed Apps and Plugins lay them out. */
+  const computers = [host, ...Object.keys(data?.computers ?? {}).filter((c) => c !== host)];
+  const matrix = {
+    computers,
+    name: (c: string) => (c === host ? 'This Computer' : nameOf(c)),
+    // This computer's column is simply "Sync"; the others are named after their computer.
+    column: (c: string) => (c === host ? 'Sync' : nameOf(c)),
+    columns: { '--n': computers.length } as React.CSSProperties,
+    // Past three computers a column each gets too narrow: each item lists its computers instead.
+    many: computers.length > 3,
+  };
   // An app from outside the repos without an install script isn't synced, whatever the list says.
   const wants = (computer: string, app: string) =>
     !!data?.apps.includes(app) &&
@@ -367,6 +378,7 @@ export function useSync() {
     catalog,
     toast,
     nameOf,
+    matrix,
     syncSpace: status?.sync_space ?? null,
     barIndicator: !!status?.bar_indicator,
     version: status?.version ?? '',
