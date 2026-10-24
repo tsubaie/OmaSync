@@ -281,8 +281,17 @@ test('plugins are switched on, added from git, updated and removed here', async 
       args: { kind: 'plugin', name: 'https://github.com/sspaeti/omarchy-plugin-timezones.git' },
     },
   ]);
+  // The day's check marks a plugin from git; updating it marks it up to date.
+  await expect(page.getByText('Update available')).toBeVisible();
   await page.getByRole('button', { name: 'Update Plugin', exact: true }).click();
   await expect(page.getByText('timezones is up to date.')).toBeVisible();
+  await expect(page.getByText('Up to date', { exact: true })).toBeVisible();
+  // Omarchy's own plugins link to their folder in Omarchy's repository.
+  await expect(
+    page.getByRole('button', {
+      name: 'From github.com/omacom/omarchy/tree/HEAD/shell/plugins/bar/widgets',
+    }),
+  ).toBeVisible();
   expect(await calls(page, 'update_plugins')).toEqual([
     { cmd: 'update_plugins', args: { id: 'timezones' } },
   ]);

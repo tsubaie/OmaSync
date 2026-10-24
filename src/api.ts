@@ -19,8 +19,11 @@ export type Plugin = {
   enabled: boolean | null;
   /** The active bar can't be switched off. */
   can_disable: boolean;
-  /** Its git address, when it came from git (so it can be updated). */
+  /** Its git address, when it came from git (so it can be updated); for one of Omarchy's own,
+   * its folder in Omarchy's repository. */
   source: string | null;
+  /** From git: whether its source has something newer, as of the day's check. */
+  update: boolean | null;
 };
 /** An extra package repository another computer has, and the apps here that need it. */
 export type MissingRepo = {

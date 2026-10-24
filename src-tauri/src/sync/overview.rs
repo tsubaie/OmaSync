@@ -86,7 +86,11 @@ pub fn overview(
     step("Checking your apps and plugins");
     let apps = apps(data);
     let here = repos_here();
-    let plugins = all_plugins(ctx, data);
+    let mut plugins = all_plugins(ctx, data);
+    let updates = plugin_updates_today(ctx);
+    for p in &mut plugins {
+        p.update = updates.get(&p.id).copied();
+    }
     let mut unshared: Vec<String> = parse_status(&status)
         .iter()
         .filter(|p| !p.starts_with(".chezmoiignore"))

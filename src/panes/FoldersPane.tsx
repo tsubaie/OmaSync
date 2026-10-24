@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Input, Label, Text, TextField } from 'react-aria-components';
 import { api, type Folder, type Plugin } from '../api';
 import type { SyncState } from '../state';
+import { CircleCheck, Download } from 'lucide-react';
 import { Caution, ComputerList, Group, Link, Push, Row, Toggle } from '../ui';
 
 /** Omarchy's own parts, its window settings and its plugins, each listed in the order shown
@@ -302,6 +303,21 @@ function PluginText({
         {kinds && <span className="source">{kinds}</span>}
       </div>
       {detail && <div className={`detail ${missingHere ? 'warn' : ''}`}>{detail}</div>}
+      {p.update !== null && (
+        <div className="detail">
+          {p.update ? (
+            <span className="accent">
+              <Download size={13} strokeWidth={2.25} aria-hidden="true" />
+              Update available
+            </span>
+          ) : (
+            <span className="good">
+              <CircleCheck size={13} strokeWidth={2.25} aria-hidden="true" />
+              Up to date
+            </span>
+          )}
+        </div>
+      )}
       {p.source && (
         <div className="inline">
           <Link out onPress={() => api.openPage('plugin', p.source!).catch(s.fail)}>

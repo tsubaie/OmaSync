@@ -339,8 +339,12 @@ pub struct Plugin {
     pub enabled: Option<bool>,
     /// The active bar can't be switched off.
     pub can_disable: bool,
-    /// Its git address, when it came from git (so it can be updated).
+    /// Its git address, when it came from git (so it can be updated); for one of Omarchy's own,
+    /// its folder in Omarchy's repository.
     pub source: Option<String>,
+    /// From git: whether its source has something newer, as of the day's check (see
+    /// `plugin_updates_today`). None when it isn't from git or the check couldn't ask.
+    pub update: Option<bool>,
 }
 
 /// Adds or removes `item` so that `list.contains(item) == present`.

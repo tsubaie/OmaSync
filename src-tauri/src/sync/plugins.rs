@@ -52,10 +52,93 @@ fn omarchy_plugins(ctx: &Ctx) -> Vec<Plugin> {
                 here: true,
                 enabled: Some(enabled),
                 can_disable,
-                source: ctx.plugin_source(id),
+                source: ctx
+                    .plugin_source(id)
+                    .or_else(|| omarchy_source(p["manifestPath"].as_str()?)),
+                update: None,
             })
         })
         .collect()
+}
+
+/// Omarchy's own plugins ship as files, laid out as in Omarchy's repository: the folder there.
+fn omarchy_source(manifest: &str) -> Option<String> {
+    let rel = Path::new(manifest)
+        .parent()?
+        .strip_prefix("/usr/share/omarchy")
+        .ok()?;
+    Some(format!(
+        "https://github.com/omacom/omarchy/tree/HEAD/{}",
+        rel.display()
+    ))
+}
+
+/// Which plugins from git have something newer at their source: true when the source's HEAD
+/// differs from the copy here. One short question per plugin, all at once.
+pub(crate) fn plugin_updates(ctx: &Ctx) -> BTreeMap<String, bool> {
+    let dirs: Vec<(String, PathBuf)> = ctx
+        .local_plugins()
+        .into_iter()
+        .map(|id| {
+            let dir = ctx.home.join(PLUGIN_DIR).join(&id);
+            (id, dir)
+        })
+        .filter(|(_, dir)| dir.join(".git").exists())
+        .collect();
+    std::thread::scope(|scope| {
+        let asked: Vec<_> = dirs
+            .iter()
+            .map(|(id, dir)| {
+                scope.spawn(move || {
+                    let here = run(Some(dir), "git", &["rev-parse", "HEAD"]).ok()?;
+                    let there = run(Some(dir), "git", &["ls-remote", "origin", "HEAD"]).ok()?;
+                    Some((id.clone(), there.split_whitespace().next()? != here))
+                })
+            })
+            .collect();
+        asked
+            .into_iter()
+            .filter_map(|a| a.join().ok().flatten())
+            .collect()
+    })
+}
+
+/// The day's answer from `plugin_updates`, kept in the state folder.
+#[derive(Serialize, Deserialize)]
+struct Checked {
+    at: i64,
+    updates: BTreeMap<String, bool>,
+}
+
+fn checked_file(ctx: &Ctx) -> PathBuf {
+    ctx.state_dir().join("omarchy-sync/plugin-updates.json")
+}
+
+/// `plugin_updates`, asked at most once a day: the app looks far more often than plugin makers
+/// publish. An answer that came back empty (offline) isn't kept, so the next look asks again;
+/// updating or adding a plugin forgets the day's answer (see `forget_plugin_updates`).
+pub(crate) fn plugin_updates_today(ctx: &Ctx) -> BTreeMap<String, bool> {
+    let path = checked_file(ctx);
+    if let Ok(text) = std::fs::read_to_string(&path)
+        && let Ok(checked) = serde_json::from_str::<Checked>(&text)
+        && now() < checked.at + 86_400
+    {
+        return checked.updates;
+    }
+    let updates = plugin_updates(ctx);
+    if !updates.is_empty() {
+        let checked = Checked {
+            at: now(),
+            updates: updates.clone(),
+        };
+        let _ = std::fs::create_dir_all(path.parent().unwrap_or(&path));
+        let _ = std::fs::write(&path, serde_json::to_string(&checked).unwrap_or_default());
+    }
+    updates
+}
+
+pub(crate) fn forget_plugin_updates(ctx: &Ctx) {
+    let _ = std::fs::remove_file(checked_file(ctx));
 }
 
 /// What the Plugins page lists: everything Omarchy knows here, plus the plugins other computers
@@ -136,6 +219,7 @@ pub fn set_plugin_enabled(ctx: &Ctx, id: &str, on: bool) -> Result<(), String> {
 /// Adds a plugin from its git address and switches it on, through Omarchy's own command. Under
 /// the sync lock, so a background sync never saves a half-added plugin.
 pub fn add_plugin(ctx: &Ctx, url: &str) -> Result<(), String> {
+    forget_plugin_updates(ctx);
     let _lock = lock_wait(ctx)?;
     run(
         None,
@@ -151,6 +235,7 @@ pub fn update_plugins(ctx: &Ctx, id: Option<&str>) -> Result<String, String> {
     let mut args = vec!["plugin", "update"];
     args.extend(id);
     args.push("--yes");
+    forget_plugin_updates(ctx);
     run(None, "omarchy", &args)
 }
 
