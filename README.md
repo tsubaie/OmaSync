@@ -201,7 +201,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 ```mermaid
 flowchart LR
   subgraph PC["Each computer"]
-    UI["Window<br/>React + React Aria"] -->|Tauri commands,<br/>checked in main.rs| Engine["Sync engine<br/>sync.rs (Rust)"]
+    UI["Window<br/>React + React Aria"] -->|Tauri commands,<br/>checked in main.rs| Engine["Sync engine<br/>src-tauri/src/sync/ (Rust)"]
     Timer["systemd timer<br/>every 15 min"] -->|omarchy-sync --background| Engine
     Engine --> Chezmoi["chezmoi<br/>~/.local/share/chezmoi"]
     Engine --> Tools["yay · omarchy · notify-send"]
@@ -213,7 +213,7 @@ flowchart LR
 **The pieces**
 
 - **The window** (React, TypeScript and React Aria in [Tauri](https://tauri.app)) shows your settings and sends every action to the engine. Its colours come from your active Omarchy theme, adjusted to meet WCAG contrast.
-- **The engine** (`src-tauri/src/sync.rs`, Rust) does the work by running trusted tools: [chezmoi](https://chezmoi.io) for files, `git` and `gh` for your GitHub repository, `pacman` and `yay` for apps, and Omarchy's own `omarchy theme` commands. Everything the window sends is checked first in `src-tauri/src/main.rs`.
+- **The engine** (`src-tauri/src/sync/`, Rust) does the work by running trusted tools: [chezmoi](https://chezmoi.io) for files, `git` and `gh` for your GitHub repository, `pacman` and `yay` for apps, and Omarchy's own `omarchy theme` commands. Everything the window sends is checked first in `src-tauri/src/main.rs`.
 - **The background sync** is the same program run by a systemd user timer every 15 minutes (`~/.config/systemd/user/omarchy-sync.timer`).
 
 **A sync, step by step**

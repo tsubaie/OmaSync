@@ -1,4 +1,4 @@
-//! Omarchy Sync: a Tauri window over the sync engine in `sync.rs`.
+//! Omarchy Sync: a Tauri window over the sync engine in `sync/`.
 //! The page in `ui/` calls the commands below; everything it sends is checked here,
 //! because the commands install packages and change files.
 
