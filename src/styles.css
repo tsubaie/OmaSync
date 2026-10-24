@@ -1348,15 +1348,15 @@ kbd {
 
 /* ---------- Plugins ---------- */
 
-/* Under a plugin: its sync switch per computer, then Update and Remove. */
-.sync-on {
+/* Under a plugin that's here: its Enabled switch, then Update and Remove. */
+.plugin-here {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px 14px;
   margin-top: 6px;
 }
-.sync-on .who {
+.plugin-here .who {
   display: inline-flex;
   align-items: center;
   gap: 6px;
