@@ -44,6 +44,24 @@ pub const FOLDERS: &[(&str, &str, bool)] = &[
     (".config/git", "Git settings", false),
 ];
 
+/// The app whose settings an app-data folder holds, by package name. Omarchy ships settings for
+/// several of these whether or not the app is installed, so a folder on its own says little.
+pub fn folder_app(path: &str) -> Option<&'static str> {
+    match path {
+        ".config/alacritty" => Some("alacritty"),
+        ".config/ghostty" => Some("ghostty"),
+        ".config/kitty" => Some("kitty"),
+        ".config/foot" => Some("foot"),
+        ".config/starship.toml" => Some("starship"),
+        ".config/nvim" => Some("neovim"),
+        ".config/btop" => Some("btop"),
+        ".config/lazygit" => Some("lazygit"),
+        ".config/fastfetch" => Some("fastfetch"),
+        ".config/git" => Some("git"),
+        _ => None,
+    }
+}
+
 /// The data file label shown when only the app list or sync choices changed.
 pub const DATA_LABEL: &str = "Apps and sync choices";
 

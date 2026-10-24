@@ -60,7 +60,8 @@ esac"#,
         "pacman",
         r#"echo "pacman $*" >> "$LAB_LOG"
 case "$1" in
-  -Qq|-Qqe) printf '%s\n' $LAB_PACKAGES ;;
+  -Qq) printf '%s\n' $LAB_PACKAGES alacritty ;;
+  -Qqe) printf '%s\n' $LAB_PACKAGES ;;
 esac"#,
     ),
     ("pacman-conf", "printf 'omarchy\\ncore\\nextra\\n'"),

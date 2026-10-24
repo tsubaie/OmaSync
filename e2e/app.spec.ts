@@ -514,3 +514,13 @@ test('checking for updates says so when this copy is the latest', async ({ page 
   await expect(updates.getByRole('button', { name: 'Check Again' })).toBeVisible();
   expect(await calls(page, 'check_update')).toHaveLength(1);
 });
+
+test('app data shows settings folders for apps that are installed or synced', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.keyboard.press('Control+6');
+  // Ghostty's folder syncs though Ghostty isn't installed here, and says so; Neovim's folder
+  // neither syncs nor belongs to an installed or synced app, so it's left out.
+  await expect(page.getByText('~/.config/ghostty, not installed on this computer')).toBeVisible();
+  await expect(page.getByText('Neovim editor')).toHaveCount(0);
+  expect(await a11y(page)).toEqual([]);
+});

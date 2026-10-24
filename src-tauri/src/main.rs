@@ -188,6 +188,8 @@ struct Folder {
     /// Synced by default when setting up the first computer.
     default: bool,
     exists: bool,
+    /// The app whose settings it holds (by package name), for app-data folders.
+    app: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -208,6 +210,7 @@ fn folders() -> Catalog {
             name,
             default,
             exists: home.join(path).exists(),
+            app: sync::folder_app(path),
         })
         .collect();
     Catalog {
@@ -451,7 +454,7 @@ async fn remove_plugin(id: String) -> Result<()> {
 async fn add_repository(name: String) -> Result<()> {
     blocking(move |ctx| {
         let data = ctx.load_data();
-        let needed = sync::missing_repos(&data, &ctx.host, &sync::installed(), &sync::repos_here());
+        let needed = sync::missing_repos(&data, &ctx.host, &sync::repos_here());
         if !needed.iter().any(|r| r.name == name) {
             return Err(format!("{name} isn't a repository this computer needs"));
         }

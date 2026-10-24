@@ -1374,6 +1374,33 @@ fn the_package_list_is_read_once_per_sync_and_once_per_look() {
 
 #[test]
 #[ignore]
+fn an_apps_settings_folder_syncs_from_the_start_only_when_the_app_is_installed() {
+    // Omarchy ships a Kitty config whether or not Kitty is installed.
+    let mut lab = Lab::new();
+    lab.add("a");
+    lab.write("a", ".config/kitty/kitty.conf", "font_size 12\n");
+    lab.write("a", ".config/alacritty/alacritty.toml", "[font]\n");
+    lab.start("a");
+    let folders = lab.data("a").folders;
+    assert!(
+        !folders.contains(&".config/kitty".to_string()),
+        "{folders:?}"
+    );
+    assert!(
+        folders.contains(&".config/alacritty".to_string()),
+        "{folders:?}"
+    );
+    // With Kitty installed, its settings sync from the start.
+    let mut lab = Lab::new();
+    lab.add("k");
+    lab.packages("k", "kitty");
+    lab.write("k", ".config/kitty/kitty.conf", "font_size 12\n");
+    lab.start("k");
+    assert!(lab.data("k").folders.contains(&".config/kitty".to_string()));
+}
+
+#[test]
+#[ignore]
 fn a_plugin_from_git_says_when_its_source_has_something_newer_once_a_day() {
     let lab = pair();
     // The plugin's source: a repository with one commit, cloned as the plugin (as

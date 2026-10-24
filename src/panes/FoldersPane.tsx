@@ -40,6 +40,7 @@ function FolderGroup({
   const data = s.data;
   if (!data) return null;
   const separate = data.computers?.[s.host]?.skip_files ?? [];
+  const installed = s.overview?.apps.installed ?? [];
   const order = (f: Folder) => (Array.isArray(pick) ? pick.indexOf(f.path) : 0);
   const folders = s.catalog.folders
     .filter(
@@ -72,7 +73,11 @@ function FolderGroup({
           <Row
             key={f.path}
             title={f.name}
-            detail={`~/${f.path}`}
+            detail={
+              f.app && !installed.includes(f.app)
+                ? `~/${f.path}, not installed on this computer`
+                : `~/${f.path}`
+            }
             end={
               <Toggle on={synced} label={`Sync ${f.name}`} disabled={!s.idle} onChange={toggle} />
             }
@@ -119,8 +124,18 @@ export function OmarchyPane({ s }: { s: SyncState }) {
   );
 }
 
+/**
+ * An app's settings folder is worth showing when the app is installed here or synced to any
+ * computer, or when the folder already syncs: Omarchy ships settings for terminals nobody may use.
+ */
 export function AppDataPane({ s }: { s: SyncState }) {
-  return <FolderGroup s={s} pick={(f) => !isOmarchy(f)} />;
+  const installed = s.overview?.apps.installed ?? [];
+  const relevant = (f: Folder) =>
+    !f.app ||
+    installed.includes(f.app) ||
+    !!s.data?.apps.includes(f.app) ||
+    !!s.data?.folders.includes(f.path);
+  return <FolderGroup s={s} pick={(f) => !isOmarchy(f) && relevant(f)} />;
 }
 
 /** Like Apps: one list in a fixed order, one switch per computer. */

@@ -4,7 +4,14 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 
 export type Look = { colors_toml: string; motion: boolean };
-export type Folder = { path: string; name: string; default: boolean; exists: boolean };
+export type Folder = {
+  path: string;
+  name: string;
+  default: boolean;
+  exists: boolean;
+  /** The app whose settings it holds (by package name), for app-data folders. */
+  app: string | null;
+};
 export type Catalog = { folders: Folder[]; data_label: string };
 /** A plugin as Omarchy sees it here: `enabled` is null when this computer doesn't have it. */
 export type Plugin = {
