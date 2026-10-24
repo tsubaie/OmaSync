@@ -828,6 +828,10 @@ fn caches_git_folders_and_backup_files_never_travel() {
     ] {
         assert!(!lab.exists("b", f), "{f} travelled");
     }
+    // Nor do they count as new files on every sync: the shared plugin's exception un-ignores
+    // its .git folder, so chezmoi keeps listing it.
+    let new = stage(lab.ctx("a"), &lab.data("a"), &|_| {}).unwrap();
+    assert_eq!(new, 0);
 }
 
 #[test]
