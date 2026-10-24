@@ -123,7 +123,7 @@ export function AppDataPane({ s }: { s: SyncState }) {
 
 /** Like Apps: one list in a fixed order, one switch per computer. */
 export function PluginsPane({ s }: { s: SyncState }) {
-  const { data, host } = s;
+  const { data } = s;
   const plugins = s.overview?.plugins ?? [];
   const pluginsOn = !!data?.folders.includes('.config/omarchy/plugins');
   const mine = plugins.filter((p) => !p.first_party);
@@ -131,12 +131,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
   const fromGit = mine.filter((p) => p.here && p.source);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
-  const computers = [host, ...Object.keys(data?.computers ?? {}).filter((c) => c !== host)];
-  // This computer's column is simply "Sync"; the others are named after their computer.
-  const column = (c: string) => (c === host ? 'Sync' : s.nameOf(c));
-  const columns = { '--n': computers.length } as React.CSSProperties;
-  // Past three computers a column each gets too narrow: each plugin lists its computers instead.
-  const many = computers.length > 3;
+  const { computers, name, column, columns, many } = s.matrix;
   /** Runs one of Omarchy's plugin commands, then looks again. */
   const omarchy = (label: string, work: () => Promise<unknown>, said?: (out: string) => void) =>
     s.act(label, work, (out) => {
@@ -203,7 +198,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
                     subject={p.name}
                     computers={computers.map((c) => ({
                       id: c,
-                      name: c === host ? 'This Computer' : s.nameOf(c),
+                      name: name(c),
                       on: s.wantsPlugin(c, p.id),
                     }))}
                     disabled={!s.idle}
@@ -215,7 +210,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
                       <span className="cell-label">{column(c)}</span>
                       <Toggle
                         on={s.wantsPlugin(c, p.id)}
-                        label={`${p.name} synced on ${c === host ? 'This Computer' : s.nameOf(c)}`}
+                        label={`${p.name} synced on ${name(c)}`}
                         disabled={!s.idle}
                         onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
                       />
@@ -291,11 +286,14 @@ function PluginText({
   const { data, host } = s;
   const synced = !!data?.plugins?.includes(p.id);
   const missingHere = synced && s.wantsPlugin(host, p.id) && !p.here;
-  const where = [...(p.here ? ['this computer'] : []), ...s.whoHas(p.id)];
+  /** Where an unshared plugin is, for the computers that have it. */
+  const only = () => {
+    const where = [...(p.here ? ['this computer'] : []), ...s.whoHas(p.id)];
+    return where.length ? `Only on ${where.join(' and ')}` : '';
+  };
   const detail = missingHere
     ? 'Added here after you approve it'
-    : p.description ||
-      (!p.first_party && !synced && where.length ? `Only on ${where.join(' and ')}` : '');
+    : p.description || (!p.first_party && !synced ? only() : '');
   const kinds = p.kinds.map((k) => KINDS[k] ?? k).join(', ');
   return (
     <div className="text">

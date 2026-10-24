@@ -73,13 +73,7 @@ export function AppsPane({ s }: { s: SyncState }) {
   const [editing, setEditing] = useState<string | null>(null);
   const { overview: ov, data, host } = s;
   if (!ov || !data) return null;
-  const computers = [host, ...Object.keys(data.computers ?? {}).filter((c) => c !== host)];
-  const name = (c: string) => (c === host ? 'This Computer' : s.nameOf(c));
-  // This computer's column is simply "Sync"; the others are named after their computer.
-  const column = (c: string) => (c === host ? 'Sync' : s.nameOf(c));
-  const columns = { '--n': computers.length } as React.CSSProperties;
-  // Past three computers a column each gets too narrow: each app lists its computers instead.
-  const many = computers.length > 3;
+  const { computers, name, column, columns, many } = s.matrix;
   const apps = [...new Set([...data.apps, ...ov.apps.mine])].toSorted();
   // Sync All leaves out apps that can't sync yet (no install steps).
   const needsScript = (a: string) =>
