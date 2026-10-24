@@ -14,15 +14,15 @@ On Omarchy, `webkit2gtk-4.1` is already installed. Elsewhere, install [Tauri's L
 
 ## How it's built
 
-| Where                                         | What                                                                                                                                |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `src-tauri/src/sync.rs`                       | The sync engine: chezmoi, git, gh and pacman calls, conflicts, history, undo, the background timer. No UI.                          |
-| `src-tauri/src/main.rs`                       | Tauri commands the page calls. Everything the page sends is checked here, because these commands install packages and change files. |
-| `src/api.ts`                                  | Typed calls into those commands. Keep its types in step with the Rust structs.                                                      |
-| `src/state.ts`                                | The window's state and actions.                                                                                                     |
-| `src/panes/`                                  | One file per pane, plus setup.                                                                                                      |
-| `src/ui.tsx`, `src/theme.ts`, `src/format.ts` | Building blocks, theme colours and text formatting, with no knowledge of app state.                                                 |
-| `src/mocks.ts`                                | Stands in for Rust when the page runs in a browser for the end-to-end tests.                                                        |
+| Where                                         | What                                                                                                                                                                                                                                                                               |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src-tauri/src/sync/`                         | The sync engine, one module per job: `engine.rs` syncs, `stage.rs` saves this computer's files, `choices.rs` and `data.rs` hold the shared choices, `apps.rs`, `history.rs`, `background.rs`, `bar.rs`, `setup.rs`, `overview.rs`. `mod.rs` re-exports what `main.rs` uses. No UI. |
+| `src-tauri/src/main.rs`                       | Tauri commands the page calls. Everything the page sends is checked here, because these commands install packages and change files.                                                                                                                                                |
+| `src/api.ts`                                  | Typed calls into those commands. Keep its types in step with the Rust structs.                                                                                                                                                                                                     |
+| `src/state.ts`                                | The window's state and actions.                                                                                                                                                                                                                                                    |
+| `src/panes/`                                  | One file per pane, plus setup.                                                                                                                                                                                                                                                     |
+| `src/ui.tsx`, `src/theme.ts`, `src/format.ts` | Building blocks, theme colours and text formatting, with no knowledge of app state.                                                                                                                                                                                                |
+| `src/mocks.ts`                                | Stands in for Rust when the page runs in a browser for the end-to-end tests.                                                                                                                                                                                                       |
 
 `.dependency-cruiser.cjs` enforces that layering: only `api.ts` and `state.ts` talk to Tauri, building blocks don't import app state, and panes don't import each other.
 
@@ -51,7 +51,7 @@ Settings are precious, and a sync involves several computers, so the engine is t
 
 After every step the lab checks the promise the app makes on the computer that acted: a synced file holds a version from its history or the person's own unsaved change; nothing the person wrote is replaced unless that version is in the history or a backup; a version that reached the history stays there; and settings that don't sync here are never touched. A scenario that forgets to assert something still fails if the promise breaks.
 
-- **Any change to `sync.rs` gets a scenario.** Reuse `pair()` for two computers with a plugin, a web app, a theme and a background.
+- **Any change under `src-tauri/src/sync/` gets a scenario.** Reuse `pair()` for two computers with a plugin, a web app, a theme and a background.
 - `anything_in_any_order_keeps_every_version` does random things on three computers. `LAB_SEEDS` and `LAB_STEPS` scale it (CI runs a few seeds per pull request and many each night), `LAB_SEED=n` replays one, and a failure prints what happened.
 - `LAB_KEEP=1` leaves a failed scenario's folders in `/tmp` to look at.
 - `src-tauri/fixtures/sync-space-v*.tar.gz` is a sync space saved by an earlier version; a scenario joins it with today's code. When the layout of the shared choices file changes (`Data::upgrade`), run `LAB_SAVE_SYNC_SPACE=1 cargo test save_todays_sync_space -- --include-ignored` to add the new one and keep the old.

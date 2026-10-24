@@ -103,7 +103,7 @@ export function useSync() {
     setPercent(null);
     try {
       return await work((line) => {
-        // Besides step names, sync.rs sends the plan and percentages on lines starting \u0001.
+        // Besides step names, ctx.rs sends the plan and percentages on lines starting \u0001.
         const [kind, ...rest] = line.split('\t');
         if (kind === '\u0001plan') setPlan(rest);
         else if (kind === '\u0001percent') setPercent(Number(rest[0]));
@@ -333,7 +333,7 @@ export function useSync() {
     !!data?.apps.includes(app) &&
     data.outside?.[app] !== null &&
     !(data.computers?.[computer]?.skip_apps ?? []).includes(app);
-  // Mirrors missing_apps and missing_scripted in sync.rs: yay installs the first kind; apps
+  // Mirrors missing_apps and missing_scripted in apps.rs: yay installs the first kind; apps
   // from outside the repos come only by their script.
   const missing =
     overview && data
@@ -352,7 +352,7 @@ export function useSync() {
     Object.entries(data?.computers ?? {})
       .filter(([id, c]) => id !== host && (c.plugins ?? []).includes(plugin))
       .map(([id]) => nameOf(id));
-  // Mirrors Data::missing_plugins in sync.rs: other computers' plugins this one doesn't have.
+  // Mirrors Data::missing_plugins in choices.rs: other computers' plugins this one doesn't have.
   const pluginsWaiting =
     data?.folders.includes('.config/omarchy/plugins') && overview
       ? overview.plugins.filter(

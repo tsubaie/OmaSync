@@ -36,7 +36,7 @@ const LATTE = [
 ].join('\n');
 const now = Math.floor(Date.now() / 1000);
 
-// The same folders as FOLDERS in sync.rs: [path, name, synced by default].
+// The same folders as FOLDERS in rules.rs: [path, name, synced by default].
 const FOLDERS: [string, string, boolean][] = [
   ['.config/omarchy', 'Other Omarchy settings', true],
   ['.config/omarchy/themes', 'Current theme', true],
@@ -99,7 +99,7 @@ const shared = data;
 const same = (d: Data) =>
   JSON.stringify(d, (_, v) => (Array.isArray(v) ? (v.length ? v.toSorted() : undefined) : v));
 
-/** A copy of Data::place in sync.rs, enough for the tests. */
+/** A copy of Data::place in choices.rs, enough for the tests. */
 function place(
   d: Data,
   list: 'apps' | 'plugins',
@@ -304,7 +304,7 @@ mockIPC((cmd, args) => {
       // "checking" never finishes its first check, to show the app before there's anything to see.
       return scenario === 'checking' ? new Promise(() => {}) : status();
     case 'sync_now': {
-      // Reports its steps like sync.rs. "syncing" stops partway, sharing at 62%, to show (and
+      // Reports its steps like engine.rs. "syncing" stops partway, sharing at 62%, to show (and
       // photograph) the progress.
       emit(a.onStep, [
         `\u0001plan\t${SYNC_STEPS.join('\t')}`,
