@@ -1258,23 +1258,27 @@ fn prune_themes(ctx: &Ctx, data: &Data) {
     }
 }
 
+/// The prefixes chezmoi marks source names with (private_, symlink_, …).
+const ATTRS: &[&str] = &[
+    "private_",
+    "readonly_",
+    "empty_",
+    "executable_",
+    "literal_",
+    "exact_",
+    "symlink_",
+    "create_",
+    "modify_",
+    "encrypted_",
+];
+
 /// A chezmoi source name without the attribute prefixes it marks files with.
 fn strip_attributes(name: &str) -> String {
-    let mut name = name.to_string();
-    while let Some(rest) = [
-        "private_",
-        "readonly_",
-        "empty_",
-        "executable_",
-        "literal_",
-        "exact_",
-    ]
-    .iter()
-    .find_map(|p| name.strip_prefix(p))
-    {
-        name = rest.to_string();
+    let mut name = name;
+    while let Some(rest) = ATTRS.iter().find_map(|p| name.strip_prefix(p)) {
+        name = rest;
     }
-    name
+    name.to_string()
 }
 
 /// Shows the synced background here when it isn't already, through Omarchy's own command.
@@ -2823,25 +2827,11 @@ pub fn source_to_target(path: &str) -> String {
     if path.starts_with(".background/") {
         return path.into();
     }
-    const ATTRS: &[&str] = &[
-        "private_",
-        "readonly_",
-        "empty_",
-        "executable_",
-        "exact_",
-        "symlink_",
-        "create_",
-        "modify_",
-        "encrypted_",
-    ];
     path.split('/')
         .map(|part| {
-            let mut p = part;
-            while let Some(rest) = ATTRS.iter().find_map(|a| p.strip_prefix(a)) {
-                p = rest;
-            }
+            let p = strip_attributes(part);
             p.strip_prefix("dot_")
-                .map_or(p.to_string(), |r| format!(".{r}"))
+                .map_or(p.clone(), |r| format!(".{r}"))
         })
         .collect::<Vec<_>>()
         .join("/")
@@ -3247,7 +3237,9 @@ pub fn track_plugin(ctx: &Ctx, id: &str, on: bool) -> Result<(), String> {
         let source = ctx.src.join("dot_config/omarchy/plugins");
         for e in std::fs::read_dir(&source).into_iter().flatten().flatten() {
             if strip_attributes(&e.file_name().to_string_lossy()) == id {
-                let _ = std::fs::remove_dir_all(e.path());
+                // A folder, or the symlink_ file chezmoi keeps for a linked one.
+                let _ =
+                    std::fs::remove_dir_all(e.path()).or_else(|_| std::fs::remove_file(e.path()));
             }
         }
     }
