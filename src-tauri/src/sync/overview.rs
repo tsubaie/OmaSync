@@ -6,6 +6,8 @@ use super::*;
 pub struct Overview {
     /// Paths under home (or DATA_LABEL) changed here and not shared yet.
     pub unshared: Vec<String>,
+    /// What changed in the choices (DATA_LABEL's entry), in sentences.
+    pub choice_changes: Vec<String>,
     pub incoming: usize,
     pub online: bool,
     /// (computer name, last sync as unix time), this computer first.
@@ -103,6 +105,7 @@ pub fn overview(
     }
     Ok(Overview {
         unshared,
+        choice_changes: ctx.choice_changes(),
         incoming,
         online,
         computers: computers(&parse_log(&log), data, &ctx.host),

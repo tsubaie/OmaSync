@@ -144,6 +144,7 @@ const status = (): Status => ({
   data,
   overview: {
     unshared: scenario === 'conflict' ? ['.config/hypr/bindings.lua'] : [],
+    choice_changes: [],
     incoming: 0,
     online: true,
     computers: [
@@ -356,8 +357,8 @@ mockIPC((cmd, args) => {
       data = { ...data, apps: [...new Set([...data.apps, ...(a.apps as string[])])] };
       return data;
     case 'choices_changed':
-      // Like the Rust side: order and empty lists don't count.
-      return same(data) !== same(shared);
+      // Like the Rust side: order and empty lists don't count. One fixed sentence stands in.
+      return same(data) !== same(shared) ? ['yazi switched off for this computer'] : [];
     case 'install_plugins': {
       const laptop = data.computers.aaaa11112222;
       data = {

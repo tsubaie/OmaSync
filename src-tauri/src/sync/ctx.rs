@@ -42,7 +42,8 @@ impl Ctx {
 
     /// Whether the sync choices differ from the last saved sync. Order doesn't count, so a
     /// switch flipped and flipped back is no change.
-    pub fn choices_changed(&self) -> bool {
+    /// What changed in the choices since they were last shared, in sentences; none when nothing.
+    pub fn choice_changes(&self) -> Vec<String> {
         let read = |text: &str| {
             serde_yaml::from_str::<Data>(text).ok().map(|mut d| {
                 d.upgrade();
@@ -51,7 +52,16 @@ impl Ctx {
         };
         let saved = self.git(&["show", "HEAD:.chezmoidata.yaml"]).ok();
         let now = std::fs::read_to_string(self.data_path()).ok();
-        saved.as_deref().and_then(read) != now.as_deref().and_then(read)
+        match (
+            saved.as_deref().and_then(read),
+            now.as_deref().and_then(read),
+        ) {
+            (Some(before), Some(after)) => {
+                describe_changes(&before, &after, &self.host, |f| label(f).to_string())
+            }
+            (None, None) => Vec::new(),
+            _ => vec!["Other sync choices changed".to_string()],
+        }
     }
 
     /// Plugin folders on this computer.

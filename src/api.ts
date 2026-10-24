@@ -92,6 +92,8 @@ export type Entry = {
 export type Overview = {
   /** Paths under home changed here and not shared yet. */
   unshared: string[];
+  /** What changed in the choices (the data label's entry), in sentences. */
+  choice_changes: string[];
   incoming: number;
   online: boolean;
   /** [computer name, last sync as unix time], this computer first. */
@@ -195,7 +197,8 @@ export const api = {
   installWithScript: (app: string, onStep: OnStep) =>
     invoke<void>('install_with_script', { app, onStep: steps(onStep) }),
   /** Whether the sync choices differ from what was last shared. */
-  choicesChanged: () => invoke<boolean>('choices_changed'),
+  /** What changed in the choices since they were last shared, in sentences; none when nothing. */
+  choicesChanged: () => invoke<string[]>('choices_changed'),
   setPlugin: (computer: string, plugin: string, on: boolean) =>
     invoke<Data>('set_plugin', { computer, plugin, on }),
   /** Adds the synced plugins this computer is waiting for. */

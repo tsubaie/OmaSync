@@ -569,7 +569,11 @@ export function SyncPane({ s }: { s: SyncState }) {
               <Row title="Everything on this computer is shared." />
             ) : (
               byFolder(ov.unshared, s.catalog).map(([label, files]) => (
-                <Row key={label} title={label} detail={shortList(files)} />
+                <Row
+                  key={label}
+                  title={label}
+                  detail={shortList(label === s.catalog.data_label ? ov.choice_changes : files)}
+                />
               ))
             )}
           </Group>

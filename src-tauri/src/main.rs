@@ -471,9 +471,10 @@ async fn set_bar_indicator(on: bool) -> Result<()> {
         .map_err(Problem::from)
 }
 
+/// What changed in the choices since they were last shared, in sentences; none when nothing.
 #[tauri::command]
-fn choices_changed() -> bool {
-    Ctx::load().choices_changed()
+fn choices_changed() -> Vec<String> {
+    Ctx::load().choice_changes()
 }
 
 /// Loads the shared data, applies one change, saves it, and hands the result back to the page.

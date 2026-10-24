@@ -55,7 +55,8 @@ export function useSync() {
   const [dismissed, setDismissed] = useState('');
   const [dismissedPlugins, setDismissedPlugins] = useState('');
   const [signingIn, setSigningIn] = useState(false);
-  const [pending, setPending] = useState(false);
+  /** What changed in the choices since the last sync, in sentences; none when nothing. */
+  const [pending, setPending] = useState<string[]>([]);
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const working = useRef(true);
   // Unix seconds, ticking each minute; components read it instead of the clock so rendering stays pure.
@@ -212,7 +213,7 @@ export function useSync() {
         if (report.notes.length) setNotice({ good: true, text: report.notes.join(' ') });
         flash(undoSha ? 'Undone' : 'Synced');
         setConflict(null);
-        setPending(false);
+        setPending([]);
       }
     } catch (e) {
       fail(e);
@@ -240,15 +241,15 @@ export function useSync() {
     try {
       const data = await work();
       // Compared with what was last shared, so flipping a switch back hides the banner again.
-      const changed = await api.choicesChanged();
-      setPending(changed);
+      const changes = await api.choicesChanged();
+      setPending(changes);
       // The Sync page counts the choices among the changes to share straight away, as the next
       // look would, rather than saying everything matches until then.
       setStatus((s) => {
         if (!s?.overview) return s ? { ...s, data } : s;
         const rest = s.overview.unshared.filter((u) => u !== catalog.data_label);
-        const unshared = changed ? [...rest, catalog.data_label] : rest;
-        return { ...s, data, overview: { ...s.overview, unshared } };
+        const unshared = changes.length ? [...rest, catalog.data_label] : rest;
+        return { ...s, data, overview: { ...s.overview, unshared, choice_changes: changes } };
       });
     } catch (e) {
       fail(e);

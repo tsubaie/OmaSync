@@ -102,12 +102,17 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
     { cmd: 'set_app', args: { computer: 'aaaa11112222', app: 'yazi', on: false } },
   ]);
   await expect(
-    page.getByText('Your other computers get this change the next time you sync.'),
+    page.getByText('yazi switched off for this computer. Your other computers get this', {
+      exact: false,
+    }),
   ).toBeVisible();
-  // The Sync page counts the choice among the changes to share straight away.
+  // The Sync page counts the choice among the changes to share straight away, and says what.
   await page.keyboard.press('Control+1');
   await expect(page.getByText("1 change on this computer isn't shared yet.")).toBeVisible();
   await expect(page.getByText('Apps and sync choices')).toBeVisible();
+  await expect(
+    page.getByText('yazi switched off for this computer', { exact: true }),
+  ).toBeVisible();
 });
 
 test('a conflict shows both versions and keeps the one chosen for each setting', async ({
@@ -223,7 +228,9 @@ test('an app is switched on per computer, in place', async ({ page }) => {
   await expect(desk).toBeChecked();
   await expect(page.getByRole('switch', { name: 'spotify synced on This Computer' })).toBeChecked();
   await expect(rows).toHaveText([/^brave-bin/, /^quicknote/, /^spotify/, /^tapecalc/, /^yazi/]);
-  const banner = page.getByText('Your other computers get this change the next time you sync.');
+  const banner = page.getByText('Your other computers get this the next time you sync.', {
+    exact: false,
+  });
   await expect(banner).toBeVisible();
   // Every computer switched off again: nothing is left to share, so the banner goes away.
   const here = page.getByRole('switch', { name: 'spotify synced on This Computer' });
