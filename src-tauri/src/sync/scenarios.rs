@@ -1208,3 +1208,26 @@ fn leaving_omarchys_settings_out_on_one_computer_still_syncs_the_rest_there() {
     lab.settle();
     assert_eq!(lab.read("b", ".config/omarchy/hooks/shared.sh"), "a hook\n");
 }
+
+#[test]
+#[ignore]
+fn the_bar_indicator_goes_on_by_itself_and_stays_off_once_taken_off() {
+    let mut lab = pair();
+    let ctx = lab.ctx("a").clone();
+    assert!(!bar_indicator(&ctx));
+    ensure_bar_indicator(&ctx).unwrap();
+    assert!(bar_indicator(&ctx));
+    let calls = lab.calls("a");
+    assert!(
+        calls.contains(&format!("plugin enable {BAR_PLUGIN}")),
+        "{calls}"
+    );
+    // Taken off in Settings: it stays off.
+    lab.edit("a", |d, host| {
+        d.computers.get_mut(host).unwrap().no_bar_indicator = true
+    });
+    set_bar_indicator(&ctx, false).unwrap();
+    ensure_bar_indicator(&ctx).unwrap();
+    assert!(!bar_indicator(&ctx));
+    lab.sync_ok("a");
+}

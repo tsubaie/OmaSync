@@ -2096,7 +2096,14 @@ pub fn ensure_bar_indicator(ctx: &Ctx) -> Result<(), String> {
     let current = BAR_FILES
         .iter()
         .all(|(name, text)| std::fs::read_to_string(dir.join(name)).is_ok_and(|t| t == *text));
-    if off || current || !has("omarchy-shell") {
+    // Only whether the shell's command is there: it answers `--version` with its usage and
+    // exit code 1, so `has` would say it's missing on every Omarchy.
+    let shell = Command::new("omarchy-shell")
+        .arg("--version")
+        .stdin(Stdio::null())
+        .output()
+        .is_ok();
+    if off || current || !shell {
         return Ok(());
     }
     set_bar_indicator(ctx, true)

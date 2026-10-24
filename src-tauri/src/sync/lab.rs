@@ -58,6 +58,13 @@ esac"#,
 esac"#,
     ),
     ("pacman-conf", "printf 'omarchy\\ncore\\nextra\\n'"),
+    // Like the real one: `--version` prints its usage and fails.
+    (
+        "omarchy-shell",
+        r#"echo "omarchy-shell $*" >> "$LAB_LOG"
+[ "$1" = --version ] && exit 1
+exit 0"#,
+    ),
     ("yay", r#"echo "yay $*" >> "$LAB_LOG""#),
     ("pkexec", r#"echo "pkexec $*" >> "$LAB_LOG""#),
     ("notify-send", r#"echo "notify-send $*" >> "$LAB_LOG""#),
