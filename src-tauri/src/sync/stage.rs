@@ -113,7 +113,8 @@ fn prune_web_apps(ctx: &Ctx, data: &Data) {
     }
 }
 
-pub(crate) fn stage(ctx: &Ctx, data: &Data, step: &dyn Fn(&str)) -> Result<(), String> {
+/// Returns how many new files (or whole folders, for an old chezmoi) it saved.
+pub(crate) fn stage(ctx: &Ctx, data: &Data, step: &dyn Fn(&str)) -> Result<usize, String> {
     let mut folders = data.active_folders(&ctx.host);
     // The icons travel with the web apps.
     if folders.iter().any(|f| f == APPS_DIR) {
@@ -126,7 +127,7 @@ pub(crate) fn stage(ctx: &Ctx, data: &Data, step: &dyn Fn(&str)) -> Result<(), S
         .map(|p| p.to_string_lossy().into_owned())
         .collect();
     if paths.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
     // Adding whole folders re-reads every file (most of a minute with big plugins), so only
     // changed files are saved again, then only new ones are added.
@@ -138,38 +139,58 @@ pub(crate) fn stage(ctx: &Ctx, data: &Data, step: &dyn Fn(&str)) -> Result<(), S
     let new: Vec<String> = match run(None, "chezmoi", &args) {
         Ok(out) => out
             .lines()
-            .filter(|l| !l.is_empty())
+            .filter(|l| {
+                let path = Path::new(l);
+                !l.is_empty() && !never_syncs(path.strip_prefix(&ctx.home).unwrap_or(path))
+            })
             .map(String::from)
             .collect(),
         // Older chezmoi can't list them: add everything, slowly but completely.
         Err(_) => paths,
     };
     if new.is_empty() {
-        return Ok(());
+        return Ok(0);
     }
     step(&format!("Saving {}", plural(new.len(), "new file")));
+    let paths: Vec<&str> = new.iter().map(|s| s.as_str()).collect();
+    add(ctx, &paths)?;
+    Ok(new.len())
+}
+
+/// Whether a path holds something that never syncs, whatever the exceptions say: a `.git`
+/// folder, `node_modules` or a backup file. The ignore rules name them, but an exception (a
+/// shared plugin, the current theme) wins over every ignore rule in chezmoi, so chezmoi
+/// reports them as new inside those folders and would add them. Works on a home path or a
+/// sync folder path (`dot_git`, attribute prefixes).
+fn never_syncs(path: &Path) -> bool {
+    path.components().any(|c| {
+        let name = strip_attributes(&c.as_os_str().to_string_lossy());
+        matches!(name.as_str(), ".git" | "dot_git" | "node_modules") || name.contains(".bak.")
+    })
+}
+
+/// Adds paths to the sync folder, then takes out whatever never syncs that came with them.
+fn add(ctx: &Ctx, paths: &[&str]) -> Result<(), String> {
     let mut args = vec!["add"];
-    args.extend(new.iter().map(|s| s.as_str()));
+    args.extend(paths);
     run(None, "chezmoi", &args)?;
     prune_ignored(&ctx.src);
     Ok(())
 }
 
-/// Takes `.git` folders, `node_modules` and backup files out of the sync folder. The ignore
-/// rules name them, but an exception (a shared plugin, the current theme) wins over every
-/// ignore rule in chezmoi, so whatever those folders hold gets added.
+/// Takes whatever never syncs (see `never_syncs`) out of the sync folder, for the whole-folder
+/// adds that can't be filtered first.
 fn prune_ignored(dir: &Path) {
     for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-        let name = e.file_name().to_string_lossy().into_owned();
         let path = e.path();
-        if path.is_dir() {
-            if name == "dot_git" || name == "node_modules" {
-                let _ = std::fs::remove_dir_all(&path);
-            } else if name != ".git" {
-                prune_ignored(&path);
-            }
-        } else if strip_attributes(&name).contains(".bak.") {
-            let _ = std::fs::remove_file(&path);
+        // The sync folder's own `.git` is its history, not a target.
+        if path.is_dir() && e.file_name() == ".git" {
+            continue;
+        }
+        if never_syncs(Path::new(&e.file_name())) {
+            let _ = std::fs::remove_dir_all(&path).or_else(|_| std::fs::remove_file(&path));
+        } else if path.is_dir() {
+            prune_ignored(&path);
         }
     }
 }
@@ -282,7 +303,7 @@ pub fn track_plugin(ctx: &Ctx, id: &str, on: bool) -> Result<(), String> {
     let path = path.to_string_lossy();
     if on {
         if ctx.home.join(PLUGIN_DIR).join(id).exists() {
-            run(None, "chezmoi", &["add", &path])?;
+            add(ctx, &[&path])?;
         }
     } else {
         // The choice is already saved, so the ignore rules hide it from chezmoi: take its
@@ -332,12 +353,11 @@ pub fn track(ctx: &Ctx, folder: &str, on: bool) -> Result<(), String> {
     }
     for f in folders {
         let path = ctx.home.join(f).to_string_lossy().into_owned();
-        let args = if on {
-            vec!["add", path.as_str()]
+        if on {
+            add(ctx, &[&path])?;
         } else {
-            vec!["forget", "--force", path.as_str()]
-        };
-        run(None, "chezmoi", &args)?;
+            run(None, "chezmoi", &["forget", "--force", &path])?;
+        }
     }
     Ok(())
 }
