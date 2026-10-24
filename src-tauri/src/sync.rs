@@ -2375,7 +2375,7 @@ fn record_repositories(data: &mut Data) {
         }
     }
     let mine = user_apps_here();
-    for (app, repo) in sources(mine.iter(), &[], &BTreeMap::new()) {
+    for (app, repo) in sources(mine.iter(), &[], &BTreeMap::new(), &BTreeMap::new()) {
         if extra.contains(&repo) {
             data.app_repo.insert(app, repo);
         }
@@ -2586,18 +2586,10 @@ pub fn outside_repos(mine: &[String]) -> Vec<String> {
 
 /// Where apps come from. pacman takes a package from the first repository in pacman.conf that
 /// has it (on Omarchy: omarchy, then Arch's core, extra and multilib), and yay turns to the AUR
-/// only when none does; apps from none of these install with their steps.
+/// only when none does; apps from none of these install with their steps. An app from an extra
+/// repository this computer doesn't have (`app_repo`, recorded by another computer) shows that
+/// repository rather than the AUR.
 pub fn sources<'a>(
-    apps: impl Iterator<Item = &'a String>,
-    outside_here: &[String],
-    outside_synced: &BTreeMap<String, Option<Script>>,
-) -> BTreeMap<String, String> {
-    sources_with(apps, outside_here, outside_synced, &BTreeMap::new())
-}
-
-/// `sources`, where an app that comes from an extra repository this computer doesn't have
-/// (`app_repo`, recorded by another computer) shows that repository rather than the AUR.
-pub fn sources_with<'a>(
     apps: impl Iterator<Item = &'a String>,
     outside_here: &[String],
     outside_synced: &BTreeMap<String, Option<Script>>,
@@ -3291,7 +3283,7 @@ fn apps(data: &Data) -> Apps {
     let outside = outside_repos(&mine);
     // Every app shown: this computer's and the synced ones it may not have yet.
     let all = mine.iter().chain(data.apps.iter());
-    let source = sources_with(all, &outside, &data.outside, &data.app_repo);
+    let source = sources(all, &outside, &data.outside, &data.app_repo);
     Apps {
         installed,
         mine,
