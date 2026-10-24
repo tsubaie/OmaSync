@@ -473,16 +473,6 @@ impl Data {
             out.retain(|x| !(b.contains(x) && !m.contains(x)));
             out
         };
-        let outside = merge_map(&base.outside, &theirs.outside, &mine.outside);
-        let mut computers = theirs.computers.clone();
-        for id in base.computers.keys().chain(mine.computers.keys()) {
-            if mine.computers.get(id) != base.computers.get(id) {
-                match mine.computers.get(id) {
-                    Some(c) => computers.insert(id.clone(), c.clone()),
-                    None => computers.remove(id),
-                };
-            }
-        }
         Data {
             folders: list(&base.folders, &theirs.folders, &mine.folders),
             apps: list(&base.apps, &theirs.apps, &mine.apps),
@@ -497,8 +487,8 @@ impl Data {
             } else {
                 theirs.background.clone()
             },
-            computers,
-            outside,
+            computers: merge_map(&base.computers, &theirs.computers, &mine.computers),
+            outside: merge_map(&base.outside, &theirs.outside, &mine.outside),
             repositories: merge_map(&base.repositories, &theirs.repositories, &mine.repositories),
             app_repo: merge_map(&base.app_repo, &theirs.app_repo, &mine.app_repo),
             version: theirs.version.max(mine.version),
