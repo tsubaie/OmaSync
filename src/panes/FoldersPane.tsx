@@ -1,4 +1,4 @@
-import { useState, type CSSProperties } from 'react';
+import { useState } from 'react';
 import { Input, Label, Text, TextField } from 'react-aria-components';
 import { api, type Folder, type Plugin } from '../api';
 import type { SyncState } from '../state';
@@ -132,9 +132,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
   const fromGit = mine.filter((p) => p.here && p.source);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
-  const { computers, name, column, many } = s.matrix;
-  // The switch columns: Enabled (the bar layout's, so it syncs), then one per computer.
-  const columns = { '--n': computers.length + 1 } as CSSProperties;
+  const { computers, name, column, columns, many } = s.matrix;
   /** Runs one of Omarchy's plugin commands, then looks again. */
   const omarchy = (label: string, work: () => Promise<unknown>, said?: (out: string) => void) =>
     s.act(label, work, (out) => {
@@ -179,7 +177,6 @@ export function PluginsPane({ s }: { s: SyncState }) {
             {mine.length > 0 && !many && (
               <div className="row matrix head" style={columns} aria-hidden="true">
                 <span>Plugin</span>
-                <span>Enabled</span>
                 {computers.map((c) => (
                   <span key={c}>{column(c)}</span>
                 ))}
@@ -190,7 +187,6 @@ export function PluginsPane({ s }: { s: SyncState }) {
                 <PluginText
                   s={s}
                   p={p}
-                  enabledInline={many}
                   removing={removing === p.id}
                   onRemoving={(on) => setRemoving(on ? p.id : null)}
                   onUpdate={() =>
@@ -210,23 +206,17 @@ export function PluginsPane({ s }: { s: SyncState }) {
                     onChange={(c, on) => s.edit(() => api.setPlugin(c, p.id, on))}
                   />
                 ) : (
-                  <>
-                    <div className="cell">
-                      <span className="cell-label">Enabled</span>
-                      {p.here && <EnabledToggle s={s} p={p} />}
+                  computers.map((c) => (
+                    <div className="cell" key={c}>
+                      <span className="cell-label">{column(c)}</span>
+                      <Toggle
+                        on={s.wantsPlugin(c, p.id)}
+                        label={`${p.name} synced on ${name(c)}`}
+                        disabled={!s.idle}
+                        onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
+                      />
                     </div>
-                    {computers.map((c) => (
-                      <div className="cell" key={c}>
-                        <span className="cell-label">{column(c)}</span>
-                        <Toggle
-                          on={s.wantsPlugin(c, p.id)}
-                          label={`${p.name} synced on ${name(c)}`}
-                          disabled={!s.idle}
-                          onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
-                        />
-                      </div>
-                    ))}
-                  </>
+                  ))
                 )}
               </div>
             ))}
@@ -298,14 +288,14 @@ function EnabledToggle({ s, p }: { s: SyncState; p: Plugin }) {
 
 /**
  * A plugin in three lines: its name, kind and source; its description, cut to one line (the
- * whole on hover); and what changes this computer alone, said so: the day's word on updates
- * (Up to date, or Update in the accent colour when there's one) and Remove. The switches that
- * sync sit in the row's columns; with many computers, Enabled comes along here.
+ * whole on hover); and, for one of your own, the plugin itself, apart from the Sync switches in
+ * the row's columns: its Enabled switch (the shell's on or off, kept in the bar layout), the
+ * day's word on updates (Up to date, or Update in the accent colour when there's one), and
+ * Remove. One of Omarchy's own has only Enabled, at the end of its row.
  */
 function PluginText({
   s,
   p,
-  enabledInline = false,
   removing = false,
   onRemoving,
   onUpdate,
@@ -313,7 +303,6 @@ function PluginText({
 }: {
   s: SyncState;
   p: Plugin;
-  enabledInline?: boolean;
   removing?: boolean;
   onRemoving?: (on: boolean) => void;
   onUpdate?: () => void;
@@ -351,17 +340,13 @@ function PluginText({
           {detail}
         </div>
       )}
-      {enabledInline && p.here && (
+      {p.here && !removing && (onUpdate || onRemoving) && (
         <div className="plugin-here">
+          <span className="who">This plugin:</span>
           <span className="who">
             Enabled
             <EnabledToggle s={s} p={p} />
           </span>
-        </div>
-      )}
-      {p.here && !removing && (onUpdate || onRemoving) && (
-        <div className="plugin-here">
-          <span className="who">This computer:</span>
           {p.update === false && (
             <span className="who good">
               <CircleCheck size={13} strokeWidth={2.25} aria-hidden="true" />
