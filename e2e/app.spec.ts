@@ -100,16 +100,16 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
     { cmd: 'set_app', args: { computer: 'aaaa11112222', app: 'yazi', on: false } },
   ]);
   await expect(
-    page.getByText('yazi switched off for this computer. Your other computers get this', {
-      exact: false,
-    }),
+    page.getByText('Your other computers get this the next time you sync.', { exact: false }),
   ).toBeVisible();
-  // The Sync page counts the choice among the changes to share straight away, and says what.
+  // The Sync page counts the changed choices straight away, one row each, and says what.
   await page.keyboard.press('Control+1');
-  await expect(page.getByText("1 change on this computer isn't synced yet.")).toBeVisible();
-  await expect(page.getByText('Apps and sync choices')).toBeVisible();
+  await expect(page.getByText("2 changes on this computer aren't synced yet.")).toBeVisible();
   await expect(
     page.getByText('yazi switched off for this computer', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText('Kitty terminal left out on this computer', { exact: true }),
   ).toBeVisible();
 });
 

@@ -358,7 +358,9 @@ mockIPC((cmd, args) => {
       return data;
     case 'choices_changed':
       // Like the Rust side: order and empty lists don't count. One fixed sentence stands in.
-      return same(data) !== same(shared) ? ['yazi switched off for this computer'] : [];
+      return same(data) !== same(shared)
+        ? ['yazi switched off for this computer', 'Kitty terminal left out on this computer']
+        : [];
     case 'install_plugins': {
       const laptop = data.computers.aaaa11112222;
       data = {

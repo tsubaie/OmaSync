@@ -13,11 +13,23 @@ import {
   WifiOff,
   type LucideIcon,
 } from 'lucide-react';
-import { api, type Keep, type Versions } from '../api';
+import { api, type Catalog, type Keep, type Overview, type Versions } from '../api';
 import { ago, byFolder, diffLines, plural, shortList } from '../format';
 import type { SyncState } from '../state';
 import { Caution, Group, Link, OmarchyLogo, Progress, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
+
+/**
+ * The rows of Not Synced Yet, as (title, detail): each changed choice is a change of its own; a
+ * kind of setting is one row with its files.
+ */
+function unsyncedRows(ov: Overview, catalog: Catalog): [string, string][] {
+  return byFolder(ov.unshared, catalog).flatMap(([label, files]) =>
+    label === catalog.data_label
+      ? ov.choice_changes.map((change): [string, string] => [change, label])
+      : [[label, shortList(files)] as [string, string]],
+  );
+}
 
 /** One fixed set of states, each with a headline, a detail line, an icon and its colour. */
 function status(s: SyncState): [string, string, LucideIcon, string] {
@@ -43,8 +55,8 @@ function status(s: SyncState): [string, string, LucideIcon, string] {
       'bad',
     ];
   }
-  // Counted as the list below shows them (one row per kind of setting), so the two always agree.
-  const n = byFolder(ov.unshared, s.catalog).length;
+  // Counted as the list below shows them, so the two always agree.
+  const n = unsyncedRows(ov, s.catalog).length;
   const changed = plural(n, 'change');
   const updates = plural(ov.incoming, 'update');
   if (n === 0 && ov.incoming === 0) return ['All your computers are in sync.', last, Check, 'good'];
@@ -567,16 +579,9 @@ export function SyncPane({ s }: { s: SyncState }) {
             {ov.unshared.length === 0 ? (
               <Row title="Everything on this computer is synced." />
             ) : (
-              byFolder(ov.unshared, s.catalog).map(([label, files]) =>
-                // Each changed choice is a change of its own; a folder's files share a row.
-                label === s.catalog.data_label ? (
-                  ov.choice_changes.map((change) => (
-                    <Row key={change} title={change} detail={label} />
-                  ))
-                ) : (
-                  <Row key={label} title={label} detail={shortList(files)} />
-                ),
-              )
+              unsyncedRows(ov, s.catalog).map(([title, detail]) => (
+                <Row key={title} title={title} detail={detail} />
+              ))
             )}
           </Group>
           <AddComputer s={s} />
