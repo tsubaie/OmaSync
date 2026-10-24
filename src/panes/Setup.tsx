@@ -60,7 +60,7 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
           'Lets you approve apps before installing',
           'Synced apps wait on the Sync pane; nothing installs on its own.',
         ],
-        ['Syncs every 15 minutes from now on', 'You can turn this off any time on the Sync pane.'],
+        ['Syncs once a day from now on', 'You can turn this off any time on the Sync pane.'],
       ]
     : [
         [
@@ -69,7 +69,7 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
         ],
         ["Copies this computer's settings into it", `Your ${what.join(', ')}.`],
         ['Changes nothing on this computer', 'It only reads your settings.'],
-        ['Syncs every 15 minutes from now on', 'You can turn this off any time on the Sync pane.'],
+        ['Syncs once a day from now on', 'You can turn this off any time on the Sync pane.'],
       ];
   // Each step says why it's needed, not just what it does.
   const why = st.missing.length
