@@ -427,6 +427,7 @@ fn choices_changed() -> bool {
 /// Loads the shared data, applies one change, saves it, and hands the result back to the page.
 fn edit(change: impl FnOnce(&mut Data, &str)) -> Result<Data> {
     let ctx = Ctx::load();
+    ctx.data_readable()?;
     let mut data = ctx.load_data();
     change(&mut data, &ctx.host);
     ctx.save_data(&data)?;

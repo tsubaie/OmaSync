@@ -869,9 +869,25 @@ impl Ctx {
         data
     }
 
+    /// Written whole and then renamed into place, so a sync that reads it at the same moment
+    /// (the background timer, say) never sees half a file.
     pub fn save_data(&self, data: &Data) -> Result<(), String> {
         let yaml = serde_yaml::to_string(data).map_err(|e| e.to_string())?;
-        std::fs::write(self.data_path(), yaml).map_err(|e| e.to_string())
+        // A dot name: chezmoi doesn't look at those, and it's gone before git looks.
+        let tmp = self.src.join(".omarchy-sync-data.tmp");
+        std::fs::write(&tmp, yaml).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, self.data_path()).map_err(|e| e.to_string())
+    }
+
+    /// Fails when the choices file is there but can't be read (a typo in a hand edit, a field
+    /// a newer version changed): saving over it would turn every choice off, on every computer.
+    pub fn data_readable(&self) -> Result<(), String> {
+        match std::fs::read_to_string(self.data_path()) {
+            Ok(text) if serde_yaml::from_str::<Data>(&text).is_err() => {
+                Err("the sync choices file can't be read".into())
+            }
+            _ => Ok(()),
+        }
     }
 
     fn git(&self, args: &[&str]) -> Result<String, String> {
@@ -1012,6 +1028,8 @@ pub fn friendly(err: &str) -> String {
         "Couldn't reach GitHub. Check your internet connection, then try again.".into()
     } else if e.contains("pkexec") && (e.contains("dismissed") || e.contains("not authorized")) {
         "The password window was closed, so nothing was installed.".into()
+    } else if e.contains("choices file can't be read") {
+        "The file that holds your sync choices can't be read, so nothing was synced. Undoing the last change to it in History fixes it.".into()
     } else if e.contains("can't undo") {
         "This change can't be undone on its own, because later changes build on it.".into()
     } else if e.contains("rejected") || e.contains("non-fast-forward") {
@@ -1479,6 +1497,7 @@ pub(crate) fn lock_wait(ctx: &Ctx) -> Result<std::fs::File, String> {
 /// Returns this computer's new name when it had to differ from the hostname, which another
 /// computer already uses.
 fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String>, String> {
+    ctx.data_readable()?;
     let mut data = ctx.load_data();
     let mut renamed = None;
     if data
