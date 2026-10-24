@@ -137,13 +137,11 @@ fn download_and_install(dir: &Path, version: &str, step: &dyn Fn(&str)) -> Resul
     let path = dir.join(&file);
     let package = path.to_string_lossy();
     step(&format!("Downloading Omarchy Sync {version}"));
+    // curl's progress bar (-#) gives the page the download's percentage.
     let fetch = |name: &str| {
         let url = format!("{base}/{name}");
-        run(
-            Some(dir),
-            "curl",
-            &["-fsSL", "--max-time", "300", "-o", name, &url],
-        )
+        let args = ["-fSL", "-#", "--max-time", "300", "-o", name, &url];
+        sync::run_progress(Some(dir), "curl", &args, sync::curl_percent, step)
     };
     fetch(&file)?;
     fetch("SHA256SUMS")?;

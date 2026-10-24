@@ -449,6 +449,10 @@ test('settings shows the version and installs a newer release after a clear conf
   expect(await calls(page, 'install_update')).toEqual([
     expect.objectContaining({ args: expect.objectContaining({ version: '0.2.0' }) }),
   ]);
+  // The update's steps and the download's percentage show in the Updates group itself.
+  await expect(updates.getByText('Downloading Omarchy Sync 0.2.0 62%')).toBeVisible();
+  await expect(updates.getByText('Restarting Omarchy Sync')).toBeVisible();
+  expect(await a11y(page)).toEqual([]);
 });
 
 test('a copy built from source says how it updates instead', async ({ page }) => {

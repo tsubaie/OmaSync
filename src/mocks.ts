@@ -436,11 +436,10 @@ mockIPC((cmd, args) => {
       emit(a.onStep, [
         "\u0001plan\tDownloading Omarchy Sync 0.2.0\tChecking it's genuine\tInstalling\tRestarting Omarchy Sync",
         'Downloading Omarchy Sync 0.2.0',
-        "Checking it's genuine",
-        'Installing',
-        'Restarting Omarchy Sync',
+        '\u0001percent\t62',
       ]);
-      return null;
+      // The real one goes on to install and restart; the mock stays here to show the progress.
+      return new Promise(() => {});
     case 'open_release':
       return null;
     default:

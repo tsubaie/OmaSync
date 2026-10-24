@@ -287,23 +287,42 @@ fn transfer_percent(line: &str) -> Option<u8> {
     digits.parse().ok()
 }
 
+/// The percentage in a line of curl's progress bar (`-#`): "#####   23.4%".
+pub(crate) fn curl_percent(line: &str) -> Option<u8> {
+    let before = &line[..line.rfind('%')?];
+    before.rsplit(' ').next()?.split('.').next()?.parse().ok()
+}
+
 /// A git command that talks to GitHub, passing its upload or download percentage on as it goes.
 pub(crate) fn git_progress(
     ctx: &Ctx,
     args: &[&str],
     step: &dyn Fn(&str),
 ) -> Result<String, String> {
+    run_progress(Some(&ctx.src), "git", args, transfer_percent, step)
+}
+
+/// Like `run`, for a command that prints its progress: `percent` reads a line of it, and each
+/// new value goes to the page as the current step's percentage.
+pub(crate) fn run_progress(
+    dir: Option<&Path>,
+    prog: &str,
+    args: &[&str],
+    percent: fn(&str) -> Option<u8>,
+    step: &dyn Fn(&str),
+) -> Result<String, String> {
     use std::io::Read;
-    let mut child = Command::new("git")
-        .args(args)
-        .current_dir(&ctx.src)
+    let mut cmd = Command::new(prog);
+    cmd.args(args)
         .env("LC_ALL", "C.UTF-8")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("git: {e}"))?;
-    let mut stderr = child.stderr.take().ok_or("git: no output")?;
+        .stderr(Stdio::piped());
+    if let Some(d) = dir {
+        cmd.current_dir(d);
+    }
+    let mut child = cmd.spawn().map_err(|e| format!("{prog}: {e}"))?;
+    let mut stderr = child.stderr.take().ok_or(format!("{prog}: no output"))?;
     let (mut all, mut line, mut last) = (Vec::new(), Vec::new(), None);
     let mut buf = [0u8; 1024];
     // Progress lines end in \r as they update; each finished one in \n.
@@ -313,7 +332,7 @@ pub(crate) fn git_progress(
         for &b in &buf[..n] {
             all.push(b);
             if b == b'\r' || b == b'\n' {
-                let p = transfer_percent(&String::from_utf8_lossy(&line));
+                let p = percent(&String::from_utf8_lossy(&line));
                 if p.is_some() && p != last {
                     step(&format!("{PERCENT}{}", p.unwrap_or_default()));
                     last = p;
@@ -324,12 +343,16 @@ pub(crate) fn git_progress(
             }
         }
     }
-    let out = child.wait_with_output().map_err(|e| format!("git: {e}"))?;
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("{prog}: {e}"))?;
     if out.status.success() {
         Ok(String::from_utf8_lossy(&out.stdout).trim_end().to_string())
     } else {
+        // Only what follows the last progress update: the error itself, not rows of bars.
         let err = String::from_utf8_lossy(&all);
-        Err(format!("git {}: {}", args.join(" "), err.trim()))
+        let err = err.rsplit('\r').next().unwrap_or(&err);
+        Err(format!("{prog} {}: {}", args.join(" "), err.trim()))
     }
 }
 
@@ -426,6 +449,17 @@ pub fn sync_space(ctx: &Ctx) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_curl_percentages() {
+        assert_eq!(curl_percent("#########                  23.4%"), Some(23));
+        assert_eq!(curl_percent("######################## 100.0%"), Some(100));
+        assert_eq!(curl_percent(""), None);
+        assert_eq!(
+            curl_percent("curl: (22) The requested URL returned error: 404"),
+            None
+        );
+    }
 
     #[test]
     fn reads_git_transfer_percentages() {
