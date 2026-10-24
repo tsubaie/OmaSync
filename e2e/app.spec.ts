@@ -26,9 +26,7 @@ test('first run names exactly what it installs', async ({ page }) => {
 
 test('sync pane shows the state and syncs on request', async ({ page }) => {
   await page.goto('/?scenario=synced');
-  const status = page
-    .getByRole('status')
-    .filter({ hasText: 'Everything matches your other computers.' });
+  const status = page.getByRole('status').filter({ hasText: 'All your computers are in sync.' });
   await expect(status).toBeVisible();
   expect(await a11y(page)).toEqual([]);
 
@@ -108,7 +106,7 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
   ).toBeVisible();
   // The Sync page counts the choice among the changes to share straight away, and says what.
   await page.keyboard.press('Control+1');
-  await expect(page.getByText("1 change on this computer isn't shared yet.")).toBeVisible();
+  await expect(page.getByText("1 change on this computer isn't synced yet.")).toBeVisible();
   await expect(page.getByText('Apps and sync choices')).toBeVisible();
   await expect(
     page.getByText('yazi switched off for this computer', { exact: true }),

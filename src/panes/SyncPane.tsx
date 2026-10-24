@@ -47,11 +47,10 @@ function status(s: SyncState): [string, string, LucideIcon, string] {
   const n = byFolder(ov.unshared, s.catalog).length;
   const changed = plural(n, 'change');
   const updates = plural(ov.incoming, 'update');
-  if (n === 0 && ov.incoming === 0)
-    return ['Everything matches your other computers.', last, Check, 'good'];
+  if (n === 0 && ov.incoming === 0) return ['All your computers are in sync.', last, Check, 'good'];
   if (ov.incoming === 0) {
     return [
-      `${changed} on this computer ${n === 1 ? "isn't" : "aren't"} shared yet.`,
+      `${changed} on this computer ${n === 1 ? "isn't" : "aren't"} synced yet.`,
       last,
       Upload,
       'warn',
@@ -564,17 +563,20 @@ export function SyncPane({ s }: { s: SyncState }) {
               ))}
             </Group>
           )}
-          <Group title="Not Shared Yet">
+          <Group title="Not Synced Yet">
             {ov.unshared.length === 0 ? (
-              <Row title="Everything on this computer is shared." />
+              <Row title="Everything on this computer is synced." />
             ) : (
-              byFolder(ov.unshared, s.catalog).map(([label, files]) => (
-                <Row
-                  key={label}
-                  title={label}
-                  detail={shortList(label === s.catalog.data_label ? ov.choice_changes : files)}
-                />
-              ))
+              byFolder(ov.unshared, s.catalog).map(([label, files]) =>
+                // Each changed choice is a change of its own; a folder's files share a row.
+                label === s.catalog.data_label ? (
+                  ov.choice_changes.map((change) => (
+                    <Row key={change} title={change} detail={label} />
+                  ))
+                ) : (
+                  <Row key={label} title={label} detail={shortList(files)} />
+                ),
+              )
             )}
           </Group>
           <AddComputer s={s} />

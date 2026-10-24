@@ -90,7 +90,7 @@ export type Entry = {
   files: { path: string; how: 'Added' | 'Changed' | 'Removed' }[];
 };
 export type Overview = {
-  /** Paths under home changed here and not shared yet. */
+  /** Paths under home changed here and not synced yet. */
   unshared: string[];
   /** What changed in the choices (the data label's entry), in sentences. */
   choice_changes: string[];
