@@ -1177,3 +1177,34 @@ fn a_switch_flipped_during_a_sync_waits_for_it_instead_of_being_lost() {
     lab.sync_ok("a");
     assert!(!lab.data("a").uses_folder("a", ".config/alacritty"));
 }
+
+#[test]
+#[ignore]
+fn leaving_omarchys_settings_out_on_one_computer_still_syncs_the_rest_there() {
+    let mut lab = pair();
+    lab.join("b");
+    // "Don't sync on this computer" for Other Omarchy settings: themes, hooks and plugins
+    // inside it stay out too, and syncing goes on for everything else.
+    lab.edit("b", |d, host| {
+        d.set_folder_here(host, ".config/omarchy", false)
+    });
+    lab.write("b", ".config/omarchy/hooks/mine.sh", "b hook\n");
+    lab.sync_ok("b");
+    assert!(lab.data("b").missing_plugins("b").is_empty());
+    lab.write("a", ".config/omarchy/hooks/shared.sh", "a hook\n");
+    lab.write("a", ".config/hypr/bindings.lua", "a keys 2\n");
+    lab.write("a", ".local/state/omarchy/current/theme.name", "old\n");
+    lab.settle();
+    assert_eq!(lab.read("b", ".config/hypr/bindings.lua"), "a keys 2\n");
+    assert!(!lab.exists("b", ".config/omarchy/hooks/shared.sh"));
+    assert!(!lab.exists("a", ".config/omarchy/hooks/mine.sh"));
+    assert!(!lab.exists("b", ".config/omarchy/themes/old"));
+    assert!(!lab.calls("b").contains("theme set old"));
+    // Back in: b takes the shared Omarchy settings, its own saved first.
+    lab.edit("b", |d, host| {
+        d.set_folder_here(host, ".config/omarchy", true)
+    });
+    lab.sync_ok("b");
+    lab.settle();
+    assert_eq!(lab.read("b", ".config/omarchy/hooks/shared.sh"), "a hook\n");
+}
