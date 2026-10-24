@@ -312,9 +312,7 @@ mockIPC((cmd, args) => {
         ...(scenario === 'syncing' ? ['\u0001percent\t62'] : []),
       ]);
       if (scenario === 'syncing') return new Promise(() => {});
-      return scenario === 'conflict' && a.prefer === 'Ask'
-        ? Promise.reject(conflict)
-        : { notes: [], waiting: [] };
+      return scenario === 'conflict' ? Promise.reject(conflict) : { notes: [], waiting: [] };
     }
     case 'add_apps':
       data = { ...data, apps: [...new Set([...data.apps, ...(a.apps as string[])])] };

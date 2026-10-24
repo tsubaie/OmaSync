@@ -6,7 +6,7 @@ mod sync;
 mod update;
 
 use serde::Serialize;
-use sync::{Ctx, Data, Overview, Prefer, Report, SetupState, SyncError};
+use sync::{Ctx, Data, Overview, Report, SetupState, SyncError};
 use tauri::ipc::Channel;
 use tauri::{Emitter, Manager};
 
@@ -267,8 +267,8 @@ fn install_without_asking(ctx: &Ctx) -> bool {
 }
 
 #[tauri::command]
-async fn sync_now(prefer: Prefer, on_step: Channel<String>) -> Result<Report> {
-    blocking(move |ctx| sync::sync(ctx, prefer, install_without_asking(ctx), &steps(on_step)))
+async fn sync_now(on_step: Channel<String>) -> Result<Report> {
+    blocking(move |ctx| sync::sync(ctx, install_without_asking(ctx), &steps(on_step)))
         .await
         .map_err(Problem::from)
 }
@@ -294,7 +294,7 @@ async fn undo(sha: String, on_step: Channel<String>) -> Result<Report> {
         let step = steps(on_step);
         step("Undoing");
         sync::undo(ctx, &sha).map_err(SyncError::Failed)?;
-        sync::sync(ctx, Prefer::Ask, install_without_asking(ctx), &step)
+        sync::sync(ctx, install_without_asking(ctx), &step)
     })
     .await
     .map_err(Problem::from)

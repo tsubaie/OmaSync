@@ -297,7 +297,7 @@ impl Lab {
 
     pub fn sync(&mut self, name: &str) -> Result<Report, SyncError> {
         let ctx = self.ctx(name).clone();
-        let result = sync(&ctx, Prefer::Ask, false, &|_| {});
+        let result = sync(&ctx, false, &|_| {});
         self.check(name);
         result
     }

@@ -10,7 +10,6 @@ import {
   type Conflict,
   type Data,
   type Keep,
-  type Prefer,
   type Problem,
   type Report,
   type SetupState,
@@ -164,7 +163,7 @@ export function useSync() {
     try {
       const st = await api.probe();
       setSetup(st);
-      if (st.ready) await sync('Ask', undefined, true);
+      if (st.ready) await sync(undefined, true);
       else endRound();
     } catch (e) {
       endRound();
@@ -186,18 +185,12 @@ export function useSync() {
     if (s.ready) await refresh();
   }
 
-  /** Syncs (or undoes a change, then syncs), then shows the fresh state. */
-  /** `continues`: carry on the progress of setup, which ends by syncing. */
   /**
    * Syncs; or undoes a change, then syncs; or, with `choices`, settles a clash by keeping the
-   * chosen version of each clashing file, then syncs.
+   * chosen version of each clashing file, then syncs. Then shows the fresh state.
+   * `continues`: carry on the progress of setup, which ends by syncing.
    */
-  async function sync(
-    prefer: Prefer = 'Ask',
-    undoSha?: string,
-    continues = false,
-    choices?: Record<string, Keep>,
-  ) {
+  async function sync(undoSha?: string, continues = false, choices?: Record<string, Keep>) {
     if (working.current) return;
     setNotice(null);
     setTab('sync');
@@ -211,7 +204,7 @@ export function useSync() {
             ? api.resolveConflict(choices, onStep)
             : undoSha
               ? api.undo(undoSha, onStep)
-              : api.syncNow(prefer, onStep),
+              : api.syncNow(onStep),
         continues ? 'middle' : 'first',
       );
       if (report) {
