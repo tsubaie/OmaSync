@@ -64,19 +64,12 @@ pub struct MissingRepo {
     pub apps: Vec<String>,
 }
 
-/// Extra repositories this computer lacks for synced apps it wants and doesn't have yet.
-pub fn missing_repos(
-    data: &Data,
-    host: &str,
-    installed: &BTreeSet<String>,
-    here: &BTreeSet<String>,
-) -> Vec<MissingRepo> {
+/// Extra repositories this computer lacks for synced apps it wants: ones it doesn't have yet,
+/// and ones it has that stopped updating when the repository went (an Omarchy upgrade can
+/// rewrite pacman.conf).
+pub fn missing_repos(data: &Data, host: &str, here: &BTreeSet<String>) -> Vec<MissingRepo> {
     let mut needed: BTreeMap<&String, Vec<String>> = BTreeMap::new();
-    for app in data
-        .apps
-        .iter()
-        .filter(|a| data.wants_app(host, a) && !installed.contains(*a))
-    {
+    for app in data.apps.iter().filter(|a| data.wants_app(host, a)) {
         if let Some(repo) = data.app_repo.get(app).filter(|r| !here.contains(*r)) {
             needed.entry(repo).or_default().push(app.clone());
         }
@@ -609,8 +602,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let none = BTreeSet::new();
-        let missing = missing_repos(&d, "b", &none, &BTreeSet::from(["core".into()]));
+        let missing = missing_repos(&d, "b", &BTreeSet::from(["core".into()]));
         assert_eq!(
             (
                 missing.len(),
@@ -619,9 +611,10 @@ mod tests {
             ),
             (1, "openai-chatgpt", vec!["chatgpt-bin".to_string()])
         );
-        // Once the repository is here, nothing waits for it.
+        // Once the repository is here, nothing waits for it. (An installed app whose repository
+        // went still does: it can't update until the repository is back.)
         let here = BTreeSet::from(["openai-chatgpt".to_string()]);
-        assert!(missing_repos(&d, "b", &none, &here).is_empty());
+        assert!(missing_repos(&d, "b", &here).is_empty());
         assert_eq!(repos_with_apps(&d, &here)[0].apps, missing[0].apps);
         // A repository recorded on one computer survives a merge with another's changes.
         let base = Data::default();

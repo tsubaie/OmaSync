@@ -33,7 +33,7 @@ pub use engine::{Conflict, Keep, Report, SyncError, disconnect, put_back_omarchy
 pub use history::undo;
 pub use overview::{Overview, overview};
 pub use plugins::{add_plugin, install_plugins, remove_plugin, set_plugin_enabled, update_plugins};
-pub use rules::{DATA_LABEL, FOLDERS};
+pub use rules::{DATA_LABEL, FOLDERS, folder_app};
 pub use setup::{SetupState, install_helpers, join, probe, sign_in, start};
 pub use stage::{track, track_plugin};
 

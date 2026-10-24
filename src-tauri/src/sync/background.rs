@@ -36,15 +36,18 @@ pub fn schedule(ctx: &Ctx, on: bool) -> Result<(), String> {
         "[Unit]\nDescription=Omarchy Sync\n\n[Service]\nType=oneshot\nExecStart={} --background\n",
         exe.display()
     );
-    let timer = "[Unit]\nDescription=Sync Omarchy settings every 15 minutes\n\n[Timer]\nOnBootSec=3min\nOnUnitActiveSec=15min\n\n[Install]\nWantedBy=timers.target\n";
+    // Once a day at midnight; a computer that was off then catches up when it next starts.
+    let timer = "[Unit]\nDescription=Sync Omarchy settings once a day\n\n[Timer]\nOnCalendar=daily\nPersistent=true\n\n[Install]\nWantedBy=timers.target\n";
     let dir = unit_dir(ctx);
     let service_path = dir.join(format!("{UNIT}.service"));
-    if enabled && std::fs::read_to_string(&service_path).is_ok_and(|s| s == service) {
+    let timer_path = dir.join(format!("{UNIT}.timer"));
+    let current = |path: &Path, text: &str| std::fs::read_to_string(path).is_ok_and(|s| s == text);
+    if enabled && current(&service_path, &service) && current(&timer_path, timer) {
         return Ok(());
     }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     std::fs::write(&service_path, service).map_err(|e| e.to_string())?;
-    std::fs::write(dir.join(format!("{UNIT}.timer")), timer).map_err(|e| e.to_string())?;
+    std::fs::write(&timer_path, timer).map_err(|e| e.to_string())?;
     run(None, "systemctl", &["--user", "daemon-reload"])?;
     run(
         None,

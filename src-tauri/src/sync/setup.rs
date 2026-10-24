@@ -117,10 +117,14 @@ pub fn start(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<(), String> {
 pub(crate) fn seed(ctx: &Ctx) -> Result<(), String> {
     run(None, "chezmoi", &["init"])?;
     std::fs::write(ctx.src.join(".chezmoiignore"), IGNORE).map_err(|e| e.to_string())?;
+    // An app's settings folder counts only when the app is installed: Omarchy ships settings
+    // for terminals nobody may use.
+    let installed = installed();
     let mut data = Data {
         folders: FOLDERS
             .iter()
             .filter(|(p, _, on)| *on && ctx.home.join(p).exists())
+            .filter(|(p, _, _)| folder_app(p).is_none_or(|app| installed.contains(app)))
             .map(|(p, _, _)| p.to_string())
             .collect(),
         theme: ctx.current_theme(),

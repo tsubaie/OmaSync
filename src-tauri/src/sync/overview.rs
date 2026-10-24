@@ -123,7 +123,7 @@ pub fn overview(
             })
             .collect(),
         plugins,
-        missing_repos: missing_repos(data, &ctx.host, &apps.installed, &here),
+        missing_repos: missing_repos(data, &ctx.host, &here),
         repos_here: repos_with_apps(data, &here),
         apps,
     })

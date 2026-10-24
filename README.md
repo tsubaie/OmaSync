@@ -7,7 +7,7 @@
 
 <p align="center">
   <b>Your <a href="https://omarchy.org">Omarchy</a> settings, themes, plugins and apps, the same on every computer.</b><br />
-  Private to your own GitHub account. One button, or automatic every 15 minutes.
+  Private to your own GitHub account. One button, or automatic once a day.
 </p>
 
 <p align="center">
@@ -48,7 +48,7 @@ You set up Omarchy just the way you like it: keyboard shortcuts, a theme, a few 
     <td width="50%"><img src="docs/screenshots/configurations.png" alt="Configurations: a switch for the current theme, menu additions, hooks, keyboard shortcuts, input, look and feel and more." /></td>
   </tr>
   <tr>
-    <td><b>Sync, step by step.</b> Press Sync Now, or let it run every 15 minutes. You see each step, and how far an upload or download has got.</td>
+    <td><b>Sync, step by step.</b> Press Sync Now, or let it run once a day. You see each step, and how far an upload or download has got.</td>
     <td><b>Configurations.</b> Omarchy and window settings, each with its own switch. Only the theme and background you're using sync, and your other computers switch to them.</td>
   </tr>
   <tr>
@@ -131,7 +131,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 
 **Sync.** Press **Sync Now** (or Ctrl+R). It saves this computer's changes, brings in your other computers' changes, applies them, and shares the result. The Sync screen shows each step as it goes, then when this computer last synced and last checked. Before a sync, it lists what's about to arrive under **Coming to This Computer**.
 
-**Automatic syncing.** Omarchy Sync syncs every 15 minutes, even with the window closed. It only notifies you when something needs you: a choice between two versions, apps or plugins waiting to be added, or syncing failing twice in a row. Turn it off per computer in **Settings**.
+**Automatic syncing.** Omarchy Sync syncs once a day at midnight, even with the window closed; a computer that was off then catches up when it starts. It only notifies you when something needs you: a choice between two versions, apps or plugins waiting to be added, or syncing failing twice in a row. Turn it off per computer in **Settings**.
 
 **On your bar.** Omarchy Sync puts its icon on your Omarchy bar: spinning in green while syncing, green for a few seconds when a sync finishes well, red when syncing fails, and yellow when something waits for you, with the reason in its tooltip. Click it to open Omarchy Sync. It's on by default; **Settings → Show in the bar** turns it off for this computer.
 
@@ -143,7 +143,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 
 **Theme and background.** Picking another Omarchy theme or background shows up at once under **Not Synced Yet**, and the next sync gives it to your other computers. The app recolours itself to match, like other apps.
 
-**Choosing what syncs.** **Configurations** and **App Data** list everything that can sync, each with a switch: off stops syncing it everywhere. **Don't Sync on This Computer** leaves only this computer out: it keeps its own version while the others stay in step.
+**Choosing what syncs.** **Configurations** and **App Data** list everything that can sync, each with a switch: off stops syncing it everywhere. **Don't Sync on This Computer** leaves only this computer out: it keeps its own version while the others stay in step. App Data shows an app's settings folder when the app is installed here or synced to any computer, or when the folder already syncs; Omarchy ships settings for several terminals whether or not you use them, so a folder for an app that isn't installed here says so, and at first setup only the installed apps' folders switch on.
 
 **Apps and plugins.** In **Installed Apps** and **Plugins**, each computer has its own switch:
 
@@ -155,7 +155,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 **Managing plugins.** **Plugins** also lists every plugin Omarchy knows on this computer, its own ones included, each with a sync switch per computer and, underneath, an **Enabled** switch; enabled or not is part of your bar layout, so it reaches your other computers with the next sync. **Add Plugin…** takes a plugin's git address and adds it the way `omarchy plugin add` does, after a warning: a plugin runs with your access, so only add one from a source you trust. A plugin that came from git shows where it's from and can be updated with **Update Plugin** (or all of them at once); another computer that syncs it adds it from git too, rather than copying its files, so every copy can be updated. **Remove Plugin…** takes a plugin off this computer only.
 
 - Each app's row says where it comes from: Arch's repositories, Omarchy's, its maker's own repository, or the AUR (used only as a last resort).
-- Apps from their maker's own repository (like ChatGPT's) never fall back to the AUR. Each computer records its extra repositories and their signing keys. **Apps → Repositories** lists the ones this computer has, and **Repositories to Add** the ones it still needs, with the repository's address and its key's owner and fingerprint. **Add Repository…** adds one only after you agree, with your password, and **Show Commands** gives the same steps to run in a terminal yourself. Until then, the apps that need it stay off and locked on this computer, and the Sync page points to Repositories.
+- Apps from their maker's own repository (like ChatGPT's) never fall back to the AUR. Each computer records its extra repositories and their signing keys. **Apps → Repositories** lists the ones this computer has, and **Repositories to Add** the ones it still needs, with the repository's address and its key's owner and fingerprint. **Add Repository…** adds one only after you agree, with your password, and **Show Commands** gives the same steps to run in a terminal yourself. Until then, the apps that need it stay off and locked on this computer, and the Sync page points to Repositories. An app already installed here whose repository has gone (an Omarchy upgrade can rewrite `pacman.conf`) shows there too, since it can't update until the repository is back.
 - Apps that aren't in Arch's repos or the AUR (ones you built from your own repository, say) can't install through `yay`. Their row says so and offers **Add Install Steps…**: the commands that install it, one per line, such as cloning its repository, building it and running its install script. They run in order and stop at the first step that fails. Other computers then offer **Install**, which runs it in an empty folder in a terminal window you can watch. Without one, the app stays on the computers that have it.
 
 **When two computers changed the same thing.** The sync stops and shows each clashing file with both versions side by side and the exact lines that differ. You choose one version per file, then **Keep Chosen Versions**; **Cancel** leaves everything as it was. Nothing is lost: the version you didn't keep stays in History. Changes to the choices themselves (which apps, which plugins) never ask: they're merged automatically.
@@ -191,8 +191,8 @@ If another computer already uses this computer's name (Omarchy names every compu
 | Plugins   | Plugins                               | `.config/omarchy/plugins` (the ones you pick) |      Yes      |
 |           | Bar layout and plugin settings        | `.config/omarchy/shell.json`                  |      Yes      |
 | App Data  | Web apps and their icons              | `.local/share/applications` and their icons   |      Yes      |
-|           | Alacritty, Ghostty, Kitty, Foot       | `.config/<terminal>`                          |      Yes      |
-|           | Terminal prompt                       | `.config/starship.toml`                       |      Yes      |
+|           | Alacritty, Ghostty, Kitty, Foot       | `.config/<terminal>`                          | If installed  |
+|           | Terminal prompt                       | `.config/starship.toml`                       | If installed  |
 |           | Neovim, btop, Lazygit, Fastfetch, Git | `.config/<app>`                               |      No       |
 | Installed | Apps you installed yourself           | pacman and the AUR, through `yay`             |  You choose   |
 | Always    | The background you're using           | Omarchy's current background                  |      Yes      |
@@ -205,7 +205,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 flowchart LR
   subgraph PC["Each computer"]
     UI["Window<br/>React + React Aria"] -->|Tauri commands,<br/>checked in main.rs| Engine["Sync engine<br/>src-tauri/src/sync/ (Rust)"]
-    Timer["systemd timer<br/>every 15 min"] -->|omarchy-sync --background| Engine
+    Timer["systemd timer<br/>once a day"] -->|omarchy-sync --background| Engine
     Engine --> Chezmoi["chezmoi<br/>~/.local/share/chezmoi"]
     Engine --> Tools["yay · omarchy · notify-send"]
   end
@@ -217,7 +217,7 @@ flowchart LR
 
 - **The window** (React, TypeScript and React Aria in [Tauri](https://tauri.app)) shows your settings and sends every action to the engine. Its colours come from your active Omarchy theme, adjusted to meet WCAG contrast.
 - **The engine** (`src-tauri/src/sync/`, Rust) does the work by running trusted tools: [chezmoi](https://chezmoi.io) for files, `git` and `gh` for your GitHub repository, `pacman` and `yay` for apps, and Omarchy's own `omarchy theme` commands. Everything the window sends is checked first in `src-tauri/src/main.rs`.
-- **The background sync** is the same program run by a systemd user timer every 15 minutes (`~/.config/systemd/user/omarchy-sync.timer`).
+- **The background sync** is the same program run by a systemd user timer once a day, at midnight (`~/.config/systemd/user/omarchy-sync.timer`).
 
 **A sync, step by step**
 

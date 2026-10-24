@@ -37,6 +37,19 @@ const LATTE = [
 const now = Math.floor(Date.now() / 1000);
 
 // The same folders as FOLDERS in rules.rs: [path, name, synced by default].
+/** The app whose settings an app-data folder holds, as rules.rs knows them. */
+const FOLDER_APPS: Record<string, string> = {
+  '.config/alacritty': 'alacritty',
+  '.config/ghostty': 'ghostty',
+  '.config/kitty': 'kitty',
+  '.config/foot': 'foot',
+  '.config/starship.toml': 'starship',
+  '.config/nvim': 'neovim',
+  '.config/btop': 'btop',
+  '.config/lazygit': 'lazygit',
+  '.config/fastfetch': 'fastfetch',
+  '.config/git': 'git',
+};
 const FOLDERS: [string, string, boolean][] = [
   ['.config/omarchy', 'Other Omarchy settings', true],
   ['.config/omarchy/themes', 'Current theme', true],
@@ -57,7 +70,13 @@ const FOLDERS: [string, string, boolean][] = [
 ];
 const catalog: Catalog = {
   data_label: 'Apps and sync choices',
-  folders: FOLDERS.map(([path, name, on]) => ({ path, name, default: on, exists: true })),
+  folders: FOLDERS.map(([path, name, on]) => ({
+    path,
+    name,
+    default: on,
+    exists: true,
+    app: FOLDER_APPS[path] ?? null,
+  })),
 };
 
 let data: Data = {

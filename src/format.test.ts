@@ -15,8 +15,8 @@ describe('format', () => {
     const catalog = {
       data_label: 'Apps and sync choices',
       folders: [
-        { path: '.config/hypr', name: 'Windows', default: true, exists: true },
-        { path: '.config', name: 'Everything', default: false, exists: true },
+        { path: '.config/hypr', name: 'Windows', default: true, exists: true, app: null },
+        { path: '.config', name: 'Everything', default: false, exists: true, app: null },
       ],
     };
     expect(

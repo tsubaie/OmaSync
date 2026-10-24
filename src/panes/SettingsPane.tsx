@@ -224,7 +224,7 @@ export function SettingsPane({ s }: { s: SyncState }) {
       <Group title="Automatic Syncing">
         <Row
           title="Sync automatically"
-          detail="Every 15 minutes, even when this window is closed. You're notified only when a choice is needed."
+          detail="Once a day at midnight, even when this window is closed; a computer that was off then catches up when it starts. You're notified only when a choice is needed."
           end={
             <Toggle
               on={!s.me.manual}
