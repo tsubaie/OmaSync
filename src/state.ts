@@ -301,7 +301,7 @@ export function useSync() {
     return () => clearInterval(timer);
   }, []);
 
-  // Ctrl+Q quits, Ctrl+R or F5 syncs (instead of reloading the page), Ctrl+1 to 7 switch panes.
+  // Ctrl+Q quits, Ctrl+R or F5 syncs (instead of reloading the page), Ctrl+1 to 8 switch panes.
   const onKey = useEffectEvent((e: KeyboardEvent) => {
     const ctrl = e.ctrlKey && !e.altKey && !e.metaKey;
     if (ctrl && e.key === 'q') getCurrentWindow().close();
