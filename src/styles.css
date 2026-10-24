@@ -1052,6 +1052,10 @@ kbd {
 .progress .steps li.next {
   opacity: 0.6;
 }
+/* On a card, the quiet colour has no room to fade: the empty circle alone marks a step to come. */
+.box .progress .steps li.next {
+  opacity: 1;
+}
 .progress .steps li.done svg {
   color: var(--good);
 }

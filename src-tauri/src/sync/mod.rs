@@ -27,7 +27,7 @@ pub use background::{background, schedule};
 pub use bar::{bar_indicator, ensure_bar_indicator, set_bar_indicator};
 pub use ctx::{Ctx, edit, friendly, is_git_address, run, sync_space};
 // What the updater shares with a sync.
-pub(crate) use ctx::{lock, lock_wait, plan};
+pub(crate) use ctx::{curl_percent, lock, lock_wait, plan, run_progress};
 pub use data::{Data, Script, is_plugin_id, name_taken, toggle};
 pub use engine::{Conflict, Keep, Report, SyncError, disconnect, put_back_omarchy, resolve, sync};
 pub use history::undo;

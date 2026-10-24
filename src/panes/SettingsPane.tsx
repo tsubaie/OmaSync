@@ -4,7 +4,7 @@ import { Input, TextField } from 'react-aria-components';
 import { api, type Update } from '../api';
 import { ago } from '../format';
 import type { SyncState } from '../state';
-import { Group, Link, Push, Row, Tile, Toggle } from '../ui';
+import { Group, Link, Progress, Push, Row, Tile, Toggle } from '../ui';
 
 /** This computer's name: saved when you press Return or leave the field. */
 function NameField({ s }: { s: SyncState }) {
@@ -39,6 +39,8 @@ function Updates({ s }: { s: SyncState }) {
   // Not checked yet (undefined), up to date (null), or the newer release.
   const [found, setFound] = useState<Update | null | undefined>(undefined);
   const [confirm, setConfirm] = useState(false);
+  // Only the update's own progress shows here, not a sync's that may run meanwhile.
+  const [updating, setUpdating] = useState(false);
   const title = `Omarchy Sync ${s.version}`;
   if (s.installedHow === 'Source') {
     return (
@@ -98,9 +100,10 @@ function Updates({ s }: { s: SyncState }) {
                   disabled={!s.idle}
                   onPress={() => {
                     setConfirm(false);
+                    setUpdating(true);
                     s.act(`Updating to ${found.version}`, (onStep) =>
                       api.installUpdate(found.version, onStep),
-                    );
+                    ).finally(() => setUpdating(false));
                   }}
                 >
                   Update
@@ -115,7 +118,7 @@ function Updates({ s }: { s: SyncState }) {
                   What's New
                 </Link>
                 <Push disabled={!s.idle} onPress={() => setConfirm(true)}>
-                  Update to {found.version}…
+                  {updating ? 'Updating…' : `Update to ${found.version}…`}
                 </Push>
               </div>
             )
@@ -133,6 +136,7 @@ function Updates({ s }: { s: SyncState }) {
             running finishes first.
           </p>
         )}
+        {updating && <Progress steps={s.steps} plan={s.plan} percent={s.percent} />}
       </Row>
     </Group>
   );
