@@ -49,7 +49,7 @@ function ReposToAdd({ s }: { s: SyncState }) {
   return (
     <Group
       title="Repositories to Add"
-      footer="These apps come from their makers' own repositories, which your other computers use. They install here once the repository is added."
+      footer="These apps come from their makers' own repositories, which your other computers use. They install here once the repository is added, and one already installed here updates again."
     >
       {s.overview!.missing_repos.map((r) => (
         <Row
