@@ -141,7 +141,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 
 **Different Omarchy versions.** Each computer records its Omarchy version. Omarchy's own settings (`~/.config/omarchy` and `~/.config/hypr`) follow the newest major version, since settings made for Omarchy 5 may not work on Omarchy 4. A computer on an older major version keeps its own Omarchy settings while everything else still syncs, and its Sync page says so and offers **Update Omarchy**. The newer computers say which ones to update, never themselves. When the older computer catches up, it saves its own settings and takes the shared ones. To try the newer settings before updating, choose **Try Their Settings Anyway…**: this computer's settings are saved first, and **Put Back My Settings** restores them exactly and pauses again. That way back stays on this computer only. History's Undo, by contrast, would undo the change on every computer.
 
-**Theme and background.** Picking another Omarchy theme or background shows up at once under **Not Shared Yet**, and the next sync gives it to your other computers. The app recolours itself to match, like other apps.
+**Theme and background.** Picking another Omarchy theme or background shows up at once under **Not Synced Yet**, and the next sync gives it to your other computers. The app recolours itself to match, like other apps.
 
 **Choosing what syncs.** **Configurations** and **App Data** list everything that can sync, each with a switch: off stops syncing it everywhere. **Don't Sync on This Computer** leaves only this computer out: it keeps its own version while the others stay in step.
 
