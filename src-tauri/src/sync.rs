@@ -2071,9 +2071,8 @@ pub fn bar_indicator(ctx: &Ctx) -> bool {
 
 /// Puts the indicator on the bar unless the person took it off this computer, and brings an
 /// installed one up to this version. Cheap when it's already current.
-pub fn ensure_bar_indicator(ctx: &Ctx) -> Result<(), String> {
-    let off = ctx
-        .load_data()
+pub fn ensure_bar_indicator(ctx: &Ctx, data: &Data) -> Result<(), String> {
+    let off = data
         .computers
         .get(&ctx.host)
         .is_some_and(|c| c.no_bar_indicator);
@@ -3118,7 +3117,12 @@ pub struct Apps {
 
 /// `just_synced`: a sync has just saved and fetched, so only the rest is looked at again (its
 /// progress continues the sync's own list).
-pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Overview, String> {
+pub fn overview(
+    ctx: &Ctx,
+    data: &Data,
+    step: &dyn Fn(&str),
+    just_synced: bool,
+) -> Result<Overview, String> {
     // Staging and git status would collide with a background sync mid-commit.
     let _lock = lock_wait(ctx)?;
     if !just_synced {
@@ -3132,9 +3136,8 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
             ],
         );
     }
-    let data = ctx.load_data();
     let online = just_synced || {
-        stage(ctx, &data, step)?;
+        stage(ctx, data, step)?;
         step("Checking GitHub for your other computers");
         git_progress(ctx, &["fetch", "--progress"], step).is_ok()
     };
@@ -3159,7 +3162,7 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
         }
     }
     step("Checking your apps and plugins");
-    let apps = apps(&data);
+    let apps = apps(data);
     let here = repos_here();
     let mut ids: BTreeSet<String> = ctx.local_plugins().into_iter().collect();
     ids.extend(data.plugins.iter().cloned());
@@ -3179,7 +3182,7 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
         .filter(|p| !p.starts_with(".chezmoiignore"))
         .map(|p| source_to_target(p))
         .collect();
-    for change in look_changes(ctx, &data) {
+    for change in look_changes(ctx, data) {
         if !unshared.contains(&change) {
             unshared.push(change);
         }
@@ -3188,7 +3191,7 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
         unshared,
         incoming,
         online,
-        computers: computers(&parse_log(&log), &data, &ctx.host),
+        computers: computers(&parse_log(&log), data, &ctx.host),
         incoming_files: incoming_files
             .lines()
             .filter(|f| !f.starts_with(".chezmoiignore"))
@@ -3203,8 +3206,8 @@ pub fn overview(ctx: &Ctx, step: &dyn Fn(&str), just_synced: bool) -> Result<Ove
             })
             .collect(),
         plugins,
-        missing_repos: missing_repos(&data, &ctx.host, &apps.installed, &here),
-        repos_here: repos_with_apps(&data, &here),
+        missing_repos: missing_repos(data, &ctx.host, &apps.installed, &here),
+        repos_here: repos_with_apps(data, &here),
         apps,
     })
 }
