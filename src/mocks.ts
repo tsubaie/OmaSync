@@ -170,6 +170,7 @@ const status = (): Status => ({
         quicknote: 'elsewhere',
       },
       about: { 'brave-bin': 'Web browser', spotify: 'Music', tapecalc: 'Calculation tape' },
+      website: { 'brave-bin': 'https://brave.com', yazi: 'https://yazi-rs.github.io' },
     },
     incoming_files: [],
     incoming_from: [],

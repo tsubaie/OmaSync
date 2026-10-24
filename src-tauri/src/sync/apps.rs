@@ -494,13 +494,17 @@ pub(crate) fn apps(data: &Data) -> Apps {
             .filter(|a| installed.contains(*a) && !mine.contains(a))
             .map(|s| s.as_str()),
     );
-    let about = if names.is_empty() {
-        BTreeMap::new()
+    let info = if names.is_empty() {
+        String::new()
     } else {
         let mut args = vec!["-Qi"];
         args.extend(names);
-        parse_info(&run(None, "pacman", &args).unwrap_or_default())
+        run(None, "pacman", &args).unwrap_or_default()
     };
+    let about = parse_info(&info, "Description");
+    // Only a web address: a package may name anything here.
+    let mut website = parse_info(&info, "URL");
+    website.retain(|_, url| is_git_address(url));
     let outside = outside_repos(&mine);
     // Every app shown: this computer's and the synced ones it may not have yet.
     let all = mine.iter().chain(data.apps.iter());
@@ -511,6 +515,7 @@ pub(crate) fn apps(data: &Data) -> Apps {
         outside,
         source,
         about,
+        website,
     }
 }
 

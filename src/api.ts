@@ -101,6 +101,8 @@ export type Overview = {
     /** Where each app comes from: omarchy, arch, aur, elsewhere, or another repository's name. */
     source: Record<string, string>;
     about: Record<string, string>;
+    /** Each app's own website, as its package names it. */
+    website: Record<string, string>;
   };
   incoming_files: string[];
   incoming_from: string[];
@@ -222,7 +224,7 @@ export const api = {
     invoke<void>('install_update', { version, onStep: steps(onStep) }),
   /** Opens a release's page on GitHub. */
   openRelease: (version: string) => invoke<void>('open_release', { version }),
-  /** Opens an app's package page (Arch or the AUR) or a plugin's source in the browser. */
-  openPage: (kind: 'arch' | 'aur' | 'plugin', name: string) =>
+  /** Opens an app's package page (Arch or the AUR), its own website, or a plugin's source. */
+  openPage: (kind: 'arch' | 'aur' | 'website' | 'plugin', name: string) =>
     invoke<void>('open_page', { kind, name }),
 };

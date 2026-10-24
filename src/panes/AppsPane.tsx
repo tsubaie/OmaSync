@@ -125,7 +125,17 @@ export function AppsPane({ s }: { s: SyncState }) {
               const script = data.outside?.[app] ?? null;
               const from = ov.apps.source[app];
               const [tag, meaning] = source(from);
-              const site = from === 'arch' ? 'archlinux.org' : 'the AUR';
+              // Where its link goes: Arch's or the AUR's package page, which say everything
+              // about it; an app from Omarchy's repository (no pages) links to its own website.
+              const website = ov.apps.website[app];
+              const page =
+                from === 'arch'
+                  ? (['arch', 'archlinux.org'] as const)
+                  : from === 'aur'
+                    ? (['aur', 'the AUR'] as const)
+                    : from === 'omarchy' && website
+                      ? (['website', new URL(website).host] as const)
+                      : null;
               // Needs an extra repository this computer doesn't have yet: off and locked here
               // until it's added (it never comes from the AUR instead).
               const repo = ov.missing_repos.find((r) => r.apps.includes(app))?.name;
@@ -161,15 +171,14 @@ export function AppsPane({ s }: { s: SyncState }) {
                           : "Not in Arch's repos or the AUR. Add its install steps to sync it."}
                       </div>
                     )}
-                    {(from === 'arch' || from === 'aur') && (
-                      // Its package page: what the app is, who maintains it, its versions.
+                    {page && (
                       <div className="inline">
                         <Link
                           out
-                          label={`Open on ${site} (${app})`}
-                          onPress={() => api.openPage(from, app).catch(s.fail)}
+                          label={`Open ${page[1]} (${app})`}
+                          onPress={() => api.openPage(page[0], app).catch(s.fail)}
                         >
-                          Open on {site}
+                          Open {page[1]}
                         </Link>
                       </div>
                     )}

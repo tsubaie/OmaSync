@@ -790,6 +790,13 @@ fn page_url(kind: &str, name: &str, info: &str) -> Option<String> {
         "aur" if sync::is_package_name(name) => {
             Some(format!("https://aur.archlinux.org/packages/{name}"))
         }
+        // The app's own website, as its package names it (Omarchy's repository has no pages).
+        // shortcut: https only, as is_git_address checks; an http:// site stays unlinked.
+        "website" if sync::is_package_name(name) => info
+            .lines()
+            .find_map(|l| l.strip_prefix("URL"))
+            .map(|l| l.trim_start_matches([' ', ':']).trim().to_string())
+            .filter(|url| sync::is_git_address(url)),
         "plugin" if sync::is_git_address(name) => {
             // A browser opens neither git@host:path nor .git: the same page, as https.
             let path = name.trim_start_matches("https://").trim_end_matches(".git");
@@ -805,7 +812,7 @@ fn page_url(kind: &str, name: &str, info: &str) -> Option<String> {
 
 #[tauri::command]
 fn open_page(kind: String, name: String) -> Result<()> {
-    let info = if kind == "arch" && sync::is_package_name(&name) {
+    let info = if (kind == "arch" || kind == "website") && sync::is_package_name(&name) {
         sync::run(None, "pacman", &["-Si", &name]).unwrap_or_default()
     } else {
         String::new()
@@ -911,6 +918,13 @@ mod tests {
             page_url("plugin", "git@github.com:acme/weather.git", "").as_deref(),
             Some("https://github.com/acme/weather")
         );
+        let info = "Name            : brave-bin\nURL             : https://brave.com\n";
+        assert_eq!(
+            page_url("website", "brave-bin", info).as_deref(),
+            Some("https://brave.com")
+        );
+        assert_eq!(page_url("website", "brave-bin", ""), None);
+        assert_eq!(page_url("website", "x", "URL : file:///etc/passwd\n"), None);
         assert_eq!(page_url("arch", "yazi; rm -rf /", ""), None);
         assert_eq!(page_url("plugin", "file:///etc/passwd", ""), None);
         assert_eq!(page_url("omarchy", "yazi", ""), None);

@@ -33,6 +33,8 @@ pub struct Apps {
     /// Where each app comes from: omarchy, arch, aur, elsewhere, or another repository's name.
     pub source: BTreeMap<String, String>,
     pub about: BTreeMap<String, String>,
+    /// Each app's own website, as its package names it.
+    pub website: BTreeMap<String, String>,
 }
 
 /// `just_synced`: a sync has just saved and fetched, so only the rest is looked at again (its
@@ -190,19 +192,19 @@ pub(crate) fn computers(
 }
 
 /// Name -> description from `pacman -Qi` output.
-pub fn parse_info(s: &str) -> BTreeMap<String, String> {
+/// One `field` of each package in `pacman -Qi` output, by package name.
+pub fn parse_info(s: &str, field: &str) -> BTreeMap<String, String> {
     let mut out = BTreeMap::new();
     let mut name = None;
     for line in s.lines() {
         if let Some((k, v)) = line.split_once(" : ") {
-            match k.trim() {
-                "Name" => name = Some(v.trim().to_string()),
-                "Description" => {
-                    if let Some(n) = name.take() {
-                        out.insert(n, v.trim().to_string());
-                    }
-                }
-                _ => {}
+            let k = k.trim();
+            if k == "Name" {
+                name = Some(v.trim().to_string());
+            } else if k == field
+                && let Some(n) = name.take()
+            {
+                out.insert(n, v.trim().to_string());
             }
         }
     }
@@ -234,11 +236,13 @@ mod tests {
         let log = parse_log("laptop\t300\ndesktop\t200\nlaptop\t100\n");
         assert_eq!(log["laptop"], 300);
         assert_eq!(log["desktop"], 200);
-        let info = parse_info(
-            "Name            : brave-bin\nVersion         : 1\nDescription     : Web browser\n\nName            : yazi\nDescription     : File manager\n",
-        );
+        let out = "Name            : brave-bin\nVersion         : 1\nDescription     : Web browser\nURL             : https://brave.com\n\nName            : yazi\nDescription     : File manager\n";
+        let info = parse_info(out, "Description");
         assert_eq!(info["brave-bin"], "Web browser");
         assert_eq!(info["yazi"], "File manager");
+        let sites = parse_info(out, "URL");
+        assert_eq!(sites["brave-bin"], "https://brave.com");
+        assert!(!sites.contains_key("yazi"));
     }
 
     #[test]
