@@ -376,19 +376,17 @@ fn plugin_id(id: &str) -> Result<()> {
 #[tauri::command]
 async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> {
     plugin_id(&plugin)?;
-    let mut shared = None;
-    let data = edit(|d, host| {
-        let before = d.plugins.contains(&plugin);
+    let before = Ctx::load().load_data().plugins.contains(&plugin);
+    let id = plugin.clone();
+    let data = edit(move |d, host| {
         // This computer's copy may be the one shared, so it counts as having what's here.
         d.computers.entry(host.into()).or_default().plugins = Ctx::load().local_plugins();
-        d.place_plugin(&computer, &plugin, on);
-        let after = d.plugins.contains(&plugin);
-        if before != after {
-            shared = Some(after);
-        }
-    })?;
-    if let Some(on) = shared {
-        blocking(move |ctx| sync::track_plugin(ctx, &plugin, on)).await?;
+        d.place_plugin(&computer, &id, on);
+    })
+    .await?;
+    let after = data.plugins.contains(&plugin);
+    if before != after {
+        blocking(move |ctx| sync::track_plugin(ctx, &plugin, after)).await?;
     }
     Ok(data)
 }
@@ -413,7 +411,7 @@ async fn add_repository(name: String) -> Result<()> {
 #[tauri::command]
 async fn set_bar_indicator(on: bool) -> Result<()> {
     // Remembered per computer, so the app doesn't put it back.
-    edit(|d, host| d.computers.entry(host.into()).or_default().no_bar_indicator = !on)?;
+    edit(move |d, host| d.computers.entry(host.into()).or_default().no_bar_indicator = !on).await?;
     blocking(move |ctx| sync::set_bar_indicator(ctx, on))
         .await
         .map_err(Problem::from)
@@ -425,17 +423,15 @@ fn choices_changed() -> bool {
 }
 
 /// Loads the shared data, applies one change, saves it, and hands the result back to the page.
-fn edit(change: impl FnOnce(&mut Data, &str)) -> Result<Data> {
-    let ctx = Ctx::load();
-    ctx.data_readable()?;
-    let mut data = ctx.load_data();
-    change(&mut data, &ctx.host);
-    ctx.save_data(&data)?;
-    Ok(data)
+/// Waits for a running sync first, so it can't be saved over (see `sync::edit`).
+async fn edit(change: impl FnOnce(&mut Data, &str) + Send + 'static) -> Result<Data> {
+    blocking(move |ctx| sync::edit(ctx, change))
+        .await
+        .map_err(Problem::from)
 }
 
 #[tauri::command]
-fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
+async fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
     let ctx = Ctx::load();
     // An app from outside the repos syncs only through its install script.
     if on && ctx.load_data().outside.get(&app) == Some(&None) {
@@ -445,13 +441,13 @@ fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
         .into());
     }
     let installed_here = sync::installed().contains(&app);
-    edit(|d, host| d.place_app(host, installed_here, &computer, &app, on))
+    edit(move |d, host| d.place_app(host, installed_here, &computer, &app, on)).await
 }
 
 /// Saves how to install an app from outside Arch's repos and the AUR: one command, run in an
 /// empty folder in a terminal window.
 #[tauri::command]
-fn set_app_script(app: String, command: String) -> Result<Data> {
+async fn set_app_script(app: String, command: String) -> Result<Data> {
     // One step per line; Windows line ends become plain ones.
     let command = command.replace("\r\n", "\n").trim().to_string();
     if !sync::is_package_name(&app) {
@@ -474,7 +470,7 @@ fn set_app_script(app: String, command: String) -> Result<Data> {
     if !ctx.load_data().outside.contains_key(&app) && !sync::installed().contains(&app) {
         return Err(format!("{app} isn't installed here.").into());
     }
-    edit(|d, _| {
+    edit(move |d, _| {
         d.outside.insert(
             app,
             Some(sync::Script {
@@ -483,16 +479,18 @@ fn set_app_script(app: String, command: String) -> Result<Data> {
             }),
         );
     })
+    .await
 }
 
 /// Forgets an app's install script; it then stays on the computers that have it.
 #[tauri::command]
-fn remove_app_script(app: String) -> Result<Data> {
-    edit(|d, _| {
+async fn remove_app_script(app: String) -> Result<Data> {
+    edit(move |d, _| {
         if let Some(script) = d.outside.get_mut(&app) {
             *script = None;
         }
     })
+    .await
 }
 
 /// Installs one waiting app with its script, in a terminal window; only an app this computer
@@ -512,13 +510,14 @@ async fn install_with_script(app: String, on_step: Channel<String>) -> Result<()
 }
 
 #[tauri::command]
-fn add_apps(apps: Vec<String>) -> Result<Data> {
-    edit(|d, _| {
+async fn add_apps(apps: Vec<String>) -> Result<Data> {
+    edit(move |d, _| {
         // Apps from outside the repos without an install script can't reach other computers.
         for a in apps.iter().filter(|a| d.outside.get(*a) != Some(&None)) {
             sync::toggle(&mut d.apps, a, true);
         }
     })
+    .await
 }
 
 /// Folders are limited to the known list; the page can't make chezmoi add arbitrary paths.
@@ -538,7 +537,7 @@ async fn set_folder(path: String, on: bool) -> Result<Data> {
     if !on {
         blocking(move |ctx| sync::track(ctx, path, false)).await?;
     }
-    let data = edit(|d, _| sync::toggle(&mut d.folders, path, on))?;
+    let data = edit(move |d, _| sync::toggle(&mut d.folders, path, on)).await?;
     if on {
         blocking(move |ctx| sync::track(ctx, path, true)).await?;
     }
@@ -548,7 +547,7 @@ async fn set_folder(path: String, on: bool) -> Result<Data> {
 /// Tries the newer Omarchy's settings on this paused computer; the sync that follows saves its
 /// own first (see `sync::settle_pause`).
 #[tauri::command]
-fn try_omarchy() -> Result<Data> {
+async fn try_omarchy() -> Result<Data> {
     edit(|d, host| {
         if d.should_pause(host)
             && let Some(newest) = d.newest_omarchy()
@@ -556,6 +555,7 @@ fn try_omarchy() -> Result<Data> {
             d.computers.entry(host.into()).or_default().tried = newest;
         }
     })
+    .await
 }
 
 #[tauri::command]
@@ -585,31 +585,33 @@ fn update_omarchy() -> Result<()> {
 }
 
 #[tauri::command]
-fn folder_here(path: String, on: bool) -> Result<Data> {
+async fn folder_here(path: String, on: bool) -> Result<Data> {
     let path = known_folder(&path)?;
-    edit(|d, host| d.set_folder_here(host, path, on))
+    edit(move |d, host| d.set_folder_here(host, path, on)).await
 }
 
 #[tauri::command]
 async fn set_auto(on: bool) -> Result<Data> {
-    let data = edit(|d, host| d.computers.entry(host.into()).or_default().manual = !on)?;
+    let data =
+        edit(move |d, host| d.computers.entry(host.into()).or_default().manual = !on).await?;
     blocking(move |ctx| sync::schedule(ctx, on)).await?;
     Ok(data)
 }
 
 #[tauri::command]
-fn set_install_auto(on: bool) -> Result<Data> {
-    edit(|d, host| {
+async fn set_install_auto(on: bool) -> Result<Data> {
+    edit(move |d, host| {
         d.computers
             .entry(host.into())
             .or_default()
             .install_without_asking = on
     })
+    .await
 }
 
 /// Each computer names itself; the name is shared with the others on the next sync.
 #[tauri::command]
-fn rename_computer(name: String) -> Result<Data> {
+async fn rename_computer(name: String) -> Result<Data> {
     let name = name.trim().to_string();
     if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
         return Err("A computer name needs 1 to 40 characters."
@@ -623,19 +625,20 @@ fn rename_computer(name: String) -> Result<Data> {
             format!("Another computer is already called {name}. Choose a different name.").into(),
         );
     }
-    edit(|d, host| d.computers.entry(host.into()).or_default().name = name)
+    edit(move |d, host| d.computers.entry(host.into()).or_default().name = name).await
 }
 
 /// Takes a retired computer off the list. If it ever syncs again it simply reappears.
 #[tauri::command]
-fn forget_computer(id: String) -> Result<Data> {
+async fn forget_computer(id: String) -> Result<Data> {
     let ctx = Ctx::load();
     if id == ctx.host || !ctx.load_data().computers.contains_key(&id) {
         return Err(format!("not another known computer: {id}").into());
     }
-    edit(|d, _| {
+    edit(move |d, _| {
         d.computers.remove(&id);
     })
+    .await
 }
 
 /// Opens this computer's sync space on GitHub. The address comes from the repo, not the page.
