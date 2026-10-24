@@ -83,12 +83,14 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
   const yazi = page.getByRole('switch', { name: 'yazi synced on This Computer' });
   await expect(yazi).toBeChecked();
-  // The Arch tag opens the package's page; Omarchy's own repository has none.
-  await page.getByRole('button', { name: 'yazi on Arch' }).click();
+  // An Arch or AUR app links to its package page; Omarchy's own repository has none.
+  await page.getByRole('button', { name: 'Open on archlinux.org (yazi)' }).click();
+  await page.getByRole('button', { name: 'Open on the AUR (spotify)' }).click();
   expect(await calls(page, 'open_page')).toEqual([
     { cmd: 'open_page', args: { kind: 'arch', name: 'yazi' } },
+    { cmd: 'open_page', args: { kind: 'aur', name: 'spotify' } },
   ]);
-  await expect(page.getByRole('button', { name: 'brave-bin on Omarchy' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /\(brave-bin\)$/ })).toHaveCount(0);
   // Toggle it the way a keyboard user does; it works the same in WebKit and Chromium.
   await yazi.focus();
   await page.keyboard.press('Space');
@@ -267,7 +269,9 @@ test('plugins are switched on, added from git, updated and removed here', async 
   ]);
   await expect(page.getByText('From github.com/sspaeti/omarchy-plugin-timezones')).toBeVisible();
   // Its source opens in the browser; Rust turns the git address into the page.
-  await page.getByRole('button', { name: 'github.com/sspaeti/omarchy-plugin-timezones' }).click();
+  await page
+    .getByRole('button', { name: 'From github.com/sspaeti/omarchy-plugin-timezones' })
+    .click();
   expect(await calls(page, 'open_page')).toEqual([
     {
       cmd: 'open_page',

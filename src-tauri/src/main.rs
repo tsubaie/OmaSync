@@ -771,11 +771,21 @@ fn open_release(version: String) -> Result<()> {
 }
 
 /// The web page of an app's package or a plugin's source: only a package name on Arch's or
-/// the AUR's site, or a git address, becomes one.
-fn page_url(kind: &str, name: &str) -> Option<String> {
+/// the AUR's site, or a git address, becomes one. `info` is `pacman -Si` for an Arch package:
+/// its repository makes it the package's own page (archlinux.org sends an `any` package on
+/// from the x86_64 address), and without one it's the search.
+fn page_url(kind: &str, name: &str, info: &str) -> Option<String> {
     match kind {
         "arch" if sync::is_package_name(name) => {
-            Some(format!("https://archlinux.org/packages/?q={name}"))
+            let repo = info
+                .lines()
+                .find_map(|l| l.strip_prefix("Repository"))
+                .map(|l| l.trim_start_matches([' ', ':']).trim())
+                .filter(|r| !r.is_empty());
+            Some(match repo {
+                Some(repo) => format!("https://archlinux.org/packages/{repo}/x86_64/{name}/"),
+                None => format!("https://archlinux.org/packages/?q={name}"),
+            })
         }
         "aur" if sync::is_package_name(name) => {
             Some(format!("https://aur.archlinux.org/packages/{name}"))
@@ -795,7 +805,13 @@ fn page_url(kind: &str, name: &str) -> Option<String> {
 
 #[tauri::command]
 fn open_page(kind: String, name: String) -> Result<()> {
-    let url = page_url(&kind, &name).ok_or_else(|| format!("nothing to open for {kind} {name}"))?;
+    let info = if kind == "arch" && sync::is_package_name(&name) {
+        sync::run(None, "pacman", &["-Si", &name]).unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let url = page_url(&kind, &name, &info)
+        .ok_or_else(|| format!("nothing to open for {kind} {name}"))?;
     std::process::Command::new("xdg-open")
         .arg(url)
         .spawn()
@@ -874,24 +890,29 @@ mod tests {
 
     #[test]
     fn only_known_pages_open() {
+        let info = "Repository      : extra\nName            : yazi\n";
         assert_eq!(
-            page_url("arch", "yazi").as_deref(),
+            page_url("arch", "yazi", info).as_deref(),
+            Some("https://archlinux.org/packages/extra/x86_64/yazi/")
+        );
+        assert_eq!(
+            page_url("arch", "yazi", "").as_deref(),
             Some("https://archlinux.org/packages/?q=yazi")
         );
         assert_eq!(
-            page_url("aur", "spotify").as_deref(),
+            page_url("aur", "spotify", "").as_deref(),
             Some("https://aur.archlinux.org/packages/spotify")
         );
         assert_eq!(
-            page_url("plugin", "https://github.com/acme/weather.git").as_deref(),
+            page_url("plugin", "https://github.com/acme/weather.git", "").as_deref(),
             Some("https://github.com/acme/weather")
         );
         assert_eq!(
-            page_url("plugin", "git@github.com:acme/weather.git").as_deref(),
+            page_url("plugin", "git@github.com:acme/weather.git", "").as_deref(),
             Some("https://github.com/acme/weather")
         );
-        assert_eq!(page_url("arch", "yazi; rm -rf /"), None);
-        assert_eq!(page_url("plugin", "file:///etc/passwd"), None);
-        assert_eq!(page_url("omarchy", "yazi"), None);
+        assert_eq!(page_url("arch", "yazi; rm -rf /", ""), None);
+        assert_eq!(page_url("plugin", "file:///etc/passwd", ""), None);
+        assert_eq!(page_url("omarchy", "yazi", ""), None);
     }
 }

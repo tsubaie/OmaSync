@@ -2,7 +2,14 @@
 // (keyboard, focus and screen-reader behaviour come from React Aria; the look is styles.css).
 
 import { useState, type ReactNode } from 'react';
-import { Check, Circle, RefreshCw, TriangleAlert, type LucideIcon } from 'lucide-react';
+import {
+  Check,
+  Circle,
+  ExternalLink,
+  RefreshCw,
+  TriangleAlert,
+  type LucideIcon,
+} from 'lucide-react';
 import { Button, Switch, Tooltip, TooltipTrigger } from 'react-aria-components';
 import { progress } from './format';
 
@@ -108,15 +115,22 @@ export function Push({
 export function Link({
   children,
   disabled,
+  label,
+  out,
   onPress,
 }: {
   children: ReactNode;
   disabled?: boolean;
+  /** A fuller name for assistive tech, when the text alone repeats down a list. */
+  label?: string;
+  /** Opens a web page outside the app: the text ends in the outward mark. */
+  out?: boolean;
   onPress: () => void;
 }) {
   return (
-    <Button className="link" isDisabled={disabled} onPress={onPress}>
+    <Button className="link" isDisabled={disabled} aria-label={label} onPress={onPress}>
       {children}
+      {out && <ExternalLink size={11} aria-hidden="true" />}
     </Button>
   );
 }

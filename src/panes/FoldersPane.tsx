@@ -303,10 +303,9 @@ function PluginText({
       </div>
       {detail && <div className={`detail ${missingHere ? 'warn' : ''}`}>{detail}</div>}
       {p.source && (
-        <div className="detail">
-          From{' '}
-          <Link onPress={() => api.openPage('plugin', p.source!).catch(s.fail)}>
-            {place(p.source)}
+        <div className="inline">
+          <Link out onPress={() => api.openPage('plugin', p.source!).catch(s.fail)}>
+            From {place(p.source)}
           </Link>
         </div>
       )}

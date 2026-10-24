@@ -476,6 +476,12 @@ output {
 .link[data-hovered] {
   color: var(--ink);
 }
+/* Text and its mark stay on one line (a link out of the app ends in the outward arrow). */
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
 .link[data-disabled] {
   opacity: 0.5;
 }
@@ -733,21 +739,6 @@ output {
   vertical-align: 1px;
   color: var(--quiet);
   box-shadow: inset 0 0 0 0.5px var(--line);
-}
-/* A tag that opens the package's page: the same look, with a hover and a focus ring. */
-button.source {
-  font-family: var(--font);
-  border: 0;
-  background: none;
-  outline: none;
-  cursor: pointer;
-  transition: color var(--fast) var(--ease-out);
-}
-button.source[data-hovered] {
-  color: var(--ink);
-}
-button.source[data-focus-visible] {
-  box-shadow: var(--focus);
 }
 .source.aur {
   color: var(--warn);
