@@ -227,7 +227,9 @@ export function PluginsPane({ s }: { s: SyncState }) {
                 disabled={!s.idle}
                 onPress={() => omarchy('Updating your plugins', () => api.updatePlugins(), updated)}
               >
-                Update All {fromGit.length} Plugins
+                {s.busy === 'Updating your plugins'
+                  ? 'Updating…'
+                  : `Update All ${fromGit.length} Plugins`}
               </Push>
             </div>
           )}
@@ -342,7 +344,7 @@ function PluginText({
               onPress={onUpdate}
             >
               {p.update && <Download size={13} strokeWidth={2.25} aria-hidden="true" />}
-              Update Plugin
+              {s.busy === `Updating ${p.name}` ? 'Updating…' : 'Update Plugin'}
             </Link>
           )}
           {p.source && (
