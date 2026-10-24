@@ -432,6 +432,9 @@ async fn edit(change: impl FnOnce(&mut Data, &str) + Send + 'static) -> Result<D
 
 #[tauri::command]
 async fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
+    if !sync::is_package_name(&app) {
+        return Err(format!("not an app: {app}").into());
+    }
     let ctx = Ctx::load();
     // An app from outside the repos syncs only through its install script.
     if on && ctx.load_data().outside.get(&app) == Some(&None) {
@@ -513,7 +516,10 @@ async fn install_with_script(app: String, on_step: Channel<String>) -> Result<()
 async fn add_apps(apps: Vec<String>) -> Result<Data> {
     edit(move |d, _| {
         // Apps from outside the repos without an install script can't reach other computers.
-        for a in apps.iter().filter(|a| d.outside.get(*a) != Some(&None)) {
+        for a in apps
+            .iter()
+            .filter(|a| sync::is_package_name(a) && d.outside.get(*a) != Some(&None))
+        {
             sync::toggle(&mut d.apps, a, true);
         }
     })

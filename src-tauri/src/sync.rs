@@ -2675,6 +2675,11 @@ pub fn install_with_script(
     script: &Script,
     step: &dyn Fn(&str),
 ) -> Result<(), String> {
+    // The name comes from the shared file, which anyone can edit on GitHub: only a plain
+    // package name becomes a folder that is emptied below.
+    if !is_package_name(app) {
+        return Err(format!("not an app: {app}"));
+    }
     let dir = ctx.home.join(".cache/omarchy-sync/install").join(app);
     let done = dir.with_extension("done");
     let _ = std::fs::remove_dir_all(&dir);

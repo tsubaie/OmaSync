@@ -1231,3 +1231,20 @@ fn the_bar_indicator_goes_on_by_itself_and_stays_off_once_taken_off() {
     assert!(!bar_indicator(&ctx));
     lab.sync_ok("a");
 }
+
+#[test]
+#[ignore]
+fn an_app_name_that_is_a_path_never_becomes_a_folder_to_empty() {
+    let mut lab = pair();
+    lab.write("a", ".cache/omarchy-sync/keep", "still here\n");
+    let script = Script {
+        command: "true".into(),
+        ..Default::default()
+    };
+    for bad in ["../..", "../../..", "a b", ""] {
+        let e = install_with_script(lab.ctx("a"), bad, &script, &|_| {}).unwrap_err();
+        assert!(e.starts_with("not an app"), "{e}");
+    }
+    assert_eq!(lab.read("a", ".cache/omarchy-sync/keep"), "still here\n");
+    assert!(lab.exists("a", ".config/hypr/bindings.lua"));
+}
