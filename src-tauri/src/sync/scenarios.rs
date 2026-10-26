@@ -127,8 +127,20 @@ fn a_plugin_waits_until_taken_and_an_unshared_one_stays_put() {
     lab.sync_ok("b");
     assert_eq!(status(&lab, "b"), "synced");
 
-    // A plugin nobody switched on stays on the computer that has it.
+    // A plugin added after setup syncs by itself, and waits on b.
+    lab.write("a", ".config/omarchy/plugins/fresh/manifest.json", "{}");
+    lab.settle();
+    assert!(lab.data("b").plugins.contains(&"fresh".to_string()));
+    assert_eq!(
+        lab.data("b").missing_plugins("b"),
+        vec!["fresh".to_string()]
+    );
+
+    // One switched off stays on the computer that has it, and isn't listed on the other.
     lab.write("a", ".config/omarchy/plugins/solo/manifest.json", "{}");
+    lab.sync_ok("a");
+    let a = lab.ctx("a").clone();
+    set_plugin(&a, None, "solo", false).unwrap();
     lab.settle();
     assert!(!lab.exists("b", ".config/omarchy/plugins/solo"));
     assert!(
@@ -137,7 +149,101 @@ fn a_plugin_waits_until_taken_and_an_unshared_one_stays_put() {
             .join("dot_config/omarchy/plugins/solo")
             .exists()
     );
-    assert!(lab.data("b").missing_plugins("b").is_empty());
+    assert!(
+        !lab.data("b")
+            .missing_plugins("b")
+            .contains(&"solo".to_string())
+    );
+    let listed = all_plugins(lab.ctx("b"), &lab.data("b"));
+    assert!(!listed.iter().any(|p| p.id == "solo"));
+}
+
+#[test]
+#[ignore]
+fn a_plugin_added_from_git_syncs_without_its_files() {
+    let mut lab = pair();
+    lab.join("b");
+    let a = lab.ctx("a").clone();
+    add_plugin(&a, "https://example.com/gitty.git").unwrap();
+    let data = lab.data("a");
+    assert!(data.plugins.contains(&"gitty".to_string()));
+    assert!(data.computers["a"].plugins.contains(&"gitty".to_string()));
+    assert_eq!(
+        data.plugin_sources.get("gitty").map(String::as_str),
+        Some("https://example.com/gitty.git")
+    );
+    // Switched off and on again, it's still never copied.
+    set_plugin(&a, None, "gitty", false).unwrap();
+    set_plugin(&a, None, "gitty", true).unwrap();
+    lab.sync_ok("a");
+    assert!(!a.src.join("dot_config/omarchy/plugins/gitty").exists());
+    assert!(lab.data("a").plugin_sources.contains_key("gitty"));
+    lab.sync_ok("b");
+    assert!(
+        lab.data("b")
+            .missing_plugins("b")
+            .contains(&"gitty".to_string())
+    );
+}
+
+#[test]
+#[ignore]
+fn a_web_app_deleted_on_one_computer_goes_everywhere_and_stays_gone() {
+    let mut lab = pair();
+    lab.join("b");
+    const APP: &str = ".local/share/applications/Chat App.desktop";
+    const ICON: &str = ".local/share/icons/hicolor/256x256/apps/chat.png";
+    assert!(lab.exists("b", APP));
+    lab.sync_ok("b");
+    lab.remove("a", APP);
+    lab.remove("a", ICON);
+    lab.sync_ok("a");
+    // It leaves the sync folder at once.
+    let synced = lab.ctx("a").src.join("dot_local/share/applications");
+    assert!(!synced.exists() || std::fs::read_dir(&synced).unwrap().next().is_none());
+    lab.sync_ok("b");
+    assert!(!lab.exists("b", APP));
+    assert!(!lab.exists("b", ICON));
+    lab.settle();
+    assert!(!lab.exists("a", APP));
+    assert!(!lab.exists("b", APP));
+    assert!(
+        lab.data("a")
+            .computers
+            .values()
+            .all(|c| c.web_apps.is_empty() && c.web_icons.is_empty())
+    );
+}
+
+#[test]
+#[ignore]
+fn a_joining_computer_saves_and_drops_a_web_app_the_others_deleted() {
+    let mut lab = pair();
+    const GONE: &str = ".local/share/applications/Basecamp.desktop";
+    lab.write(
+        "b",
+        GONE,
+        "[Desktop Entry]\nExec=omarchy-launch-webapp https://basecamp.example\nIcon=basecamp\n",
+    );
+    lab.write(
+        "b",
+        ".local/share/icons/hicolor/256x256/apps/basecamp.png",
+        "png",
+    );
+    let backup = lab.join("b");
+    assert!(!lab.exists("b", GONE));
+    assert!(!lab.exists("b", ".local/share/icons/hicolor/256x256/apps/basecamp.png"));
+    let tar = backup.to_string_lossy().into_owned();
+    assert!(run(None, "tar", &["-xOzf", &tar, GONE]).is_ok());
+    assert!(lab.exists("b", ".local/share/applications/Chat App.desktop"));
+    lab.settle();
+    assert!(!lab.exists("a", GONE));
+    assert!(
+        !lab.data("a")
+            .computers
+            .values()
+            .any(|c| !c.web_apps.iter().all(|w| w == "Chat App.desktop"))
+    );
 }
 
 #[test]

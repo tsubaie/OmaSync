@@ -283,6 +283,7 @@ pub fn resolve(
         step("Saving this computer's changes");
         save_local(ctx, &|_| {}).map_err(fail)?;
         let synced_before = ctx.load_data().active_folders(&ctx.host);
+        let web_apps_before = synced_web_apps(ctx);
         step("Getting changes from your other computers");
         git_progress(ctx, &["fetch", "--progress"], step).map_err(fail)?;
         step("Keeping the versions you chose");
@@ -340,6 +341,7 @@ pub fn resolve(
         // files, which would otherwise save the clashing ones back over the choice.
         settle_pause(ctx).map_err(fail)?;
         let saved_first = save_newly_synced(ctx, &synced_before).map_err(fail)?;
+        remove_web_apps_removed_elsewhere(ctx, &web_apps_before).map_err(fail)?;
         apply_chezmoi(ctx).map_err(fail)?;
         saved_first
     };
@@ -566,6 +568,7 @@ fn sync_inner(
 
     step("Getting changes from your other computers");
     let synced_before = ctx.load_data().active_folders(&ctx.host);
+    let web_apps_before = synced_web_apps(ctx);
     let tracked = ctx.git(&["rev-parse", "--abbrev-ref", "@{u}"]).is_ok();
     if tracked {
         git_progress(ctx, &["fetch", "--progress"], step).map_err(fail)?;
@@ -606,6 +609,7 @@ fn sync_inner(
     step("Updating this computer");
     notes.extend(settle_pause(ctx).map_err(fail)?);
     notes.extend(save_newly_synced(ctx, &synced_before).map_err(fail)?);
+    remove_web_apps_removed_elsewhere(ctx, &web_apps_before).map_err(fail)?;
     apply_chezmoi(ctx).map_err(fail)?;
     notes.extend(remove_plugins_removed_elsewhere(ctx).map_err(fail)?);
     let data = ctx.load_data();
