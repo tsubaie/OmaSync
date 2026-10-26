@@ -7,13 +7,14 @@ use super::*;
 /// list (on or off), except the app's own bar indicator, which Settings manages.
 fn omarchy_plugins(ctx: &Ctx) -> Vec<Plugin> {
     let json = |args: &[&str]| -> Vec<serde_json::Value> {
-        run(None, "omarchy", args)
+        here()
+            .plugin(args)
             .ok()
             .and_then(|out| serde_json::from_str::<serde_json::Value>(&out).ok())
             .and_then(|v| v.as_array().cloned())
             .unwrap_or_default()
     };
-    let state: BTreeMap<String, (bool, bool)> = json(&["plugin", "list", "--json"])
+    let state: BTreeMap<String, (bool, bool)> = json(&["list", "--json"])
         .iter()
         .filter_map(|p| {
             Some((
@@ -25,7 +26,7 @@ fn omarchy_plugins(ctx: &Ctx) -> Vec<Plugin> {
             ))
         })
         .collect();
-    json(&["plugin", "catalog"])
+    json(&["catalog"])
         .iter()
         .filter_map(|p| {
             let id = p["id"].as_str()?;
@@ -223,11 +224,7 @@ pub(crate) fn install_plugins_locked(ctx: &Ctx, ids: &[String]) -> Result<(), St
             .get(id)
             .filter(|url| is_git_address(url))
         {
-            Some(url) => match run(
-                None,
-                "omarchy",
-                &["plugin", "add", url, "--enable", "--yes"],
-            ) {
+            Some(url) => match here().plugin(&["add", url, "--enable", "--yes"]) {
                 Ok(_) => {
                     let me = data.computers.entry(ctx.host.clone()).or_default();
                     toggle(&mut me.plugins, id, true);
@@ -279,7 +276,7 @@ pub(crate) fn install_plugins_locked(ctx: &Ctx, ids: &[String]) -> Result<(), St
 pub fn set_plugin_enabled(ctx: &Ctx, id: &str, on: bool) -> Result<(), String> {
     let _lock = lock_wait(ctx)?;
     let verb = if on { "enable" } else { "disable" };
-    run(None, "omarchy", &["plugin", verb, id]).map(|_| ())
+    here().plugin(&[verb, id]).map(|_| ())
 }
 
 /// Adds a plugin from its git address and switches it on, through Omarchy's own command. Under
@@ -287,12 +284,9 @@ pub fn set_plugin_enabled(ctx: &Ctx, id: &str, on: bool) -> Result<(), String> {
 pub fn add_plugin(ctx: &Ctx, url: &str) -> Result<(), String> {
     forget_plugin_updates(ctx);
     let _lock = lock_wait(ctx)?;
-    run(
-        None,
-        "omarchy",
-        &["plugin", "add", url, "--enable", "--yes"],
-    )
-    .map(|_| ())
+    here()
+        .plugin(&["add", url, "--enable", "--yes"])
+        .map(|_| ())
 }
 
 /// What updating plugins came to, in sentences; `warn` when one was skipped or failed.
@@ -335,7 +329,7 @@ pub fn update_plugins(
             ));
             continue;
         }
-        match run(None, "omarchy", &["plugin", "update", id, "--yes"]) {
+        match here().plugin(&["update", id, "--yes"]) {
             Ok(out) if out.lines().any(|l| l.starts_with("Updated")) => updated += 1,
             Ok(_) => current += 1,
             Err(e) => problems.push(format!(
@@ -377,7 +371,7 @@ fn update_error(err: &str) -> String {
 /// switch goes off everywhere. A computer that switched it off for itself keeps its copy.
 pub fn remove_plugin(ctx: &Ctx, id: &str) -> Result<(), String> {
     let _lock = lock_wait(ctx)?;
-    run(None, "omarchy", &["plugin", "remove", id, "--yes"])?;
+    here().plugin(&["remove", id, "--yes"])?;
     let saved = ctx.load_data();
     let synced = saved.plugins.iter().any(|p| p == id);
     edit_locked(ctx, |d, host| {
@@ -427,13 +421,13 @@ pub(crate) fn remove_plugins_removed_elsewhere(ctx: &Ctx) -> Result<Option<Strin
     }
     // A copy here may hold the person's own changes (one from git never syncs its files), so
     // every copy is saved before it goes.
-    let here: Vec<String> = ids
+    let copies: Vec<String> = ids
         .iter()
         .filter(|id| ctx.home.join(PLUGIN_DIR).join(id).exists())
         .map(|id| format!("{PLUGIN_DIR}/{id}"))
         .collect();
-    if !here.is_empty() {
-        backup_now(ctx, &here, "before-removing-plugins")?;
+    if !copies.is_empty() {
+        backup_now(ctx, &copies, "before-removing-plugins")?;
     }
     let mut gone = Vec::new();
     let mut failed = Vec::new();
@@ -442,7 +436,7 @@ pub(crate) fn remove_plugins_removed_elsewhere(ctx: &Ctx) -> Result<Option<Strin
         if !ctx.home.join(PLUGIN_DIR).join(id).exists() {
             continue;
         }
-        match run(None, "omarchy", &["plugin", "remove", id, "--yes"]) {
+        match here().plugin(&["remove", id, "--yes"]) {
             Ok(_) => gone.push(name),
             Err(_) => failed.push(name),
         }

@@ -89,7 +89,7 @@ pub fn overview(
     }
     step("Checking your apps and plugins");
     let apps = apps(data);
-    let here = repos_here();
+    let repos = repos_here();
     let mut plugins = all_plugins(ctx, data);
     let updates = plugin_updates_today(ctx);
     for p in &mut plugins {
@@ -125,9 +125,9 @@ pub fn overview(
             })
             .collect(),
         plugins,
-        missing_repos: missing_repos(data, &ctx.host, &here),
-        repos_here: repos_with_apps(data, &here),
-        snapper_available: snapper_available(),
+        missing_repos: missing_repos(data, &ctx.host, &repos),
+        repos_here: repos_with_apps(data, &repos),
+        snapper_available: here().snapshots_available(),
         apps,
     })
 }

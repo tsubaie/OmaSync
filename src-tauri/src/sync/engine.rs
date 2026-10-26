@@ -447,7 +447,7 @@ pub fn put_back_omarchy(ctx: &Ctx) -> Result<(), String> {
     }
     run(None, "tar", &["-xzf", &f, "-C", &h])?;
     // The shell keeps plugin code it has loaded (see the bar indicator).
-    let _ = run(None, "omarchy", &["restart", "shell"]);
+    let _ = here().restart_shell();
     Ok(())
 }
 
@@ -613,10 +613,12 @@ fn sync_inner(
     notes.extend(remove_plugins_removed_elsewhere(ctx).map_err(fail)?);
     let data = ctx.load_data();
     // The Current theme switch governs applying it too.
+    let desktop = here();
     if let Some(theme) = &data.theme
+        && desktop.profile().supports_themes
         && data.uses_theme(&ctx.host)
         && ctx.current_theme().as_ref() != Some(theme)
-        && run(None, "omarchy", &["theme", "set", theme]).is_err()
+        && desktop.set_theme(theme).is_err()
     {
         notes.push(format!("The {theme} theme couldn't be switched on here."));
     }

@@ -14,17 +14,6 @@ const SYSTEM: &[&str] = &[
     "amd-ucode",
 ];
 
-/// Repositories every Omarchy computer has; only others are recorded and offered.
-const STANDARD_REPOS: &[&str] = &[
-    "omarchy",
-    "core",
-    "extra",
-    "multilib",
-    "core-testing",
-    "extra-testing",
-    "multilib-testing",
-];
-
 /// Synced apps this computer wants and `yay` can install (not ones from outside the repos);
 /// `here` is `repos_here()`.
 pub fn missing_apps(
@@ -49,11 +38,7 @@ pub fn missing_apps(
 
 /// The package repositories this computer uses.
 pub fn repos_here() -> BTreeSet<String> {
-    run(None, "pacman-conf", &["--repo-list"])
-        .unwrap_or_default()
-        .lines()
-        .map(String::from)
-        .collect()
+    here().repos_here()
 }
 
 /// An extra repository this computer needs for apps it should have.
@@ -104,30 +89,22 @@ pub fn repos_with_apps(data: &Data, here: &BTreeSet<String>) -> Vec<MissingRepo>
         .collect()
 }
 
-/// This computer's extra repositories as pacman uses them (servers and signature rules), with
-/// the key that signs each, and which of the person's apps come from one.
+/// This computer's extra repositories as its package manager uses them, with the key that
+/// signs each, and which of the person's apps come from one.
 pub(crate) fn record_repositories(data: &mut Data) {
+    let platform = here();
     let extra: Vec<String> = repos_here()
         .into_iter()
-        .filter(|r| !STANDARD_REPOS.contains(&r.as_str()))
+        .filter(|r| !platform.standard_repos().contains(&r.as_str()))
         .collect();
     if extra.is_empty() {
         return;
     }
     for name in &extra {
-        let conf = run(None, "pacman-conf", &[&format!("--repo={name}")]).unwrap_or_default();
-        let field = |key: &str| -> Vec<String> {
-            conf.lines()
-                .filter_map(|l| l.strip_prefix(key))
-                .map(|v| v.trim().to_string())
-                .collect()
-        };
-        let repository = Repository {
-            servers: field("Server = "),
-            sig_level: field("SigLevel = "),
-            key: repo_key(name),
-        };
-        if !repository.servers.is_empty() {
+        if let Some(repository) = platform
+            .read_repository(name)
+            .filter(|r| !r.servers.is_empty())
+        {
             data.repositories.insert(name.clone(), repository);
         }
     }
@@ -137,53 +114,6 @@ pub(crate) fn record_repositories(data: &mut Data) {
             data.app_repo.insert(app, repo);
         }
     }
-}
-
-/// The key that signed a repository's package list, copied from pacman's keyring. The keyring
-/// is root's, so its public half is read from a copy in a temporary folder.
-fn repo_key(name: &str) -> Option<RepoKey> {
-    let db = run(None, "pacman-conf", &["DBPath"]).unwrap_or("/var/lib/pacman/".into());
-    let sig = Path::new(db.trim())
-        .join("sync")
-        .join(format!("{name}.db.sig"));
-    let packets = run(None, "gpg", &["--list-packets", &sig.to_string_lossy()]).ok()?;
-    let fingerprint = packets
-        .split_whitespace()
-        .skip_while(|w| *w != "fpr")
-        .nth(2)?
-        .trim_end_matches(')')
-        .to_uppercase();
-    if fingerprint.len() != 40 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    let tmp = TempDir::new("keys").ok()?;
-    let dir = tmp.path();
-    let ring = ["pubring.gpg", "pubring.kbx"]
-        .iter()
-        .find(|f| std::fs::copy(Path::new("/etc/pacman.d/gnupg").join(f), dir.join(f)).is_ok());
-    let home = dir.to_string_lossy().into_owned();
-    let gpg = |args: &[&str]| {
-        let mut all = vec!["--homedir", home.as_str(), "--no-autostart", "--batch"];
-        all.extend_from_slice(args);
-        run(None, "gpg", &all).ok()
-    };
-    ring.and_then(|_| {
-        let armored = gpg(&["--export", "--armor", &fingerprint])?;
-        let owner = gpg(&["--list-keys", "--with-colons", &fingerprint])?
-            .lines()
-            .find_map(|l| {
-                l.strip_prefix("uid:")
-                    .map(|u| u.split(':').nth(8).unwrap_or("").to_string())
-            })
-            .unwrap_or_default();
-        armored
-            .starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----")
-            .then(|| RepoKey {
-                fingerprint: fingerprint.clone(),
-                owner,
-                armored,
-            })
-    })
 }
 
 /// How the snapshot of this computer's system (Snapper's `root` config: packages and /etc, not
@@ -209,7 +139,7 @@ pub fn snapper_available() -> bool {
 }
 
 /// A snapshot's number from what `snapper --print-number` printed, or why there's none.
-fn snapshot_from(number: &str, err: &str) -> SnapshotOutcome {
+pub(crate) fn snapshot_from(number: &str, err: &str) -> SnapshotOutcome {
     match number.trim().parse() {
         Ok(n) => SnapshotOutcome::Taken(n),
         Err(_) if !err.trim().is_empty() => SnapshotOutcome::Failed(err.trim().to_string()),
@@ -235,40 +165,14 @@ fn read_snapshot(out: &Path) -> SnapshotOutcome {
     snapshot_from(&read(out), &read(&out.with_extension("err")))
 }
 
-/// Snapshots the system through its own password prompt (pkexec), when Snapper is here.
-fn snapshot(label: &str) -> SnapshotOutcome {
-    if !snapper_available() {
-        return SnapshotOutcome::Unavailable;
-    }
-    // Cleanup is its own step, so its failure never hides a snapshot that was made.
-    let script = "snapper -c root create -c number -d \"$1\" --print-number || exit 2
-snapper -c root cleanup number > /dev/null 2>&1
-exit 0";
-    let out = Command::new("pkexec")
-        .args(["sh", "-c", script, "sh", label])
-        .stdin(Stdio::null())
-        .env("LC_ALL", "C.UTF-8")
-        .output();
-    match out {
-        Err(e) => SnapshotOutcome::Failed(format!("pkexec: {e}")),
-        // pkexec's own codes: the window was closed, or the password not given.
-        Ok(o) if matches!(o.status.code(), Some(126 | 127)) => SnapshotOutcome::Cancelled,
-        Ok(o) => snapshot_from(
-            &String::from_utf8_lossy(&o.stdout),
-            &String::from_utf8_lossy(&o.stderr),
-        ),
-    }
-}
-
 /// A shell word holding exactly `s`.
 fn quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
-/// Adds an extra repository on this computer, as recorded from another one: its settings file
-/// in /etc/pacman.d, an Include for it in pacman.conf, its key imported and trusted, and the
-/// package lists refreshed, after a snapshot of the system. One password prompt (pkexec); every
-/// value is checked first.
+/// Adds an extra repository on this computer, as recorded from another one (see
+/// `PackageAdapter::repository_script`), after a snapshot of the system. One password prompt
+/// (pkexec); every value is checked first.
 pub fn add_repository(data: &Data, name: &str) -> Result<SnapshotOutcome, String> {
     let repo = data
         .repositories
@@ -279,87 +183,36 @@ pub fn add_repository(data: &Data, name: &str) -> Result<SnapshotOutcome, String
             && s.chars()
                 .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
     };
-    if !plain(name) || STANDARD_REPOS.contains(&name) {
+    let platform = here();
+    if !plain(name) || platform.standard_repos().contains(&name) {
         return Err(format!("not a repository that can be added: {name}"));
     }
     if repos_here().contains(name) {
         return Ok(SnapshotOutcome::Unavailable);
     }
-    const LEVELS: &[&str] = &[
-        "Never",
-        "Optional",
-        "Required",
-        "TrustedOnly",
-        "TrustAll",
-        "PackageNever",
-        "PackageOptional",
-        "PackageRequired",
-        "PackageTrustedOnly",
-        "PackageTrustAll",
-        "DatabaseNever",
-        "DatabaseOptional",
-        "DatabaseRequired",
-        "DatabaseTrustedOnly",
-        "DatabaseTrustAll",
-    ];
-    let servers_ok = !repo.servers.is_empty()
-        && repo.servers.iter().all(|s| {
-            s.starts_with("https://") && !s.chars().any(|c| c.is_whitespace() || c.is_control())
-        });
-    if !servers_ok || !repo.sig_level.iter().all(|l| LEVELS.contains(&l.as_str())) {
-        return Err(format!("the settings recorded for {name} don't look right"));
-    }
     let tmp = TempDir::new("repo")?;
     let dir = tmp.path();
-    let mut conf = format!("[{name}]\n");
-    if !repo.sig_level.is_empty() {
-        conf.push_str(&format!("SigLevel = {}\n", repo.sig_level.join(" ")));
-    }
-    for server in &repo.servers {
-        conf.push_str(&format!("Server = {server}\n"));
-    }
-    let target = format!("/etc/pacman.d/omarchy-sync-{name}.conf");
-    let include = format!("Include = {target}");
-    let snapper = snapper_available();
+    let lines = platform.repository_script(name, repo, dir)?;
+    let snapper = platform.snapshots_available();
     let mut script = String::from("set -e\n");
     if snapper {
         let label = format!("Before Omarchy Sync added repository {name}");
         script.push_str(&snapshot_lines(&label, &dir.join("snapshot"), ""));
     }
-    script.push_str(&format!(
-        "install -m 644 '{}' '{target}'\ngrep -qxF '{include}' /etc/pacman.conf || printf '\\n%s\\n' '{include}' >> /etc/pacman.conf\n",
-        dir.join("repo.conf").display()
-    ));
-    std::fs::write(dir.join("repo.conf"), conf).map_err(|e| e.to_string())?;
-    if let Some(key) = &repo.key {
-        let fpr_ok =
-            key.fingerprint.len() == 40 && key.fingerprint.bytes().all(|b| b.is_ascii_hexdigit());
-        if !fpr_ok
-            || !key
-                .armored
-                .starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----")
-        {
-            return Err(format!("the key recorded for {name} doesn't look right"));
-        }
-        std::fs::write(dir.join("repo.key"), &key.armored).map_err(|e| e.to_string())?;
-        script.push_str(&format!(
-            "pacman-key --add '{}'\npacman-key --lsign-key {}\n",
-            dir.join("repo.key").display(),
-            key.fingerprint
-        ));
-    }
-    script.push_str("pacman -Sy --noconfirm\n");
+    script.push_str(&lines);
     std::fs::write(dir.join("add.sh"), &script).map_err(|e| e.to_string())?;
-    run(
-        None,
-        "pkexec",
-        &["bash", &dir.join("add.sh").to_string_lossy()],
-    )?;
+    run_all(&platform.as_root("bash", &[&dir.join("add.sh").to_string_lossy()]))?;
     Ok(if snapper {
         read_snapshot(&dir.join("snapshot"))
     } else {
         SnapshotOutcome::Unavailable
     })
+}
+
+/// Runs a command given as its words.
+fn run_all(cmd: &[String]) -> Result<String, String> {
+    let args: Vec<&str> = cmd[1..].iter().map(String::as_str).collect();
+    run(None, &cmd[0], &args)
 }
 
 /// Synced apps from outside the repos that this computer wants, with their install scripts.
@@ -426,9 +279,8 @@ pub fn outside_repos(mine: &[String]) -> Vec<String> {
         .collect()
 }
 
-/// Where apps come from. pacman takes a package from the first repository in pacman.conf that
-/// has it (on Omarchy: omarchy, then Arch's core, extra and multilib), and yay turns to the AUR
-/// only when none does; apps from none of these install with their steps. An app from an extra
+/// Where apps come from (see `PackageAdapter::origins`); apps from no repository install with
+/// their steps. An app from an extra
 /// repository this computer doesn't have (`app_repo`, recorded by another computer) shows that
 /// repository rather than the AUR.
 pub fn sources<'a>(
@@ -437,23 +289,14 @@ pub fn sources<'a>(
     outside_synced: &BTreeMap<String, Option<Script>>,
     app_repo: &BTreeMap<String, String>,
 ) -> BTreeMap<String, String> {
-    let mut repo_of: BTreeMap<&str, &str> = BTreeMap::new();
-    let listing = run(None, "pacman", &["-Sl"]).unwrap_or_default();
-    // `pacman -Sl` lists repositories in pacman.conf's order; the first one listing a package wins.
-    for line in listing.lines() {
-        let mut parts = line.split(' ');
-        if let (Some(repo), Some(name)) = (parts.next(), parts.next()) {
-            repo_of.entry(name).or_insert(repo);
-        }
-    }
+    let platform = here();
+    let origin = platform.origins();
     apps.map(|app| {
-        let source = match repo_of.get(app.as_str()) {
-            Some(&"omarchy") => "omarchy",
-            Some(&("core" | "extra" | "multilib")) => "arch",
-            Some(repo) => repo,
+        let source = match origin.get(app) {
+            Some(repo) => repo.as_str(),
             None if outside_here.contains(app) || outside_synced.contains_key(app) => "elsewhere",
             None if app_repo.contains_key(app) => app_repo[app].as_str(),
-            None => "aur",
+            None => platform.unlisted_origin(),
         };
         (app.clone(), source.to_string())
     })
@@ -493,12 +336,12 @@ pub fn install_with_script(
     }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     step(&format!("Installing {app} in a terminal window"));
-    let snapper = snapper_available();
+    let snapper = here().snapshots_available();
     let snapshot = if snapper {
         let label = format!("Before Omarchy Sync ran install steps for {app}");
         format!(
             "echo 'Taking a snapshot of this computer'\\''s system first.'\n{}",
-            snapshot_lines(&label, &taken, "sudo ")
+            snapshot_lines(&label, &taken, here().terminal_root())
         )
     } else {
         String::new()
@@ -548,7 +391,7 @@ pub fn install_with_script(
 /// Installs synced apps through yay, after a snapshot of the system. Closing the snapshot's
 /// password window installs nothing.
 pub fn install_apps(apps: &[String]) -> Result<SnapshotOutcome, String> {
-    let snapshot = snapshot(&format!(
+    let snapshot = here().snapshot(&format!(
         "Before Omarchy Sync installed {}",
         apps.join(", ")
     ));
@@ -559,19 +402,13 @@ pub fn install_apps(apps: &[String]) -> Result<SnapshotOutcome, String> {
     Ok(snapshot)
 }
 
-/// Installs packages through yay, which asks for the password itself (pkexec).
+/// Installs packages (on Omarchy through yay), asking for the password itself (pkexec).
 pub fn install_packages(apps: &[String]) -> Result<(), String> {
-    let mut args = vec!["-S", "--needed", "--noconfirm", "--sudo", "pkexec", "--"];
-    args.extend(apps.iter().map(|s| s.as_str()));
-    run(None, "yay", &args).map(|_| ())
+    run_all(&here().install_command(apps)).map(|_| ())
 }
 
 pub fn installed() -> BTreeSet<String> {
-    run(None, "pacman", &["-Qq"])
-        .unwrap_or_default()
-        .lines()
-        .map(String::from)
-        .collect()
+    here().installed()
 }
 
 /// The apps installed here by the person: explicitly installed, not part of Omarchy.
@@ -587,8 +424,8 @@ pub(crate) fn user_apps_here() -> Vec<String> {
                 .map(String::from),
         );
     }
-    let explicit = run(None, "pacman", &["-Qqe"]).unwrap_or_default();
-    user_apps(explicit.lines(), &base)
+    let explicit = here().explicit();
+    user_apps(explicit.iter().map(String::as_str), &base)
 }
 
 pub(crate) fn apps(data: &Data) -> Apps {
@@ -601,16 +438,8 @@ pub(crate) fn apps(data: &Data) -> Apps {
             .filter(|a| installed.contains(*a) && !mine.contains(a))
             .map(|s| s.as_str()),
     );
-    let info = if names.is_empty() {
-        String::new()
-    } else {
-        let mut args = vec!["-Qi"];
-        args.extend(names);
-        run(None, "pacman", &args).unwrap_or_default()
-    };
-    let about = parse_info(&info, "Description");
+    let (about, mut website) = here().info(&names);
     // Only a web address: a package may name anything here.
-    let mut website = parse_info(&info, "URL");
     website.retain(|_, url| is_git_address(url));
     let outside = outside_repos(&mine);
     // Every app shown: this computer's and the synced ones it may not have yet.

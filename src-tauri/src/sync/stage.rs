@@ -65,6 +65,10 @@ pub(crate) fn apply_background(ctx: &Ctx, data: &Data) -> Result<(), String> {
     let Some(name) = data.background.as_ref().filter(|n| is_file_name(n)) else {
         return Ok(());
     };
+    let desktop = here();
+    if !desktop.profile().supports_themes {
+        return Ok(());
+    }
     let synced = ctx.src.join(".background").join(name);
     let current = ctx.current_background();
     let size = |p: &Path| std::fs::metadata(p).ok().map(|m| m.len());
@@ -80,12 +84,7 @@ pub(crate) fn apply_background(ctx: &Ctx, data: &Data) -> Result<(), String> {
     std::fs::create_dir_all(&dest).map_err(|e| e.to_string())?;
     let image = dest.join(name);
     std::fs::copy(&synced, &image).map_err(|e| e.to_string())?;
-    run(
-        None,
-        "omarchy",
-        &["theme", "bg", "set", &image.to_string_lossy()],
-    )
-    .map(|_| ())
+    desktop.set_background(&image)
 }
 
 /// Takes out of the sync folder whatever in the web app folders isn't a web app or its icon
@@ -285,7 +284,10 @@ pub(crate) fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String
 
 /// Records this computer's Omarchy version.
 pub(crate) fn note_omarchy(data: &mut Data, host: &str) {
-    if let Ok(v) = run(None, "omarchy", &["version"]) {
+    let desktop = here();
+    if desktop.profile().supports_major_version_guard
+        && let Some(v) = desktop.desktop_version()
+    {
         let v: String = v
             .trim()
             .chars()

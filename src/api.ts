@@ -114,7 +114,7 @@ export type Overview = {
     mine: string[];
     /** Those of `mine` from neither Arch's repos nor the AUR. */
     outside: string[];
-    /** Where each app comes from: omarchy, arch, aur, elsewhere, or another repository's name. */
+    /** Where each app comes from: omarchy, arch, aur, distro (Debian, Fedora), elsewhere, or another repository's name. */
     source: Record<string, string>;
     about: Record<string, string>;
     /** Each app's own website, as its package names it. */

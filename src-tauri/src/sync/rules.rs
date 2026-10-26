@@ -1,5 +1,7 @@
 //! What syncs: the folders on offer, the ones nested inside others, and chezmoi's ignore rules.
 
+use super::DistroProfile;
+
 /// Folders offered on the "What's synced" tab: (path under home, plain name, on by default).
 pub const FOLDERS: &[(&str, &str, bool)] = &[
     (".config/omarchy", "Other Omarchy settings", true),
@@ -43,6 +45,45 @@ pub const FOLDERS: &[(&str, &str, bool)] = &[
     (".config/fastfetch", "System info screen", false),
     (".config/git", "Git settings", false),
 ];
+
+/// Omarchy's and Hyprland's own settings (Hyprland's lock and idle settings live in its
+/// folder), only offered where Omarchy runs. The rest of FOLDERS are apps' own settings in
+/// their XDG folders, the same on any distribution.
+pub const DESKTOP_FOLDERS: &[&str] = &[
+    ".config/omarchy",
+    ".config/hypr",
+    ".config/waybar",
+    ".config/walker",
+    ".config/mako",
+    ".config/swayosd",
+    ".config/uwsm",
+    ".XCompose",
+];
+
+pub fn is_desktop_folder(path: &str) -> bool {
+    DESKTOP_FOLDERS
+        .iter()
+        .any(|d| path == *d || path.starts_with(&format!("{d}/")))
+}
+
+/// FOLDERS this desktop can use: all of them on Omarchy, the apps' own elsewhere.
+pub fn folders_for_profile(profile: &DistroProfile) -> Vec<(&'static str, &'static str, bool)> {
+    FOLDERS
+        .iter()
+        .copied()
+        // Omarchy's own settings go where its themes do.
+        .filter(|(p, _, _)| profile.supports_themes || !is_desktop_folder(p))
+        .collect()
+}
+
+/// The folders of `folders_for_profile` that are on by default.
+pub fn default_folders_for_profile(profile: &DistroProfile) -> Vec<&'static str> {
+    folders_for_profile(profile)
+        .into_iter()
+        .filter(|(_, _, on)| *on)
+        .map(|(p, _, _)| p)
+        .collect()
+}
 
 /// The app whose settings an app-data folder holds, by package name. Omarchy ships settings for
 /// several of these whether or not the app is installed, so a folder on its own says little.
@@ -177,5 +218,36 @@ mod tests {
         d.upgrade();
         assert!(d.folders.iter().any(|f| f == ".config/hypr/bindings.lua"));
         assert!(!d.folders.iter().any(|f| f == ".config/omarchy/themes"));
+    }
+
+    #[test]
+    fn plain_desktops_get_only_the_apps_own_folders() {
+        let all = folders_for_profile(&DistroProfile::OMARCHY);
+        assert_eq!(all, FOLDERS);
+        let plain = folders_for_profile(&DistroProfile::PLAIN);
+        let paths: Vec<&str> = plain.iter().map(|(p, _, _)| *p).collect();
+        for core in [
+            ".config/ghostty",
+            ".config/alacritty",
+            ".config/kitty",
+            ".config/nvim",
+            ".config/git",
+            ".config/lazygit",
+            ".config/btop",
+            ".config/fastfetch",
+            ".config/starship.toml",
+            ".local/share/applications",
+        ] {
+            assert!(paths.contains(&core), "{core} missing");
+        }
+        assert!(paths.iter().all(|p| !p.starts_with(".config/omarchy")));
+        assert!(paths.iter().all(|p| !p.starts_with(".config/hypr")));
+        assert!(is_desktop_folder(".config/hypr/bindings.lua"));
+        assert!(!is_desktop_folder(".config/hyprx"));
+        assert_eq!(all.len() - plain.len(), 12);
+        // Defaults follow the catalog's own.
+        let defaults = default_folders_for_profile(&DistroProfile::PLAIN);
+        assert!(defaults.contains(&".config/ghostty") && !defaults.contains(&".config/nvim"));
+        assert!(default_folders_for_profile(&DistroProfile::OMARCHY).contains(&".config/hypr"));
     }
 }
