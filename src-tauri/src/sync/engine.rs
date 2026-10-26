@@ -204,8 +204,10 @@ pub fn well_formed(target: &str, text: &str) -> bool {
         "toml" => text.parse::<toml::Table>().is_ok(),
         "yaml" | "yml" => serde_yaml::from_str::<serde_yaml::Value>(text).is_ok(),
         "lua" => {
-            let file =
-                std::env::temp_dir().join(format!("omarchy-sync-{}.lua", std::process::id()));
+            let Ok(dir) = TempDir::new("lua") else {
+                return true;
+            };
+            let file = dir.path().join("check.lua");
             if std::fs::write(&file, text).is_err() {
                 return true;
             }
@@ -216,7 +218,6 @@ pub fn well_formed(target: &str, text: &str) -> bool {
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .status();
-            let _ = std::fs::remove_file(&file);
             // No luac here: nothing to check with, so it passes.
             checked.map_or(true, |s| s.success())
         }

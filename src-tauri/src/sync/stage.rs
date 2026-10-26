@@ -361,3 +361,50 @@ pub fn track(ctx: &Ctx, folder: &str, on: bool) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Switches a folder in or out of the sync: the choice and the sync folder change together,
+/// under one hold of the lock, so a sync can't share one without the other.
+pub fn set_folder(ctx: &Ctx, folder: &str, on: bool) -> Result<Data, String> {
+    let _lock = lock_wait(ctx)?;
+    // Stop tracking before saving "off": once saved, the ignore rules hide it from chezmoi,
+    // which then can't forget it. Starting is the other way round.
+    if !on {
+        track(ctx, folder, false)?;
+    }
+    let saved = std::fs::read(ctx.data_path()).ok();
+    let data = edit_locked(ctx, |d, _| toggle(&mut d.folders, folder, on))?;
+    if on && let Err(e) = track(ctx, folder, true) {
+        put_back_choices(ctx, saved);
+        return Err(e);
+    }
+    Ok(data)
+}
+
+/// Whether one computer gets a plugin (see `Data::place`), with the sync folder following when
+/// that starts or stops sharing it, under one hold of the lock.
+pub fn set_plugin(ctx: &Ctx, computer: &str, id: &str, on: bool) -> Result<Data, String> {
+    let _lock = lock_wait(ctx)?;
+    let before = ctx.load_data().plugins.iter().any(|p| p == id);
+    let saved = std::fs::read(ctx.data_path()).ok();
+    let data = edit_locked(ctx, |d, host| {
+        // This computer's copy may be the one shared, so it counts as having what's here.
+        d.computers.entry(host.into()).or_default().plugins = ctx.local_plugins();
+        d.place_plugin(computer, id, on);
+    })?;
+    let after = data.plugins.iter().any(|p| p == id);
+    if before != after
+        && let Err(e) = track_plugin(ctx, id, after)
+    {
+        put_back_choices(ctx, saved);
+        return Err(e);
+    }
+    Ok(data)
+}
+
+/// Puts the choices file back as it was before a switch whose files couldn't follow.
+fn put_back_choices(ctx: &Ctx, saved: Option<Vec<u8>>) {
+    let _ = match saved {
+        Some(bytes) => std::fs::write(ctx.data_path(), bytes),
+        None => std::fs::remove_file(ctx.data_path()),
+    };
+}

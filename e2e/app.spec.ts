@@ -517,6 +517,7 @@ test('checking for updates says so when this copy is the latest', async ({ page 
 
 test('app data shows settings folders for apps that are installed or synced', async ({ page }) => {
   await page.goto('/?scenario=synced');
+  await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
   await page.keyboard.press('Control+6');
   // Ghostty's folder syncs though Ghostty isn't installed here, and says so; Neovim's folder
   // neither syncs nor belongs to an installed or synced app, so it's left out.

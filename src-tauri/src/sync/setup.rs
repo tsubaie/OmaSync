@@ -79,8 +79,10 @@ pub fn sign_in() -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// First computer: save its settings into a new private GitHub repo.
+/// First computer: save its settings into a new private GitHub repo. Holds the sync lock
+/// throughout, so the background timer can't sync a half-made sync folder.
 pub fn start(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<(), String> {
+    let _lock = lock_wait(ctx)?;
     plan(
         step,
         &[
@@ -136,8 +138,10 @@ pub(crate) fn seed(ctx: &Ctx) -> Result<(), String> {
     commit(ctx)
 }
 
-/// Another computer already syncs: back up this one, then take the synced settings.
+/// Another computer already syncs: back up this one, then take the synced settings. Holds the
+/// sync lock throughout, like `start`.
 pub fn join(ctx: &Ctx, login: &str, step: &dyn Fn(&str)) -> Result<PathBuf, String> {
+    let _lock = lock_wait(ctx)?;
     plan(
         step,
         &[

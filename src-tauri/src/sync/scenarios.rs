@@ -684,7 +684,7 @@ fn a_sync_interrupted_part_way_starts_afresh_next_time() {
 #[ignore]
 fn a_lock_file_left_behind_doesnt_block_syncing() {
     let mut lab = pair();
-    std::fs::write(lab.ctx("a").src.join(".git/omarchy-sync.lock"), "stale").unwrap();
+    std::fs::write(lock_path(lab.ctx("a")).unwrap(), "stale").unwrap();
     lab.sync_ok("a");
 }
 
@@ -693,7 +693,7 @@ fn a_lock_file_left_behind_doesnt_block_syncing() {
 fn a_sync_waits_for_the_one_already_running() {
     let mut lab = pair();
     let ctx = lab.ctx("a").clone();
-    let lock = ctx.src.join(".git/omarchy-sync.lock");
+    let lock = lock_path(&ctx).unwrap();
     let steps = std::cell::RefCell::new(Vec::new());
     std::thread::scope(|s| {
         let held = std::fs::File::create(&lock).unwrap();
@@ -1167,7 +1167,7 @@ fn a_switch_flipped_during_a_sync_waits_for_it_instead_of_being_lost() {
     let mut lab = pair();
     let ctx = lab.ctx("a").clone();
     // The background timer is mid-sync (it holds the lock); the person flips a switch.
-    let lock = ctx.src.join(".git/omarchy-sync.lock");
+    let lock = lock_path(&ctx).unwrap();
     let held = std::fs::File::create(&lock).unwrap();
     held.lock().unwrap();
     let started = std::time::Instant::now();
@@ -1534,4 +1534,119 @@ fn a_plugin_from_git_is_added_from_git_on_the_other_computer_not_copied() {
         assert!(!is_git_address(bad), "{bad}");
     }
     assert!(is_git_address("git@github.com:acme/omarchy-weather.git"));
+}
+
+#[test]
+#[ignore]
+fn the_lock_works_before_setup_and_after_disconnecting() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut lab = Lab::new();
+    lab.add("a");
+    let ctx = lab.ctx("a").clone();
+    // Nothing set up yet: no sync folder, let alone its .git.
+    assert!(!ctx.src.exists());
+    let held = lock(&ctx).unwrap();
+    let path = lock_path(&ctx).unwrap();
+    assert_eq!(path, ctx.state_dir().join("omarchy-sync/sync.lock"));
+    assert!(path.is_file());
+    let mode = std::fs::metadata(path.parent().unwrap())
+        .unwrap()
+        .permissions()
+        .mode();
+    assert_eq!(mode & 0o777, 0o700);
+    assert!(lock(&ctx).is_err());
+    drop(held);
+    lab.start("a");
+    let _ = disconnect(&ctx).unwrap();
+    assert!(!ctx.src.exists());
+    let _held = lock_wait(&ctx).unwrap();
+}
+
+#[test]
+#[ignore]
+fn start_and_join_hold_the_lock_the_whole_way() {
+    let mut lab = Lab::new();
+    lab.add("a");
+    lab.add("b");
+    // gh stands in for GitHub, and fails if it ever runs while the lock is free.
+    let gh = lab.root.join("bin/gh");
+    std::fs::write(
+        &gh,
+        r#"#!/bin/bash
+echo "gh $*" >> "$LAB_LOG"
+mkdir -p "$XDG_STATE_HOME/omarchy-sync"
+flock -n -E 99 "$XDG_STATE_HOME/omarchy-sync/sync.lock" true
+[ $? -eq 99 ] || { echo "lab: lock not held" >&2; exit 1; }
+case "$1 $2" in
+  "repo create") git -C "$6" remote add origin "$LAB_REMOTE" && git -C "$6" push -q -u origin HEAD ;;
+esac
+"#,
+    )
+    .unwrap();
+    let mut perm = std::fs::metadata(&gh).unwrap().permissions();
+    std::os::unix::fs::PermissionsExt::set_mode(&mut perm, 0o755);
+    std::fs::set_permissions(&gh, perm).unwrap();
+    // `join` clones from GitHub; git sends that to the lab's remote instead.
+    unsafe {
+        std::env::set_var("LAB_REMOTE", &lab.remote);
+        std::env::set_var("GIT_CONFIG_COUNT", "1");
+        std::env::set_var("GIT_CONFIG_KEY_0", format!("url.{}.insteadOf", lab.remote));
+        std::env::set_var(
+            "GIT_CONFIG_VALUE_0",
+            format!("https://github.com/lab/{REPO}.git"),
+        );
+    }
+    let a = lab.ctx("a").clone();
+    start(&a, &|_| {}).unwrap();
+    assert!(lab.calls("a").contains("gh repo create"));
+    lab.sync_ok("a");
+    let b = lab.ctx("b").clone();
+    join(&b, "lab", &|_| {}).unwrap();
+    lab.check("b");
+    lab.sync_ok("b");
+    unsafe {
+        for k in [
+            "LAB_REMOTE",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_KEY_0",
+            "GIT_CONFIG_VALUE_0",
+        ] {
+            std::env::remove_var(k);
+        }
+    }
+    assert_eq!(lab.read("b", ".config/hypr/bindings.lua"), "-- a keys\n");
+    // Both let go of it when done.
+    assert!(lock(&b).is_ok());
+}
+
+#[test]
+#[ignore]
+fn a_folder_switched_on_that_cant_be_added_stays_off() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut lab = pair();
+    let ctx = lab.ctx("a").clone();
+    set_folder(&ctx, ".config/alacritty", false).unwrap();
+    assert!(
+        !lab.data("a")
+            .folders
+            .contains(&".config/alacritty".to_string())
+    );
+    // A file chezmoi can't read makes adding the folder fail part way.
+    let file = ctx.home.join(".config/alacritty/alacritty.toml");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    assert!(set_folder(&ctx, ".config/alacritty", true).is_err());
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        !lab.data("a")
+            .folders
+            .contains(&".config/alacritty".to_string())
+    );
+    assert!(lock(&ctx).is_ok());
+    set_folder(&ctx, ".config/alacritty", true).unwrap();
+    assert!(
+        lab.data("a")
+            .folders
+            .contains(&".config/alacritty".to_string())
+    );
+    lab.sync_ok("a");
 }
