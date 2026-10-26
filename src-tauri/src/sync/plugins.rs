@@ -177,6 +177,11 @@ pub(crate) fn all_plugins(ctx: &Ctx, data: &Data) -> Vec<Plugin> {
 /// added from git instead, so this computer's copy can be updated too.
 pub fn install_plugins(ctx: &Ctx, ids: &[String]) -> Result<(), String> {
     let _lock = lock_wait(ctx)?;
+    install_plugins_locked(ctx, ids)
+}
+
+/// `install_plugins` for a caller already holding the lock (a sync).
+pub(crate) fn install_plugins_locked(ctx: &Ctx, ids: &[String]) -> Result<(), String> {
     let mut data = ctx.load_data();
     let me = data.computers.entry(ctx.host.clone()).or_default();
     for id in ids {

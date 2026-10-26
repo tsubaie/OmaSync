@@ -1095,6 +1095,9 @@ kbd {
 .notice.bad svg {
   color: var(--bad);
 }
+.notice.warn svg {
+  color: var(--warn);
+}
 .notice .indent {
   margin-left: 23px;
 }

@@ -23,6 +23,8 @@ pub struct Overview {
     pub missing_repos: Vec<MissingRepo>,
     /// Shared extra repositories this computer already has.
     pub repos_here: Vec<MissingRepo>,
+    /// Whether a snapshot of the system is taken before installing apps or adding a repository.
+    pub snapper_available: bool,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -125,6 +127,7 @@ pub fn overview(
         plugins,
         missing_repos: missing_repos(data, &ctx.host, &here),
         repos_here: repos_with_apps(data, &here),
+        snapper_available: snapper_available(),
         apps,
     })
 }

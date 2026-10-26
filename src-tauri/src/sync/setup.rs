@@ -166,10 +166,44 @@ pub(crate) fn adopt(ctx: &Ctx, url: &str, step: &dyn Fn(&str)) -> Result<PathBuf
     data.computers.entry(ctx.host.clone()).or_default().paused = paused;
     ctx.save_data(&data)?;
     step("Backing up this computer's current settings");
-    let backup = backup_now(ctx, &data.folders, "before-first-sync")?;
+    let backup = backup_now(
+        ctx,
+        &with_current_look(ctx, &data.folders),
+        "before-first-sync",
+    )?;
     step("Updating this computer");
     run(None, "chezmoi", &["apply", "--force"])?;
     Ok(backup)
+}
+
+/// `folders` plus this computer's theme and background, which the first sync replaces with the
+/// synced ones: what's current (the links in Omarchy's state folder and, from older versions,
+/// in ~/.config/omarchy/current), the backgrounds folder, and the image shown when it's
+/// elsewhere in home.
+fn with_current_look(ctx: &Ctx, folders: &[String]) -> Vec<String> {
+    // The image's path is resolved, so home is too.
+    let home = std::fs::canonicalize(&ctx.home).unwrap_or_else(|_| ctx.home.clone());
+    let image = ctx
+        .current_background()
+        .and_then(|p| Some(p.strip_prefix(&home).ok()?.to_string_lossy().into_owned()));
+    let mut all = folders.to_vec();
+    for path in [
+        ".local/state/omarchy/current",
+        ".config/omarchy/current",
+        ".config/omarchy/backgrounds",
+    ]
+    .map(String::from)
+    .into_iter()
+    .chain(image)
+    {
+        if !all
+            .iter()
+            .any(|f| path == *f || path.starts_with(&format!("{f}/")))
+        {
+            all.push(path);
+        }
+    }
+    all
 }
 
 /// `backup` named `{prefix}-{now}`, never over an earlier one: two in the same second (an

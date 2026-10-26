@@ -124,6 +124,8 @@ export type Overview = {
   /** Extra repositories this computer needs for apps it should have. */
   missing_repos: MissingRepo[];
   repos_here: MissingRepo[];
+  /** Whether a snapshot of the system is taken before installing apps or adding a repository. */
+  snapper_available: boolean;
 };
 export type Status = {
   overview: Overview;
@@ -140,7 +142,15 @@ export type Status = {
   installed_how: How;
 };
 
-export type Report = { notes: string[]; waiting: string[] };
+/** How the snapshot of this computer's system before a change went: its number, no Snapper
+ * here, failed (the change still went ahead), or the password window was closed. */
+export type Snapshot = { Taken: number } | 'Unavailable' | { Failed: string } | 'Cancelled';
+export type Report = {
+  notes: string[];
+  waiting: string[];
+  /** Taken before installing apps without asking; null when nothing was installed. */
+  snapshot: Snapshot | null;
+};
 /** How this copy was installed: the release package, the AUR package, or built from source. */
 export type How = 'Package' | 'Aur' | 'Source';
 /** A newer release of Omarchy Sync. */
@@ -187,9 +197,9 @@ export const api = {
   start: (onStep: OnStep) => invoke<void>('start', { onStep: steps(onStep) }),
   /** Returns where this computer's previous settings were backed up. */
   join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
-  installApps: () => invoke<void>('install_apps'),
+  installApps: () => invoke<Snapshot>('install_apps'),
   /** Adds an extra repository this computer needs (asks for the password). */
-  addRepository: (name: string) => invoke<void>('add_repository', { name }),
+  addRepository: (name: string) => invoke<Snapshot>('add_repository', { name }),
   tryOmarchy: () => invoke<Data>('try_omarchy'),
   putBackOmarchy: () => invoke<void>('put_back_omarchy'),
   updateOmarchy: () => invoke<void>('update_omarchy'),
@@ -202,7 +212,7 @@ export const api = {
   removeAppScript: (app: string) => invoke<Data>('remove_app_script', { app }),
   /** Installs one waiting app with its script, in a terminal window the person can see. */
   installWithScript: (app: string, onStep: OnStep) =>
-    invoke<void>('install_with_script', { app, onStep: steps(onStep) }),
+    invoke<Snapshot>('install_with_script', { app, onStep: steps(onStep) }),
   /** Whether the sync choices differ from what was last shared. */
   /** What changed in the choices since they were last shared, in sentences; none when nothing. */
   choicesChanged: () => invoke<string[]>('choices_changed'),

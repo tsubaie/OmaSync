@@ -660,6 +660,204 @@ fn a_synced_app_waits_for_a_yes_and_can_be_declined_per_computer() {
     assert!(lab.data("a").apps.contains(&"firefox".to_string()));
 }
 
+#[test]
+#[ignore]
+fn joining_backs_up_this_computers_own_theme_and_background_first() {
+    let mut lab = pair();
+    lab.write("b", ".local/state/omarchy/current/theme.name", "bees\n");
+    lab.write("b", ".config/omarchy/backgrounds/bees.jpg", "b's jpg");
+    let home = lab.ctx("b").home.clone();
+    std::os::unix::fs::symlink(
+        home.join(".config/omarchy/backgrounds/bees.jpg"),
+        home.join(".local/state/omarchy/current/background"),
+    )
+    .unwrap();
+    let backup = lab.join("b");
+    let tar = backup.to_string_lossy();
+    let file = |path: &str| run(None, "tar", &["-xOzf", &tar, path]);
+    assert_eq!(
+        file(".local/state/omarchy/current/theme.name").as_deref(),
+        Ok("bees")
+    );
+    assert_eq!(
+        file(".config/omarchy/backgrounds/bees.jpg").as_deref(),
+        Ok("b's jpg")
+    );
+    let listing = run(None, "tar", &["-tvzf", &tar]).unwrap();
+    assert!(
+        listing.contains(".local/state/omarchy/current/background -> ")
+            && listing.contains("backgrounds/bees.jpg"),
+        "{listing}"
+    );
+}
+
+/// A repository another computer recorded, with its key, for `add_repository`.
+fn chaotic() -> Data {
+    let mut data = Data::default();
+    data.repositories.insert(
+        "chaotic-aur".into(),
+        Repository {
+            servers: vec!["https://example.com/chaotic".into()],
+            sig_level: vec!["Required".into()],
+            key: Some(RepoKey {
+                fingerprint: "A".repeat(40),
+                owner: "Chaotic".into(),
+                armored: "-----BEGIN PGP PUBLIC KEY BLOCK-----\nkey\n".into(),
+            }),
+        },
+    );
+    data
+}
+
+#[test]
+#[ignore]
+fn a_snapshot_of_the_system_comes_before_every_change_to_it() {
+    let mut lab = pair();
+    lab.packages("a", "firefox");
+    lab.join("b");
+    lab.snapper("b", Some(true));
+    lab.ctx("b");
+    let snapped = |lab: &Lab, label: &str| {
+        lab.calls("b").contains(&format!(
+            "snapper -c root create -c number -d {label} --print-number"
+        ))
+    };
+
+    // Installing apps: one snapshot for the batch, cleaned up after, then yay.
+    let taken = install_apps(&["firefox".into(), "mpv".into()]);
+    assert_eq!(taken, Ok(SnapshotOutcome::Taken(42)));
+    assert!(snapped(&lab, "Before Omarchy Sync installed firefox, mpv"));
+    let calls = lab.calls("b");
+    let at = |what: &str| {
+        calls
+            .find(what)
+            .unwrap_or_else(|| panic!("no {what} in {calls}"))
+    };
+    assert!(at("create -c number -d Before") < at("cleanup number\n"));
+    assert!(at("cleanup number\n") < at("yay -S"));
+
+    // Adding a repository: inside its one root script, before /etc changes.
+    lab.ctx("b");
+    assert_eq!(
+        add_repository(&chaotic(), "chaotic-aur"),
+        Ok(SnapshotOutcome::Taken(42))
+    );
+    assert!(snapped(
+        &lab,
+        "Before Omarchy Sync added repository chaotic-aur"
+    ));
+    assert_eq!(
+        lab.calls("b")
+            .lines()
+            .filter(|l| l.starts_with("pkexec "))
+            .count(),
+        2
+    );
+    assert!(lab.exists("b", ".etc/pacman.d/omarchy-sync-chaotic-aur.conf"));
+    assert!(
+        lab.read("b", ".etc/pacman.conf")
+            .contains("/.etc/pacman.d/omarchy-sync-chaotic-aur.conf")
+    );
+    let calls = lab.calls("b");
+    assert!(calls.rfind("snapper -c root create") < calls.find("pacman-key --add"));
+
+    // Install steps: through sudo, in the terminal, before the first step.
+    let script = Script {
+        command: "echo installed > \"$HOME/numpad\"".into(),
+        ..Default::default()
+    };
+    let ctx = lab.ctx("b").clone();
+    assert_eq!(
+        install_with_script(&ctx, "numpad", &script, &|_| {}),
+        Ok(SnapshotOutcome::Taken(42))
+    );
+    assert!(lab.calls("b").contains(
+        "sudo snapper -c root create -c number -d Before Omarchy Sync ran install steps for numpad"
+    ));
+    assert_eq!(lab.read("b", "numpad"), "installed\n");
+
+    // Installing during a sync, without asking: the report carries the snapshot.
+    lab.edit("a", |d, _| d.apps.push("firefox".into()));
+    lab.sync_ok("a");
+    lab.edit("b", |d, host| {
+        d.computers.get_mut(host).unwrap().install_without_asking = true
+    });
+    let report = sync(&ctx, true, &|_| {}).unwrap();
+    lab.check("b");
+    assert_eq!(report.snapshot, Some(SnapshotOutcome::Taken(42)));
+    assert!(report.notes.iter().any(|n| n == "Installed firefox."));
+    // The waiting plugin comes too, inside the sync's own lock.
+    assert!(
+        report.notes.iter().any(|n| n == "Added 1 plugin."),
+        "{report:?}"
+    );
+}
+
+#[test]
+#[ignore]
+fn without_snapper_apps_install_as_before_and_nothing_is_said() {
+    let mut lab = pair();
+    lab.join("b");
+    lab.ctx("b");
+    assert_eq!(
+        install_apps(&["firefox".into()]),
+        Ok(SnapshotOutcome::Unavailable)
+    );
+    assert_eq!(
+        add_repository(&chaotic(), "chaotic-aur"),
+        Ok(SnapshotOutcome::Unavailable)
+    );
+    let calls = lab.calls("b");
+    assert!(
+        !calls.contains("snapper -c root") && calls.contains("yay -S"),
+        "{calls}"
+    );
+    assert!(lab.exists("b", ".etc/pacman.d/omarchy-sync-chaotic-aur.conf"));
+    lab.check("b");
+}
+
+#[test]
+#[ignore]
+fn a_failed_snapshot_doesnt_stop_the_install_and_is_reported() {
+    let mut lab = pair();
+    lab.join("b");
+    lab.snapper("b", Some(false));
+    lab.ctx("b");
+    let failed = SnapshotOutcome::Failed("lab: snapper failed".into());
+    assert_eq!(install_apps(&["firefox".into()]), Ok(failed.clone()));
+    assert_eq!(add_repository(&chaotic(), "chaotic-aur"), Ok(failed));
+    let calls = lab.calls("b");
+    assert!(
+        calls.contains("yay -S") && !calls.contains("snapper -c root cleanup number\n"),
+        "{calls}"
+    );
+    assert!(lab.exists("b", ".etc/pacman.d/omarchy-sync-chaotic-aur.conf"));
+    lab.check("b");
+}
+
+#[test]
+#[ignore]
+fn closing_the_password_window_installs_nothing() {
+    let mut lab = pair();
+    lab.join("b");
+    lab.snapper("b", Some(true));
+    lab.cancel_password("b", true);
+    lab.ctx("b");
+    let e = install_apps(&["firefox".into()]).unwrap_err();
+    assert_eq!(
+        friendly(&e),
+        "The password window was closed, so nothing was installed."
+    );
+    assert!(add_repository(&chaotic(), "chaotic-aur").is_err());
+    let calls = lab.calls("b");
+    assert!(
+        !calls.contains("yay") && !calls.contains("\nsnapper -c root create"),
+        "{calls}"
+    );
+    assert!(!lab.exists("b", ".etc"));
+    lab.check("b");
+}
+
 // ---------- Things going wrong ----------
 
 #[test]

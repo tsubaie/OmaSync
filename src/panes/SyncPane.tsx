@@ -14,7 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { api, type Catalog, type Keep, type Overview, type Versions } from '../api';
-import { ago, byFolder, diffLines, plural, shortList } from '../format';
+import { SNAPSHOT_FIRST, ago, byFolder, diffLines, plural, shortList } from '../format';
 import type { SyncState } from '../state';
 import { Caution, Group, Link, OmarchyLogo, Progress, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
@@ -327,7 +327,7 @@ function ScriptedApps({ s }: { s: SyncState }) {
   return (
     <Group
       title="Apps to Install with Their Steps"
-      footer="Each runs in a terminal window, so you can see what it does and type your password if it asks."
+      footer={`Each runs in a terminal window, so you can see what it does and type your password if it asks.${s.overview?.snapper_available ? ` ${SNAPSHOT_FIRST}` : ''}`}
     >
       {s.scripted.map(({ app, script }) => (
         <Row
@@ -345,7 +345,10 @@ function ScriptedApps({ s }: { s: SyncState }) {
                     s.act(
                       `Installing ${app}`,
                       (onStep) => api.installWithScript(app, onStep),
-                      () => s.refresh(),
+                      (snapshot) => {
+                        s.changed(`Installed ${app}.`, snapshot);
+                        return s.refresh();
+                      },
                     );
                   }}
                 >
@@ -510,7 +513,14 @@ export function SyncPane({ s }: { s: SyncState }) {
           <OmarchyVersions s={s} />
           {showWaiting && (
             // Installing changes the system, so it waits for a yes unless this computer opted out of asking.
-            <Group title="Apps Waiting to Install" footer="Omarchy will ask for your password.">
+            <Group
+              title="Apps Waiting to Install"
+              footer={
+                ov.snapper_available
+                  ? `Omarchy may ask for your password. ${SNAPSHOT_FIRST}`
+                  : 'Omarchy will ask for your password.'
+              }
+            >
               {s.waiting.map((app) => (
                 <Row key={app} lead={<Tile icon={Package} kind="apps" size={24} />} title={app} />
               ))}
@@ -521,7 +531,10 @@ export function SyncPane({ s }: { s: SyncState }) {
                     s.act(
                       'Installing apps',
                       () => api.installApps(),
-                      () => s.refresh(),
+                      (snapshot) => {
+                        s.changed(`Installed ${s.waiting.join(', ')}.`, snapshot);
+                        return s.refresh();
+                      },
                     )
                   }
                 >

@@ -21,7 +21,7 @@ export default defineConfig({
   build: { target: 'safari16', outDir: 'dist' },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.{ts,tsx}'],
     coverage: { include: ['src/**/*.ts'], exclude: ['src/**/*.test.ts', 'src/mocks.ts'] },
   },
 });

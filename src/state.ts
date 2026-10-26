@@ -13,6 +13,7 @@ import {
   type Problem,
   type Report,
   type SetupState,
+  type Snapshot,
   type Status,
 } from './api';
 import { applyLook } from './theme';
@@ -30,7 +31,25 @@ export const TABS: Tab[] = [
   'settings',
 ];
 
-export type Notice = { good: boolean; text: string; details?: string };
+/** `warn`: it worked, with something to know (shown as a warning, not as a success). */
+export type Notice = { good: boolean; warn?: boolean; text: string; details?: string };
+
+/** What a finished change to the system says, with how the snapshot before it went. */
+export function snapshotNotice(text: string, snapshot: Snapshot | null): Notice {
+  if (typeof snapshot === 'object' && snapshot && 'Taken' in snapshot)
+    return {
+      good: true,
+      text: `${text} Snapshot ${snapshot.Taken} of this computer's system was taken just before; to go back to it, restart and pick it from the startup menu.`,
+    };
+  if (typeof snapshot === 'object' && snapshot && 'Failed' in snapshot)
+    return {
+      good: true,
+      warn: true,
+      text: `${text} A snapshot couldn't be taken first.`,
+      details: snapshot.Failed,
+    };
+  return { good: true, text };
+}
 
 /** Where a job sits in a round of progress (see run). */
 type Round = 'whole' | 'first' | 'middle' | 'last';
@@ -210,7 +229,7 @@ export function useSync() {
       );
       if (report) {
         // Success is a small toast; anything worth reading (apps installed or not) stays on screen.
-        if (report.notes.length) setNotice({ good: true, text: report.notes.join(' ') });
+        if (report.notes.length) setNotice(snapshotNotice(report.notes.join(' '), report.snapshot));
         flash(undoSha ? 'Undone' : 'Synced');
         setConflict(null);
         setPending([]);
@@ -394,6 +413,8 @@ export function useSync() {
     installedHow: status?.installed_how ?? 'Package',
     setSetup,
     setNotice,
+    /** Shows what a finished change to the system says, with its snapshot. */
+    changed: (text: string, snapshot: Snapshot) => setNotice(snapshotNotice(text, snapshot)),
     now,
     checked,
     setup,

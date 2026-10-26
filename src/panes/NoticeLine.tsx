@@ -9,9 +9,9 @@ export function NoticeLine({ s }: { s: SyncState }) {
   const [open, setOpen] = useState(false);
   const n = s.notice;
   if (!n) return null;
-  const Icon = n.good ? CircleCheck : CircleAlert;
+  const Icon = n.good && !n.warn ? CircleCheck : CircleAlert;
   return (
-    <output className={`notice ${n.good ? 'good' : 'bad'}`}>
+    <output className={`notice ${n.warn ? 'warn' : n.good ? 'good' : 'bad'}`}>
       <div className="line">
         <Icon size={15} aria-hidden="true" />
         <span>{n.text}</span>

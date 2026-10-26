@@ -20,8 +20,8 @@ mod setup;
 mod stage;
 
 pub use apps::{
-    add_repository, install_apps, install_with_script, installed, is_package_name, missing_apps,
-    missing_repos, missing_scripted, repos_here,
+    SnapshotOutcome, add_repository, install_apps, install_packages, install_with_script,
+    installed, is_package_name, missing_apps, missing_repos, missing_scripted, repos_here,
 };
 pub use background::{background, schedule};
 pub use bar::{bar_indicator, ensure_bar_indicator, set_bar_indicator};
