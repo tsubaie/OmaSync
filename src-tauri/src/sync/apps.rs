@@ -511,7 +511,7 @@ mod tests {
             apps: vec!["a".into(), "b".into(), "c".into()],
             ..Default::default()
         };
-        d.set_app("pc", "c", false);
+        d.set_app_here("pc", "c", false);
         let installed: BTreeSet<String> = ["a".to_string()].into();
         let none = BTreeSet::new();
         assert_eq!(

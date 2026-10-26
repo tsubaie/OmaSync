@@ -33,6 +33,8 @@ const setup = (st: Partial<SetupState>, signingIn = false) =>
           { path: '.config/kitty', default: false },
           { path: '.config/nvim', default: false },
         ],
+        apps: [],
+        plugins: [],
         ...st,
       }}
     />,
@@ -55,7 +57,6 @@ const clash = (conflict: Conflict) =>
           plan: [],
           nameOf: () => 'Desktop',
           overview: { computers: [], history: [] },
-          matrix: { computers: [] },
         } as unknown as SyncState
       }
     />,

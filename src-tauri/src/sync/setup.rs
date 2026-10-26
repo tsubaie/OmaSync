@@ -15,6 +15,16 @@ pub struct SetupState {
     pub ready: bool,
     /// Every folder setup can offer, and whether a first computer syncs it unless told otherwise.
     pub folders: Vec<SetupFolder>,
+    /// The apps and plugins setup can offer: a first computer's own, or those the synced
+    /// settings share, for a joining computer to leave out.
+    pub apps: Vec<String>,
+    pub plugins: Vec<SetupPlugin>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct SetupPlugin {
+    pub id: String,
+    pub name: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -36,6 +46,8 @@ pub fn probe(ctx: &Ctx) -> SetupState {
         found: false,
         missing,
         folders: Vec::new(),
+        apps: Vec::new(),
+        plugins: Vec::new(),
     };
     if !s.missing.is_empty() {
         return s;
@@ -64,7 +76,61 @@ pub fn probe(ctx: &Ctx) -> SetupState {
             .is_ok();
         }
     }
+    if s.found {
+        (s.apps, s.plugins) = s
+            .login
+            .as_deref()
+            .map(|l| synced_choices(ctx, l))
+            .unwrap_or_default();
+    } else if s.signed_in {
+        let mine = user_apps_here();
+        let outside = outside_repos(&mine);
+        s.apps = mine.into_iter().filter(|a| !outside.contains(a)).collect();
+        s.plugins = named(ctx, ctx.local_plugins());
+    }
     s
+}
+
+/// The apps and plugins the account's synced settings share, read from GitHub before joining.
+/// None when they can't be read: the joining computer then simply takes them all.
+fn synced_choices(ctx: &Ctx, login: &str) -> (Vec<String>, Vec<SetupPlugin>) {
+    let path = format!("repos/{login}/{REPO}/contents/.chezmoidata.yaml");
+    let Some(mut data) = run(
+        None,
+        "gh",
+        &["api", &path, "-H", "Accept: application/vnd.github.raw"],
+    )
+    .ok()
+    .and_then(|yaml| serde_yaml::from_str::<Data>(&yaml).ok()) else {
+        return Default::default();
+    };
+    data.upgrade();
+    // The file is shared, so only plain names reach the page.
+    let apps = data
+        .apps
+        .into_iter()
+        .filter(|a| is_package_name(a))
+        .collect();
+    let plugins = if data.folders.iter().any(|f| f == PLUGIN_DIR) {
+        named(ctx, data.plugins)
+    } else {
+        Vec::new()
+    };
+    (apps, plugins)
+}
+
+/// Plugins by name, for people; the app's own bar indicator isn't one to choose.
+fn named(ctx: &Ctx, ids: Vec<String>) -> Vec<SetupPlugin> {
+    let mut plugins: Vec<SetupPlugin> = ids
+        .into_iter()
+        .filter(|id| is_plugin_id(id) && id != BAR_PLUGIN)
+        .map(|id| SetupPlugin {
+            name: ctx.plugin(&id).name,
+            id,
+        })
+        .collect();
+    plugins.sort_by_key(|p| p.name.to_lowercase());
+    plugins
 }
 
 /// Set up means the GitHub copy exists. A local folder alone is a setup that was interrupted,
@@ -95,9 +161,15 @@ pub fn sign_in() -> Result<(), String> {
 }
 
 /// First computer: save its settings into a new private GitHub repo. Holds the sync lock
-/// throughout, so the background timer can't sync a half-made sync folder. `folders`: the ones
-/// the person chose (None: the defaults).
-pub fn start(ctx: &Ctx, folders: Option<&[String]>, step: &dyn Fn(&str)) -> Result<(), String> {
+/// throughout, so the background timer can't sync a half-made sync folder. `folders`, `apps`,
+/// `plugins`: the ones the person chose (None: the defaults).
+pub fn start(
+    ctx: &Ctx,
+    folders: Option<&[String]>,
+    apps: Option<&[String]>,
+    plugins: Option<&[String]>,
+    step: &dyn Fn(&str),
+) -> Result<(), String> {
     let _lock = lock_wait(ctx)?;
     plan(
         step,
@@ -110,7 +182,7 @@ pub fn start(ctx: &Ctx, folders: Option<&[String]>, step: &dyn Fn(&str)) -> Resu
     step("Getting ready");
     run(None, "gh", &["auth", "setup-git"])?;
     step("Saving this computer's settings");
-    seed(ctx, folders)?;
+    seed(ctx, folders, apps, plugins)?;
     step("Creating your private sync space on GitHub");
     let src = ctx.src.to_string_lossy();
     run(
@@ -148,8 +220,14 @@ fn first_folders(ctx: &Ctx, chosen: Option<&[String]>) -> Vec<&'static str> {
         .collect()
 }
 
-/// Creates the local sync folder from this computer's settings and commits it.
-pub(crate) fn seed(ctx: &Ctx, chosen: Option<&[String]>) -> Result<(), String> {
+/// Creates the local sync folder from this computer's settings and commits it. By default no
+/// app syncs and every plugin here does (see `Data::upgrade`).
+pub(crate) fn seed(
+    ctx: &Ctx,
+    chosen: Option<&[String]>,
+    apps: Option<&[String]>,
+    plugins: Option<&[String]>,
+) -> Result<(), String> {
     run(None, "chezmoi", &["init"])?;
     std::fs::write(ctx.src.join(".chezmoiignore"), IGNORE).map_err(|e| e.to_string())?;
     let mut data = Data {
@@ -161,17 +239,43 @@ pub(crate) fn seed(ctx: &Ctx, chosen: Option<&[String]>) -> Result<(), String> {
         ..Default::default()
     };
     data.computers.entry(ctx.host.clone()).or_default().name = ctx.hostname.clone();
+    if let Some(apps) = apps {
+        data.apps = apps
+            .iter()
+            .filter(|a| is_package_name(a))
+            .cloned()
+            .collect();
+    }
+    if let Some(plugins) = plugins {
+        // Upgraded now, so reading it back doesn't sync every plugin here after all.
+        data.upgrade();
+        data.computers.entry(ctx.host.clone()).or_default().plugins = ctx.local_plugins();
+        data.plugins = plugins
+            .iter()
+            .filter(|p| is_plugin_id(p))
+            .cloned()
+            .collect();
+        // Plugins from git are added from git on each computer, never copied.
+        for id in &data.plugins {
+            if let Some(url) = ctx.plugin_source(id) {
+                data.plugin_sources.insert(id.clone(), url);
+            }
+        }
+    }
     ctx.save_data(&data)?;
     stage(ctx, &data, &|_| {})?;
     commit(ctx)
 }
 
 /// Another computer already syncs: back up this one, then take the synced settings. Holds the
-/// sync lock throughout, like `start`. `keep`: folders this computer keeps its own version of.
+/// sync lock throughout, like `start`. `keep`: folders this computer keeps its own version of;
+/// `skip_apps`, `skip_plugins`: the synced ones it leaves out.
 pub fn join(
     ctx: &Ctx,
     login: &str,
     keep: &[String],
+    skip_apps: &[String],
+    skip_plugins: &[String],
     step: &dyn Fn(&str),
 ) -> Result<PathBuf, String> {
     let _lock = lock_wait(ctx)?;
@@ -190,6 +294,8 @@ pub fn join(
         ctx,
         &format!("https://github.com/{login}/{REPO}.git"),
         keep,
+        skip_apps,
+        skip_plugins,
         step,
     )
 }
@@ -198,6 +304,8 @@ pub(crate) fn adopt(
     ctx: &Ctx,
     url: &str,
     keep: &[String],
+    skip_apps: &[String],
+    skip_plugins: &[String],
     step: &dyn Fn(&str),
 ) -> Result<PathBuf, String> {
     step("Downloading your synced settings");
@@ -206,6 +314,12 @@ pub(crate) fn adopt(
     // Recorded before the apply below, whose ignore rules then leave these folders alone.
     for folder in keep {
         data.set_folder_here(&ctx.host, folder, false);
+    }
+    for app in skip_apps.iter().filter(|a| is_package_name(a)) {
+        data.set_app_here(&ctx.host, app, false);
+    }
+    for id in skip_plugins.iter().filter(|p| is_plugin_id(p)) {
+        data.set_plugin_here(&ctx.host, id, false);
     }
     // Joining with an older Omarchy than the others: its own settings stay as they are.
     note_omarchy(&mut data, &ctx.host);

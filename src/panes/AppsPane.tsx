@@ -3,7 +3,7 @@ import { Search } from 'lucide-react';
 import { Input, Label, SearchField, Text, TextArea, TextField } from 'react-aria-components';
 import { api } from '../api';
 import type { SyncState } from '../state';
-import { Caution, ComputerList, Group, Link, Push, Row, Toggle } from '../ui';
+import { Caution, Group, Link, Push, Row, Toggle } from '../ui';
 
 /** Where an app comes from, as a short tag and what it means. */
 function source(from: string | undefined): [string, string] {
@@ -68,13 +68,158 @@ function ScriptForm({ s, app, onDone }: { s: SyncState; app: string; onDone: () 
   );
 }
 
-/** One list in a fixed order, one switch per computer; rows never move. */
+/**
+ * One app: its one Sync switch (every computer), and like Configurations a link to leave only
+ * this computer out. One that isn't installed here has Install beside its switch.
+ */
+function AppRow({
+  s,
+  app,
+  editing,
+  setEditing,
+}: {
+  s: SyncState;
+  app: string;
+  editing: boolean;
+  setEditing: (app: string | null) => void;
+}) {
+  const { overview: ov, data, host } = s;
+  if (!ov || !data) return null;
+  const many = ov.computers.length > 1;
+  const synced = data.apps.includes(app);
+  const here = s.wants(host, app);
+  const installed = ov.apps.installed.includes(app);
+  const about = ov.apps.about[app];
+  // Not in Arch's repos or the AUR: it syncs only with its install steps.
+  const outside = ov.apps.outside.includes(app) || app in (data.outside ?? {});
+  const script = data.outside?.[app] ?? null;
+  const locked = outside && !script;
+  const from = ov.apps.source[app];
+  const [tag, meaning] = source(from);
+  // Where its link goes: Arch's or the AUR's package page, which say everything about it; an
+  // app from Omarchy's repository (no pages) links to its own website.
+  const website = ov.apps.website[app];
+  const page =
+    from === 'arch'
+      ? (['arch', 'archlinux.org'] as const)
+      : from === 'aur'
+        ? (['aur', 'the AUR'] as const)
+        : from === 'omarchy' && website
+          ? (['website', new URL(website).host] as const)
+          : null;
+  // Needs an extra repository this computer doesn't have yet: it can't install here until
+  // that's added (it never comes from the AUR instead).
+  const repo = ov.missing_repos.find((r) => r.apps.includes(app))?.name;
+  const toggle = (
+    <Toggle
+      on={synced}
+      label={many ? `Sync ${app} (all computers)` : `Sync ${app}`}
+      disabled={!s.idle || locked || !!repo}
+      onChange={(on) => s.edit(() => api.setApp(app, on))}
+    />
+  );
+  return (
+    <Row
+      title={
+        <>
+          {app}
+          {tag && (
+            <span className={`source ${from}`} title={meaning}>
+              {tag}
+            </span>
+          )}
+        </>
+      }
+      detail={synced ? about : 'Only on this computer'}
+      end={
+        !installed && here && !repo ? (
+          <div className="inline">
+            {/* Install steps run only after the Sync page's warning and a second yes. */}
+            <Push
+              disabled={!s.idle}
+              onPress={() =>
+                script
+                  ? s.setTab('sync')
+                  : s.act(
+                      `Installing ${app}`,
+                      () => api.installApps([app]),
+                      (snapshot) => {
+                        s.changed(`Installed ${app}.`, snapshot);
+                        return s.refresh();
+                      },
+                    )
+              }
+            >
+              {script ? 'Install…' : 'Install'}
+            </Push>
+            {toggle}
+          </div>
+        ) : (
+          toggle
+        )
+      }
+    >
+      {repo && (
+        <div className="detail warn">
+          Needs the {repo} repository on this computer first (see Sync).
+        </div>
+      )}
+      {outside && (
+        <div className="detail">
+          {script
+            ? `Not in Arch's repos or the AUR. Installs with ${steps(script.command)}.`
+            : "Not in Arch's repos or the AUR. Add its install steps to sync it."}
+        </div>
+      )}
+      {synced && !locked && (many || !here) && (
+        <div className="inline">
+          {here ? (
+            <span className="detail">On for all your computers, this one included.</span>
+          ) : (
+            <span className="detail warn">
+              Not synced on this computer: it isn't offered here while your other computers stay in
+              step.
+            </span>
+          )}
+          <Link disabled={!s.idle} onPress={() => s.edit(() => api.appHere(app, !here))}>
+            {here ? "Don't Sync on This Computer" : 'Sync on This Computer'}
+          </Link>
+        </div>
+      )}
+      {page && (
+        <div className="inline">
+          <Link
+            out
+            label={`Open ${page[1]} (${app})`}
+            onPress={() => api.openPage(page[0], app).catch(s.fail)}
+          >
+            Open {page[1]}
+          </Link>
+        </div>
+      )}
+      {outside && !editing && (
+        <div className="inline">
+          <Link disabled={!s.idle} onPress={() => setEditing(app)}>
+            {script ? 'Edit Install Steps…' : 'Add Install Steps…'}
+          </Link>
+          {script && (
+            <Link disabled={!s.idle} onPress={() => s.edit(() => api.removeAppScript(app))}>
+              Remove Install Steps
+            </Link>
+          )}
+        </div>
+      )}
+      {editing && <ScriptForm s={s} app={app} onDone={() => setEditing(null)} />}
+    </Row>
+  );
+}
+
+/** Installed apps first, then those your other computers sync that this one doesn't have. */
 export function AppsPane({ s }: { s: SyncState }) {
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState<string | null>(null);
-  const { overview: ov, data, host } = s;
+  const { overview: ov, data } = s;
   if (!ov || !data) return null;
-  const { computers, name, column, columns, many } = s.matrix;
   const apps = [...new Set([...data.apps, ...ov.apps.mine])].toSorted();
   // Sync All leaves out apps that can't sync yet (no install steps).
   const needsScript = (a: string) =>
@@ -84,11 +229,16 @@ export function AppsPane({ s }: { s: SyncState }) {
   const shown = apps.filter(
     (app) => !q || app.includes(q) || (ov.apps.about[app] ?? '').toLowerCase().includes(q),
   );
+  const installedShown = shown.filter((app) => ov.apps.installed.includes(app));
+  const uninstalledShown = shown.filter((app) => !ov.apps.installed.includes(app));
+  const row = (app: string) => (
+    <AppRow key={app} s={s} app={app} editing={editing === app} setEditing={setEditing} />
+  );
   return (
     <>
       <Group
         title="Your Apps"
-        footer="Switch an app on for a computer to have it there; it installs after you approve it. Switching it off never uninstalls it. Apps come from Omarchy's repository first, then Arch's, and the AUR only when neither has them."
+        footer="A switch syncs an app to all your computers, where it installs after you approve it, or stops it everywhere; Don't Sync on This Computer leaves only this computer out. Switching it off never uninstalls it. Apps come from Omarchy's repository first, then Arch's, and the AUR only when neither has them."
       >
         {apps.length > 6 && (
           <div className="row">
@@ -107,131 +257,20 @@ export function AppsPane({ s }: { s: SyncState }) {
           <Row title="You haven't installed any apps of your own yet." />
         ) : shown.length === 0 ? (
           <Row title={`No apps match “${query.trim()}”.`} />
+        ) : installedShown.length === 0 ? (
+          <Row title="None of these are installed on this computer." />
         ) : (
-          <>
-            {computers.length > 1 && !many && (
-              <div className="row matrix head" style={columns} aria-hidden="true">
-                <span>App</span>
-                {computers.map((c) => (
-                  <span key={c}>{column(c)}</span>
-                ))}
-              </div>
-            )}
-            {shown.map((app) => {
-              const synced = data.apps.includes(app);
-              const about = ov.apps.about[app];
-              const missingHere = synced && s.wants(host, app) && !ov.apps.installed.includes(app);
-              // Not in Arch's repos or the AUR: it syncs only with its install steps.
-              const outside = ov.apps.outside.includes(app) || app in (data.outside ?? {});
-              const script = data.outside?.[app] ?? null;
-              const from = ov.apps.source[app];
-              const [tag, meaning] = source(from);
-              // Where its link goes: Arch's or the AUR's package page, which say everything
-              // about it; an app from Omarchy's repository (no pages) links to its own website.
-              const website = ov.apps.website[app];
-              const page =
-                from === 'arch'
-                  ? (['arch', 'archlinux.org'] as const)
-                  : from === 'aur'
-                    ? (['aur', 'the AUR'] as const)
-                    : from === 'omarchy' && website
-                      ? (['website', new URL(website).host] as const)
-                      : null;
-              // Needs an extra repository this computer doesn't have yet: off and locked here
-              // until it's added (it never comes from the AUR instead).
-              const repo = ov.missing_repos.find((r) => r.apps.includes(app))?.name;
-              return (
-                <div className={`row matrix ${many ? 'many' : ''}`} style={columns} key={app}>
-                  <div className="text">
-                    <div>
-                      {app}
-                      {tag && (
-                        <span className={`source ${from}`} title={meaning}>
-                          {tag}
-                        </span>
-                      )}
-                    </div>
-                    {missingHere ? (
-                      <div className="detail warn">
-                        {script
-                          ? 'Installs here with its install steps'
-                          : 'Installs here after you approve it'}
-                      </div>
-                    ) : (
-                      <div className="detail">{synced ? about : 'Only on this computer'}</div>
-                    )}
-                    {repo && (
-                      <div className="detail warn">
-                        Needs the {repo} repository on this computer first (see Sync).
-                      </div>
-                    )}
-                    {outside && (
-                      <div className="detail">
-                        {script
-                          ? `Not in Arch's repos or the AUR. Installs with ${steps(script.command)}.`
-                          : "Not in Arch's repos or the AUR. Add its install steps to sync it."}
-                      </div>
-                    )}
-                    {page && (
-                      <div className="inline">
-                        <Link
-                          out
-                          label={`Open ${page[1]} (${app})`}
-                          onPress={() => api.openPage(page[0], app).catch(s.fail)}
-                        >
-                          Open {page[1]}
-                        </Link>
-                      </div>
-                    )}
-                    {outside && editing !== app && (
-                      <div className="inline">
-                        <Link disabled={!s.idle} onPress={() => setEditing(app)}>
-                          {script ? 'Edit Install Steps…' : 'Add Install Steps…'}
-                        </Link>
-                        {script && (
-                          <Link
-                            disabled={!s.idle}
-                            onPress={() => s.edit(() => api.removeAppScript(app))}
-                          >
-                            Remove Install Steps
-                          </Link>
-                        )}
-                      </div>
-                    )}
-                    {editing === app && (
-                      <ScriptForm s={s} app={app} onDone={() => setEditing(null)} />
-                    )}
-                  </div>
-                  {many ? (
-                    <ComputerList
-                      subject={app}
-                      computers={computers.map((c) => ({
-                        id: c,
-                        name: name(c),
-                        on: s.wants(c, app) && !(repo && c === host),
-                      }))}
-                      disabled={!s.idle || (outside && !script) || !!repo}
-                      onChange={(c, on) => s.edit(() => api.setApp(c, app, on))}
-                    />
-                  ) : (
-                    computers.map((c) => (
-                      <div className="cell" key={c}>
-                        <span className="cell-label">{column(c)}</span>
-                        <Toggle
-                          on={s.wants(c, app) && !(repo && c === host)}
-                          label={`${app} synced on ${name(c)}`}
-                          disabled={!s.idle || (outside && !script) || (!!repo && c === host)}
-                          onChange={(on) => s.edit(() => api.setApp(c, app, on))}
-                        />
-                      </div>
-                    ))
-                  )}
-                </div>
-              );
-            })}
-          </>
+          installedShown.map(row)
         )}
       </Group>
+      {uninstalledShown.length > 0 && (
+        <Group
+          title="Not Installed on This Computer"
+          footer="Synced from your other computers. Install one here, or leave this computer out."
+        >
+          {uninstalledShown.map(row)}
+        </Group>
+      )}
       {unsynced.length > 1 && (
         <div className="actions">
           {/* One change for all of them, shared on the next sync. */}

@@ -76,10 +76,10 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
   await expect(page.getByRole('tab', { name: 'Installed Apps' })).toBeFocused();
 });
 
-test('switching an app off for a computer saves the choice', async ({ page }) => {
+test('switching an app off saves the choice', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
-  const yazi = page.getByRole('switch', { name: 'yazi synced on This Computer' });
+  const yazi = page.getByRole('switch', { name: 'Sync yazi (all computers)' });
   await expect(yazi).toBeChecked();
   // An Arch or AUR app links to its package page; one from Omarchy's repository (no pages)
   // to its own website; one with install steps has neither.
@@ -97,7 +97,7 @@ test('switching an app off for a computer saves the choice', async ({ page }) =>
   await page.keyboard.press('Space');
   await expect(yazi).not.toBeChecked();
   expect(await calls(page, 'set_app')).toEqual([
-    { cmd: 'set_app', args: { computer: 'aaaa11112222', app: 'yazi', on: false } },
+    { cmd: 'set_app', args: { app: 'yazi', on: false } },
   ]);
   await expect(
     page.getByText('Your other computers get this the next time you sync.', { exact: false }),
@@ -204,43 +204,98 @@ test("another computer's plugin waits for a yes before it's added here", async (
   const waiting = page.getByRole('region', { name: 'Plugins Waiting to Add' });
   await expect(waiting.getByText('Webcam Controls')).toBeVisible();
   await expect(waiting.getByText('On Desktop')).toBeVisible();
-  await waiting.getByRole('button', { name: 'Add' }).click();
-  expect(await calls(page, 'install_plugins')).toEqual([{ cmd: 'install_plugins', args: {} }]);
+  // Each one can be left out of this Add; with none left there's nothing to add.
+  await flip(page, 'Add Webcam Controls');
+  await expect(waiting.getByRole('button', { name: 'Add 0 Plugins' })).toBeDisabled();
+  await flip(page, 'Add Webcam Controls');
+  await waiting.getByRole('button', { name: 'Add', exact: true }).click();
+  expect(await calls(page, 'install_plugins')).toEqual([
+    { cmd: 'install_plugins', args: { only: null } },
+  ]);
   await expect(waiting).toBeHidden();
 });
 
-test('an app is switched on per computer, in place', async ({ page }) => {
+test('waiting apps are installed one by one, or left out on this computer', async ({ page }) => {
+  await page.goto('/?scenario=waiting');
+  const waiting = page.getByRole('region', { name: 'Apps Waiting to Install' });
+  await expect(waiting.getByText('obsidian', { exact: true })).toBeVisible();
+  expect(await a11y(page)).toEqual([]);
+  await flip(page, 'Install vlc');
+  await waiting.getByRole('button', { name: 'Install 1 App' }).click();
+  expect(await calls(page, 'install_apps')).toEqual([
+    { cmd: 'install_apps', args: { only: ['obsidian'] } },
+  ]);
+  await expect(waiting.getByText('obsidian', { exact: true })).toBeHidden();
+  await waiting.getByRole('button', { name: "Don't Sync on This Computer" }).click();
+  expect(await calls(page, 'app_here')).toEqual([
+    { cmd: 'app_here', args: { app: 'vlc', on: false } },
+  ]);
+  await expect(waiting).toBeHidden();
+});
+
+test('installed apps come first, with one switch each; the rest wait below', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
-  const rows = page.locator('.matrix:not(.head) .text > div:first-child');
-  await expect(rows).toHaveText([/^brave-bin/, /^quicknote/, /^spotify/, /^tapecalc/, /^yazi/]);
+  const mine = page.getByRole('region', { name: 'Your Apps' });
+  const missing = page.getByRole('region', { name: 'Not Installed on This Computer' });
+  const names = (group: typeof mine) => group.locator('.row > .text > div:first-child');
+  await expect(names(mine)).toHaveText([/^brave-bin/, /^spotify/, /^tapecalc/, /^yazi/]);
+  await expect(names(missing)).toHaveText([/^quicknote/]);
   await expect(page.getByText('Only on this computer').first()).toBeVisible();
   // Each app says where it comes from; the AUR is the last resort.
   await expect(page.locator('.source.aur')).toHaveText('AUR');
   await expect(page.locator('.source.omarchy')).toHaveText('Omarchy');
-  const desk = page.getByRole('switch', { name: 'spotify synced on Desktop' });
-  await expect(desk).not.toBeChecked();
-  // Switching Desktop on shares it, and this computer (which has it) comes along.
-  await desk.focus();
-  await page.keyboard.press('Space');
-  await expect(desk).toBeChecked();
-  await expect(page.getByRole('switch', { name: 'spotify synced on This Computer' })).toBeChecked();
-  await expect(rows).toHaveText([/^brave-bin/, /^quicknote/, /^spotify/, /^tapecalc/, /^yazi/]);
+  expect(await a11y(page)).toEqual([]);
+  // One switch reaches every computer.
+  const spotify = page.getByRole('switch', { name: 'Sync spotify (all computers)' });
+  await expect(spotify).not.toBeChecked();
+  await flip(page, 'Sync spotify (all computers)');
+  await expect(spotify).toBeChecked();
   const banner = page.getByText('Your other computers get this the next time you sync.', {
     exact: false,
   });
   await expect(banner).toBeVisible();
-  // Every computer switched off again: nothing is left to share, so the banner goes away.
-  const here = page.getByRole('switch', { name: 'spotify synced on This Computer' });
   await page.keyboard.press('Space');
-  await here.focus();
-  await page.keyboard.press('Space');
-  await expect(desk).not.toBeChecked();
-  await expect(here).not.toBeChecked();
+  await expect(spotify).not.toBeChecked();
   await expect(banner).toBeHidden();
-  // Switched on for this computer alone, it stays on: computers added later get it.
-  await page.keyboard.press('Space');
-  await expect(here).toBeChecked();
+  expect(await calls(page, 'set_app')).toEqual([
+    { cmd: 'set_app', args: { app: 'spotify', on: true } },
+    { cmd: 'set_app', args: { app: 'spotify', on: false } },
+  ]);
+  // Like Configurations, this computer alone can be left out, and taken back.
+  const brave = mine.locator('.row', { hasText: 'brave-bin' });
+  await expect(brave.getByText('On for all your computers, this one included.')).toBeVisible();
+  await brave.getByRole('button', { name: "Don't Sync on This Computer" }).click();
+  await expect(brave.getByText('Not synced on this computer', { exact: false })).toBeVisible();
+  await brave.getByRole('button', { name: 'Sync on This Computer', exact: true }).click();
+  expect(await calls(page, 'app_here')).toEqual([
+    { cmd: 'app_here', args: { app: 'brave-bin', on: false } },
+    { cmd: 'app_here', args: { app: 'brave-bin', on: true } },
+  ]);
+  // One with install steps goes to the Sync page, which warns before running them.
+  await missing.getByRole('button', { name: 'Install…', exact: true }).click();
+  await expect(
+    page.getByRole('region', { name: 'Apps to Install with Their Steps' }),
+  ).toBeVisible();
+  expect(await calls(page, 'install_with_script')).toEqual([]);
+});
+
+test('one click installs an app that is only on other computers, and it moves up', async ({
+  page,
+}) => {
+  await page.goto('/?scenario=waiting');
+  await page.getByRole('tab', { name: 'Installed Apps' }).click();
+  const mine = page.getByRole('region', { name: 'Your Apps' });
+  const missing = page.getByRole('region', { name: 'Not Installed on This Computer' });
+  await missing
+    .locator('.row', { hasText: 'obsidian' })
+    .getByRole('button', { name: 'Install', exact: true })
+    .click();
+  expect(await calls(page, 'install_apps')).toEqual([
+    { cmd: 'install_apps', args: { only: ['obsidian'] } },
+  ]);
+  await expect(mine.getByText('obsidian', { exact: true })).toBeVisible();
+  await expect(missing.getByText('obsidian', { exact: true })).toHaveCount(0);
 });
 
 test('only Sync opens until the first check finishes', async ({ page }) => {
@@ -254,17 +309,30 @@ test('only Sync opens until the first check finishes', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1, name: 'Sync' })).toBeVisible();
 });
 
-test('each plugin is switched on per computer, like apps', async ({ page }) => {
+test('a plugin has one switch; one not here waits below with Install', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Plugins' }).click();
-  const desk = page.getByRole('switch', { name: 'Webcam Controls synced on Desktop' });
-  await expect(desk).toBeChecked();
-  await desk.focus();
-  await page.keyboard.press('Space');
-  await expect(desk).not.toBeChecked();
+  const mine = page.getByRole('region', { name: 'Your Plugins' });
+  const missing = page.getByRole('region', { name: 'Not Installed on This Computer' });
+  await expect(missing.getByText('Webcam Controls')).toBeVisible();
+  await expect(mine.getByText('Webcam Controls')).toHaveCount(0);
+  // No Enabled switch beside Sync for your own plugins: one switch a row.
+  await expect(page.getByRole('switch', { name: 'Timezones enabled' })).toHaveCount(0);
+  await flip(page, 'Sync Webcam Controls (all computers)');
   expect(await calls(page, 'set_plugin')).toEqual([
-    { cmd: 'set_plugin', args: { computer: 'bbbb33334444', plugin: 'webcam', on: false } },
+    { cmd: 'set_plugin', args: { plugin: 'webcam', on: false } },
   ]);
+  await flip(page, 'Sync Webcam Controls (all computers)');
+  await mine.getByRole('button', { name: "Don't Sync on This Computer" }).click();
+  expect(await calls(page, 'plugin_here')).toEqual([
+    { cmd: 'plugin_here', args: { plugin: 'timezones', on: false } },
+  ]);
+  await missing.getByRole('button', { name: 'Install' }).click();
+  expect(await calls(page, 'install_plugins')).toEqual([
+    { cmd: 'install_plugins', args: { only: ['webcam'] } },
+  ]);
+  await expect(missing).toBeHidden();
+  await expect(mine.getByText('Webcam Controls')).toBeVisible();
 });
 
 test('plugins are switched on, added from git, updated and removed everywhere', async ({
@@ -320,7 +388,9 @@ test('plugins are switched on, added from git, updated and removed everywhere', 
     { cmd: 'add_plugin', args: { url: 'https://github.com/acme/omarchy-weather.git' } },
   ]);
   // Removing a synced plugin asks first and says it goes from every computer.
-  await expect(page.getByText('switch Sync off there first', { exact: false })).toBeVisible();
+  await expect(
+    page.getByText("choose Don't Sync on This Computer there first", { exact: false }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'Remove… (Timezones)' }).click();
   await expect(
     page.getByText('Removes Timezones from every computer at its next sync.'),
@@ -339,11 +409,9 @@ test('an app from outside the repos syncs only once it has an install command', 
   await expect(
     page.getByText("Not in Arch's repos or the AUR. Add its install steps to sync it."),
   ).toBeVisible();
-  // Every switch stays locked until it has one, this computer's too.
-  const here = page.getByRole('switch', { name: 'tapecalc synced on This Computer' });
-  const desk = page.getByRole('switch', { name: 'tapecalc synced on Desktop' });
-  await expect(here).toBeDisabled();
-  await expect(desk).toBeDisabled();
+  // Its switch stays locked until it has one.
+  const sync = page.getByRole('switch', { name: 'Sync tapecalc (all computers)' });
+  await expect(sync).toBeDisabled();
 
   // One field, empty: the person types the command that installs it.
   await page.getByRole('button', { name: 'Add Install Steps…' }).click();
@@ -367,8 +435,7 @@ test('an app from outside the repos syncs only once it has an install command', 
       "Not in Arch's repos or the AUR. Installs with 3 steps, starting “git clone https://example.com/tapecalc”.",
     ),
   ).toBeVisible();
-  await expect(here).toBeEnabled();
-  await expect(desk).toBeEnabled();
+  await expect(sync).toBeEnabled();
 });
 
 test('an install command runs only after a warning and a second yes', async ({ page }) => {
@@ -435,17 +502,18 @@ test("an app from its maker's repository waits until the repository is added", a
   await expect(group.locator('.commands code')).toContainText(
     'sudo pacman-key --lsign-key 3BFA0E4AE8B8CC16A2D9BA684A3B4A566C4660E4',
   );
-  // Until then the app is off and locked here.
+  // Until then the app can't be installed here, and its switch is locked.
   await page.getByRole('tab', { name: 'Installed Apps' }).click();
   await expect(
     page.getByText('Needs the openai-chatgpt repository on this computer first'),
   ).toBeVisible();
   await expect(
-    page.getByRole('switch', { name: 'chatgpt-bin synced on This Computer' }),
+    page.getByRole('switch', { name: 'Sync chatgpt-bin (all computers)' }),
   ).toBeDisabled();
+  const missing = page.getByRole('region', { name: 'Not Installed on This Computer' });
   await expect(
-    page.getByRole('switch', { name: 'chatgpt-bin synced on This Computer' }),
-  ).not.toBeChecked();
+    missing.locator('.row', { hasText: 'chatgpt-bin' }).getByRole('button', { name: 'Install' }),
+  ).toHaveCount(0);
 });
 
 test('an older Omarchy keeps its own settings, can try the newer ones, and put them back', async ({
@@ -558,6 +626,22 @@ test('a first computer chooses what syncs before starting', async ({ page }) => 
   expect(folders).toContain('.config/btop');
   expect(folders).not.toContain('.config/hypr/hyprsunset.conf');
   expect(folders).not.toContain('.config/ghostty');
+  // No app unless switched on, every plugin unless switched off.
+  expect(start.args.apps).toBeNull();
+  expect(start.args.plugins).toBeNull();
+});
+
+test('a first computer picks its apps and plugins', async ({ page }) => {
+  await page.goto('/?scenario=first');
+  await page.getByRole('button', { name: 'Choose What Syncs…' }).click();
+  await expect(page.getByRole('switch', { name: 'Sync yazi', exact: true })).not.toBeChecked();
+  await flip(page, 'Sync yazi');
+  await flip(page, 'Sync Timezones');
+  expect(await a11y(page)).toEqual([]);
+  await page.getByRole('button', { name: 'Start Syncing' }).click();
+  const [start] = await calls(page, 'start');
+  expect(start.args.apps).toEqual(['yazi']);
+  expect(start.args.plugins).toEqual([]);
 });
 
 test('a joining computer keeps a folder separate', async ({ page }) => {
@@ -568,6 +652,20 @@ test('a joining computer keeps a folder separate', async ({ page }) => {
   await page.getByRole('button', { name: 'Use My Synced Settings' }).click();
   const [join] = await calls(page, 'join');
   expect(join.args.skipFolders).toEqual(['.config/nvim']);
+});
+
+test('a joining computer leaves out a synced app and plugin', async ({ page }) => {
+  await page.goto('/?scenario=joining');
+  await page.getByRole('button', { name: 'Choose What Syncs…' }).click();
+  await flip(page, 'Sync yazi on this computer');
+  await flip(page, 'Sync Timezones on this computer');
+  await expect(page.getByText('Not offered on this computer')).toBeVisible();
+  await expect(page.getByText('Not added on this computer')).toBeVisible();
+  expect(await a11y(page)).toEqual([]);
+  await page.getByRole('button', { name: 'Use My Synced Settings' }).click();
+  const [join] = await calls(page, 'join');
+  expect(join.args.skipApps).toEqual(['yazi']);
+  expect(join.args.skipPlugins).toEqual(['timezones']);
 });
 
 test('signing in moves on by itself, and says so when it is not done', async ({ page }) => {
