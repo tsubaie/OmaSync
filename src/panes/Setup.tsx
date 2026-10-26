@@ -1,8 +1,9 @@
+import { useEffect, useState } from 'react';
 import { Check, Package } from 'lucide-react';
 import { api, type SetupState } from '../api';
 import type { SyncState } from '../state';
 import appIcon from '../assets/app-icon.png';
-import { Group, Link, Progress, Push, Row, Tile } from '../ui';
+import { Group, Link, Progress, Push, Row, Tile, Toggle } from '../ui';
 import { NoticeLine } from './NoticeLine';
 
 /** What step 1 installs, named so nobody has to trust an unnamed "helper". */
@@ -15,36 +16,83 @@ const TOOLS: Record<string, [string, string]> = {
   git: ['Git', 'Keeps every version of your settings, which is what makes Undo possible.'],
 };
 
-function action(s: SyncState, st: SetupState): [string, () => void] {
+/** Said when "I've Signed In" is pressed before GitHub has finished signing in. */
+export const NOT_SIGNED_IN =
+  "GitHub sign-in isn't finished yet. Complete the code prompt in your terminal and browser first.";
+
+/** `chosen`: the folders a first computer syncs (undefined: the defaults); `keep`: the ones a
+ * joining computer keeps its own version of. */
+function action(
+  s: SyncState,
+  st: SetupState,
+  chosen: string[] | undefined,
+  keep: string[],
+): [string, () => void] {
   const install = () => s.act('Installing', () => api.installHelpers(), s.probe);
   if (st.missing.length === 1)
     return [`Install ${TOOLS[st.missing[0]]?.[0] ?? st.missing[0]}`, install];
   if (st.missing.length > 1) return [`Install ${st.missing.length} Tools`, install];
-  if (!st.signed_in && s.signingIn) return ["I've Signed In", s.probe];
+  if (!st.signed_in && s.signingIn)
+    return [
+      "I've Signed In",
+      () =>
+        s.probe().then((now) => {
+          if (now && !now.signed_in) s.setNotice({ good: true, warn: true, text: NOT_SIGNED_IN });
+        }),
+    ];
   if (!st.signed_in)
     return ['Sign In to GitHub', () => api.signIn().then(() => s.setSigningIn(true), s.fail)];
   if (st.found) {
     return [
       'Use My Synced Settings',
-      () => s.act('Getting ready', (onStep) => api.join(onStep), s.finishSetup, 'first'),
+      () => s.act('Getting ready', (onStep) => api.join(onStep, keep), s.finishSetup, 'first'),
     ];
   }
   return [
     'Start Syncing',
-    () => s.act('Getting ready', (onStep) => api.start(onStep), s.finishSetup, 'first'),
+    () => s.act('Getting ready', (onStep) => api.start(onStep, chosen), s.finishSetup, 'first'),
   ];
 }
 
+const toggle = (list: string[], path: string, on: boolean) =>
+  on ? [...list, path] : list.filter((p) => p !== path);
+
 export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
   const current = st.missing.length ? 0 : !st.signed_in ? 1 : 2;
+  const [choosing, setChoosing] = useState(false);
+  /** The folders picked to sync on a first computer; null until the person changes one. */
+  const [picked, setPicked] = useState<string[] | null>(null);
+  /** The folders a joining computer keeps its own version of. */
+  const [keep, setKeep] = useState<string[]>([]);
+  const waiting = s.signingIn && !st.signed_in;
+  const { setSetup } = s;
+  // While signing in happens in the terminal and browser, look every 2 seconds and whenever the
+  // window comes back, quietly (no "Getting ready"), and move on as soon as it's done.
+  useEffect(() => {
+    if (!waiting) return;
+    const look = () =>
+      api.probe().then(
+        (now) => now.signed_in && setSetup(now),
+        () => {},
+      );
+    const timer = setInterval(look, 2000);
+    window.addEventListener('focus', look);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', look);
+    };
+  }, [waiting, setSetup]);
+  const here = s.catalog.folders.filter((f) => f.exists);
+  const defaults = new Set(st.folders.filter((f) => f.default).map((f) => f.path));
+  const chosen = picked ?? here.filter((f) => defaults.has(f.path)).map((f) => f.path);
   const steps = [
     'Install the tools it needs',
     'Sign in to GitHub',
     st.found ? 'Bring in your synced settings' : "Save this computer's settings",
   ];
   // Lowercase mid-sentence, except the product name.
-  const what = s.catalog.folders
-    .filter((f) => f.default && f.exists)
+  const what = here
+    .filter((f) => chosen.includes(f.path))
     .map((f) => (f.name.startsWith('Omarchy') ? f.name : f.name.toLowerCase()));
   const plan: [string, string][] = st.found
     ? [
@@ -67,21 +115,24 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
           'Creates a private space called omarchy-sync',
           'In your GitHub account. Only you can see it.',
         ],
-        ["Copies this computer's settings into it", `Your ${what.join(', ')}.`],
+        [
+          "Copies this computer's settings into it",
+          what.length ? `Your ${what.join(', ')}.` : 'Nothing yet: choose what syncs below.',
+        ],
         ['Changes nothing on this computer', 'It only reads your settings.'],
         ['Syncs once a day from now on', 'You can turn this off any time on the Sync pane.'],
       ];
   // Each step says why it's needed, not just what it does.
   const why = st.missing.length
     ? `Installing software needs your password, so Omarchy will ask for it once. Nothing else on your computer changes, and you can remove ${st.missing.length === 1 ? 'it' : 'them'} later like any other app.`
-    : !st.signed_in && s.signingIn
-      ? 'Finish signing in in the window that opened, then come back here.'
+    : waiting
+      ? 'A terminal window opened with a one-time code. Press Enter there to open GitHub in your browser, enter the code and approve. This page moves on by itself once you’re signed in.'
       : !st.signed_in
         ? 'Your settings are stored in a private space in your GitHub account that only you can see. Signing in happens in your browser.'
         : st.found
           ? "We found settings from your other computers. Here's what happens when you use them:"
           : "This is your first computer, so its settings become the starting point for the others. Here's what happens when you start:";
-  const [label, go] = action(s, st);
+  const [label, go] = action(s, st, picked ?? undefined, keep);
 
   return (
     <div className="setup">
@@ -125,6 +176,43 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
           {plan.map(([title, detail]) => (
             <Row key={title} title={title} detail={detail} />
           ))}
+          <div className="row inline">
+            <Link expanded={choosing} onPress={() => setChoosing(!choosing)}>
+              {choosing ? 'Hide the Choices' : 'Choose What Syncs…'}
+            </Link>
+          </div>
+        </Group>
+      )}
+      {s.idle && st.signed_in && choosing && (
+        <Group
+          title="What Syncs"
+          footer={
+            st.found
+              ? 'Switched off: this computer keeps its own version, while your other computers stay in step. You can change this later.'
+              : 'You can change this later on each pane.'
+          }
+        >
+          {here.map((f) => {
+            const on = st.found ? !keep.includes(f.path) : chosen.includes(f.path);
+            return (
+              <Row
+                key={f.path}
+                title={f.name}
+                detail={st.found && !on ? 'Keep separate on this computer' : `~/${f.path}`}
+                end={
+                  <Toggle
+                    on={on}
+                    label={st.found ? `Sync ${f.name} on this computer` : `Sync ${f.name}`}
+                    onChange={(v) =>
+                      st.found
+                        ? setKeep(toggle(keep, f.path, !v))
+                        : setPicked(toggle(chosen, f.path, v))
+                    }
+                  />
+                }
+              />
+            );
+          })}
         </Group>
       )}
       <div className="actions">
@@ -138,10 +226,15 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
           </div>
         ) : (
           <>
-            {s.signingIn && !st.signed_in && (
+            {waiting && (
               <Link onPress={() => api.signIn().catch(s.fail)}>Open the Sign-In Window Again</Link>
             )}
-            <Push prominent large onPress={go}>
+            <Push
+              prominent
+              large
+              disabled={st.signed_in && !st.found && chosen.length === 0}
+              onPress={go}
+            >
               {label}
             </Push>
           </>

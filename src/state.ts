@@ -191,10 +191,12 @@ export function useSync() {
     }
   }
 
+  /** Looks again at what setup needs; returns what it found (undefined when busy or failed). */
   async function probe() {
     try {
       const s = await run('Getting ready', () => api.probe());
       if (s) await show(s);
+      return s;
     } catch (e) {
       fail(e);
     }
@@ -244,7 +246,7 @@ export function useSync() {
   async function act<T>(
     label: string,
     work: (onStep: (s: string) => void) => Promise<T>,
-    after?: (result: T) => Promise<void> | void,
+    after?: (result: T) => unknown,
     round: 'whole' | 'first' = 'whole',
   ) {
     try {

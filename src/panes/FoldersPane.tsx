@@ -41,6 +41,8 @@ function FolderGroup({
   if (!data) return null;
   const separate = data.computers?.[s.host]?.skip_files ?? [];
   const installed = s.overview?.apps.installed ?? [];
+  // With other computers, each row says which switch reaches them all and which only this one.
+  const many = (s.overview?.computers.length ?? 0) > 1;
   const order = (f: Folder) => (Array.isArray(pick) ? pick.indexOf(f.path) : 0);
   const folders = s.catalog.folders
     .filter(
@@ -79,12 +81,19 @@ function FolderGroup({
                 : `~/${f.path}`
             }
             end={
-              <Toggle on={synced} label={`Sync ${f.name}`} disabled={!s.idle} onChange={toggle} />
+              <Toggle
+                on={synced}
+                label={many ? `Sync ${f.name} (all computers)` : `Sync ${f.name}`}
+                disabled={!s.idle}
+                onChange={toggle}
+              />
             }
           >
-            {synced && (
+            {synced && (many || !here) && (
               <div className="inline">
-                {!here && (
+                {here ? (
+                  <span className="detail">On for all your computers, this one included.</span>
+                ) : (
                   <span className="detail warn">
                     Not synced on this computer: it keeps its own version while your other computers
                     stay in step.
@@ -94,7 +103,7 @@ function FolderGroup({
                   disabled={!s.idle}
                   onPress={() => s.edit(() => api.folderHere(f.path, !here))}
                 >
-                  {here ? "Don't Sync on This Computer" : 'Sync on This Computer Again'}
+                  {here ? "Don't Sync on This Computer" : 'Sync on This Computer'}
                 </Link>
               </div>
             )}

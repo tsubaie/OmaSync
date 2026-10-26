@@ -533,3 +533,74 @@ test('app data shows settings folders for apps that are installed or synced', as
   await expect(page.getByText('Neovim editor')).toHaveCount(0);
   expect(await a11y(page)).toEqual([]);
 });
+
+/** Flips a switch the way a keyboard does (its input is visually hidden). */
+async function flip(page: Page, name: string) {
+  await page.getByRole('switch', { name, exact: true }).focus();
+  await page.keyboard.press('Space');
+}
+
+test('a first computer chooses what syncs before starting', async ({ page }) => {
+  await page.goto('/?scenario=first');
+  // Ghostty isn't installed, so it isn't promised, even though its folder is here.
+  await expect(page.getByText('Your other Omarchy settings', { exact: false })).toBeVisible();
+  await expect(page.getByText('ghostty terminal', { exact: false })).toBeHidden();
+  await page.getByRole('button', { name: 'Choose What Syncs…' }).click();
+  await flip(page, 'Sync Neovim editor');
+  await flip(page, 'Sync System monitor');
+  await flip(page, 'Sync Night light');
+  await expect(page.getByText('neovim editor, system monitor.', { exact: false })).toBeVisible();
+  expect(await a11y(page)).toEqual([]);
+  await page.getByRole('button', { name: 'Start Syncing' }).click();
+  const [start] = await calls(page, 'start');
+  const folders = start.args.folders as string[];
+  expect(folders).toContain('.config/nvim');
+  expect(folders).toContain('.config/btop');
+  expect(folders).not.toContain('.config/hypr/hyprsunset.conf');
+  expect(folders).not.toContain('.config/ghostty');
+});
+
+test('a joining computer keeps a folder separate', async ({ page }) => {
+  await page.goto('/?scenario=joining');
+  await page.getByRole('button', { name: 'Choose What Syncs…' }).click();
+  await flip(page, 'Sync Neovim editor on this computer');
+  await expect(page.getByText('Keep separate on this computer')).toBeVisible();
+  await page.getByRole('button', { name: 'Use My Synced Settings' }).click();
+  const [join] = await calls(page, 'join');
+  expect(join.args.skipFolders).toEqual(['.config/nvim']);
+});
+
+test('signing in moves on by itself, and says so when it is not done', async ({ page }) => {
+  await page.goto('/?scenario=signin');
+  await page.getByRole('button', { name: 'Sign In to GitHub' }).click();
+  await expect(page.getByText('one-time code', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: "I've Signed In" }).click();
+  await expect(page.getByText("GitHub sign-in isn't finished yet", { exact: false })).toBeVisible();
+  // Looked at again every 2 seconds without being asked.
+  const before = (await calls(page, 'probe')).length;
+  await expect.poll(async () => (await calls(page, 'probe')).length).toBeGreaterThan(before);
+});
+
+test('a safety backup is restored after asking', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'History' }).click();
+  await expect(page.getByText('Safety Backups')).toBeVisible();
+  await page.getByRole('button', { name: /^Restore Before first sync/ }).click();
+  expect(await a11y(page)).toEqual([]);
+  await page.getByRole('button', { name: 'Restore Backup' }).click();
+  await expect(page.locator('.toast').getByText('Restored')).toBeVisible();
+  const [restore] = await calls(page, 'restore_backup');
+  expect(restore.args.name).toMatch(/^before-first-sync-\d+\.tar\.gz$/);
+});
+
+test('a clash on several files can be settled for all at once', async ({ page }) => {
+  await page.goto('/?scenario=conflict');
+  await page.getByRole('button', { name: 'Sync Now' }).click();
+  await page.getByRole('button', { name: 'Use Desktop for All' }).click();
+  await page.getByRole('button', { name: 'Keep Chosen Versions' }).click();
+  const [resolve] = await calls(page, 'resolve_conflict');
+  expect(resolve.args.choices).toEqual({
+    'dot_config/hypr/bindings.lua': 'Theirs',
+    'dot_config/ghostty/config': 'Theirs',
+  });
+});

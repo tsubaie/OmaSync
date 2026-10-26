@@ -14,7 +14,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { api, type Catalog, type Keep, type Overview, type Versions } from '../api';
-import { SNAPSHOT_FIRST, ago, byFolder, diffLines, plural, shortList } from '../format';
+import { SNAPSHOT_FIRST, ago, byFolder, diffLines, folds, plural, shortList } from '../format';
 import type { SyncState } from '../state';
 import { Caution, Group, Link, OmarchyLogo, Progress, Push, Row, Tile } from '../ui';
 import { NoticeLine } from './NoticeLine';
@@ -168,7 +168,7 @@ function Hero({ s }: { s: SyncState }) {
         {detail && <p className="detail">{detail}</p>}
       </output>
       <Progress steps={s.steps} plan={s.plan} percent={s.percent} />
-      {!s.conflict && (
+      {!s.conflict?.versions.length && (
         <Push prominent large disabled={!s.idle} onPress={() => s.sync()} tip="Sync Now  Ctrl+R">
           {s.syncing ? 'Syncing…' : 'Sync Now'}
         </Push>
@@ -179,9 +179,12 @@ function Hero({ s }: { s: SyncState }) {
 
 /** One clashing file: both versions side by side, the lines that differ marked. */
 function Compare({ v, other }: { v: Versions; other: string }) {
+  /** The folds opened, by their first row. */
+  const [opened, setOpened] = useState<number[]>([]);
   if (v.binary)
     return <p className="detail">This file can't be shown, but you can still choose.</p>;
   const rows = diffLines(v.mine ?? '', v.theirs ?? '');
+  const hidden = folds(rows).filter(([start]) => !opened.includes(start));
   return (
     <table className="compare" aria-label={`Both versions of ${v.path}`}>
       <thead>
@@ -194,16 +197,29 @@ function Compare({ v, other }: { v: Versions; other: string }) {
         </tr>
       </thead>
       <tbody>
-        {rows.map((r, i) => (
-          <tr key={i} className={r.changed ? 'changed' : ''}>
-            <td className={r.mine === null ? 'gap' : ''}>
-              <code>{r.mine ?? ''}</code>
-            </td>
-            <td className={r.theirs === null ? 'gap' : ''}>
-              <code>{r.theirs ?? ''}</code>
-            </td>
-          </tr>
-        ))}
+        {rows.map((r, i) => {
+          const fold = hidden.find(([start, end]) => i >= start && i < end);
+          if (fold)
+            return fold[0] !== i ? null : (
+              <tr key={i} className="fold">
+                <td colSpan={2}>
+                  <Link onPress={() => setOpened([...opened, i])}>
+                    Show {plural(fold[1] - fold[0], 'unchanged line')}
+                  </Link>
+                </td>
+              </tr>
+            );
+          return (
+            <tr key={i} className={r.changed ? 'changed' : ''}>
+              <td className={r.mine === null ? 'gap' : ''}>
+                <code>{r.mine ?? ''}</code>
+              </td>
+              <td className={r.theirs === null ? 'gap' : ''}>
+                <code>{r.theirs ?? ''}</code>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );
@@ -219,11 +235,19 @@ function ConflictGroup({ s }: { s: SyncState }) {
   const other = id ? s.nameOf(id) : 'The other computer';
   const versions = s.conflict!.versions;
   const left = versions.filter((v) => !choices[v.source]).length;
+  if (versions.length === 0) return null;
+  const all = (keep: Keep) => setChoices(Object.fromEntries(versions.map((v) => [v.source, keep])));
   return (
     <Group
       title="Changed on Both Computers"
       footer={`${other} changed ${when ? ago(when, s.now) : 'these too'}. Highlighted lines are the ones that differ. The version you don't keep stays in History.`}
     >
+      {versions.length > 1 && (
+        <div className="row inline">
+          <Link onPress={() => all('Mine')}>Use This Computer for All</Link>
+          <Link onPress={() => all('Theirs')}>Use {other} for All</Link>
+        </div>
+      )}
       {versions.map((v) => (
         <div className="row clash" key={v.source}>
           <div className="text">

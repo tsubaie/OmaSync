@@ -29,7 +29,7 @@ const pane = (plugins: Plugin[]) =>
           steps: [],
           catalog: { folders: [] },
           data: { folders: ['.config/omarchy/plugins'], apps: [], plugins: [], computers: {} },
-          overview: { plugins, apps: { installed: [] } },
+          overview: { plugins, apps: { installed: [] }, computers: [] },
           matrix: { computers: ['me'], name: () => 'This computer', column: () => '', many: false },
           wantsPlugin: () => false,
           whoHas: () => [],

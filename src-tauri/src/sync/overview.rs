@@ -25,6 +25,8 @@ pub struct Overview {
     pub repos_here: Vec<MissingRepo>,
     /// Whether a snapshot of the system is taken before installing apps or adding a repository.
     pub snapper_available: bool,
+    /// The safety backups, newest first.
+    pub backups: Vec<BackupEntry>,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -128,6 +130,7 @@ pub fn overview(
         missing_repos: missing_repos(data, &ctx.host, &repos),
         repos_here: repos_with_apps(data, &repos),
         snapper_available: here().snapshots_available(),
+        backups: list_backups(ctx),
         apps,
     })
 }

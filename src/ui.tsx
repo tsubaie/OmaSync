@@ -122,6 +122,7 @@ export function Link({
   out,
   accent,
   bad,
+  expanded,
   onPress,
 }: {
   children: ReactNode;
@@ -134,6 +135,8 @@ export function Link({
   accent?: boolean;
   /** Takes something away: red when pointed at. */
   bad?: boolean;
+  /** For a link that shows and hides something: whether it's showing. */
+  expanded?: boolean;
   onPress: () => void;
 }) {
   return (
@@ -141,6 +144,7 @@ export function Link({
       className={accent ? 'link accent' : bad ? 'link bad' : 'link'}
       isDisabled={disabled}
       aria-label={label}
+      aria-expanded={expanded}
       onPress={onPress}
     >
       {children}
