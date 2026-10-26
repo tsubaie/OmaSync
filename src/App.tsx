@@ -15,7 +15,7 @@ import {
 import { Button, Tab, TabList, TabPanel, Tabs } from 'react-aria-components';
 import { shortList } from './format';
 import { AppsPane } from './panes/AppsPane';
-import { AppDataPane, OmarchyPane, PluginsPane } from './panes/FoldersPane';
+import { AppDataPane, OmarchyPane, PluginsPane, pendingForTab } from './panes/FoldersPane';
 import { HistoryPane } from './panes/HistoryPane';
 import { NoticeLine } from './panes/NoticeLine';
 import { ReposPane } from './panes/ReposPane';
@@ -134,6 +134,7 @@ export function App() {
       </div>
       {SECTIONS.map((sec) => {
         const Pane = PANES[sec.id];
+        const pending = pendingForTab(s.pending, sec.id, s.catalog.folders);
         return (
           <TabPanel key={sec.id} id={sec.id} className="pane-wrap">
             <div
@@ -144,11 +145,10 @@ export function App() {
                 <h1>{sec.name}</h1>
               </header>
               <div className="content">
-                {s.pending.length > 0 && s.idle && s.tab !== 'sync' && (
+                {pending.length > 0 && s.idle && (
                   <div className="box row">
                     <div className="text">
-                      {shortList(s.pending, 2)}. Your other computers get this the next time you
-                      sync.
+                      {shortList(pending, 2)}. Your other computers get this the next time you sync.
                     </div>
                     <Push onPress={() => s.sync()}>Sync Now</Push>
                   </div>

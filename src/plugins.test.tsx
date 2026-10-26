@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { Plugin } from './api';
+import type { Folder, Plugin } from './api';
 import { NoticeLine } from './panes/NoticeLine';
-import { PluginsPane } from './panes/FoldersPane';
+import { PluginsPane, pendingForTab } from './panes/FoldersPane';
 import type { SyncState } from './state';
 
 const plugin = (id: string, update: Plugin['update']): Plugin => ({
@@ -120,5 +120,59 @@ describe('the summary of Update All', () => {
   it('is a warning when a plugin was skipped or failed', () => {
     expect(notice(true)).toContain('notice warn');
     expect(notice(false)).toContain('notice good');
+  });
+});
+
+describe('pendingForTab', () => {
+  const folders = [
+    { name: 'Plugin settings', path: '.config/omarchy/shell.json' },
+    { name: 'Key bindings', path: '.config/hypr/bindings.lua' },
+    { name: 'Kitty terminal', path: '.config/kitty' },
+  ] as Folder[];
+  const pending = [
+    'Plugin gladimdim.config-sync no longer syncs',
+    'Plugin timezones switched off for this computer',
+    'Plugin settings no longer syncs',
+    'xournalpp taken out of the synced apps',
+    'yazi switched off for this computer',
+    'Install steps for foo changed',
+    'Key bindings left out on this computer',
+    'Theme set to tokyo-night',
+    'Background changed',
+    'Kitty terminal left out on this computer',
+    'Automatic sync switched off on this computer',
+    'Bar indicator switched on on this computer',
+    'Synced apps wait for approval on this computer',
+    'laptop renamed to desk',
+  ];
+  const on = (tab: Parameters<typeof pendingForTab>[1]) => pendingForTab(pending, tab, folders);
+
+  it('keeps plugin changes on Plugins and never on Installed Apps', () => {
+    expect(on('plugins')).toEqual([
+      'Plugin gladimdim.config-sync no longer syncs',
+      'Plugin timezones switched off for this computer',
+      'Plugin settings no longer syncs',
+    ]);
+    expect(on('apps')).toEqual([
+      'xournalpp taken out of the synced apps',
+      'yazi switched off for this computer',
+      'Install steps for foo changed',
+    ]);
+  });
+
+  it('puts the rest on their own tabs, and nothing on Sync', () => {
+    expect(on('omarchy')).toEqual([
+      'Key bindings left out on this computer',
+      'Theme set to tokyo-night',
+      'Background changed',
+    ]);
+    expect(on('data')).toEqual(['Kitty terminal left out on this computer']);
+    expect(on('settings')).toEqual([
+      'Automatic sync switched off on this computer',
+      'Bar indicator switched on on this computer',
+      'Synced apps wait for approval on this computer',
+      'laptop renamed to desk',
+    ]);
+    expect(on('sync')).toEqual([]);
   });
 });

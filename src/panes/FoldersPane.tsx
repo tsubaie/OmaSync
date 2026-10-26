@@ -1,20 +1,20 @@
 import { useState } from 'react';
 import { Input, Label, Text, TextField } from 'react-aria-components';
 import { api, type Folder, type Plugin, type PluginsUpdated } from '../api';
-import type { SyncState } from '../state';
+import type { SyncState, Tab as TabId } from '../state';
 import { CircleCheck, Download } from 'lucide-react';
 import { plural } from '../format';
 import { Caution, Group, Link, Progress, Push, Row, Toggle } from '../ui';
 
 /** Omarchy's own parts, its window settings and its plugins, each listed in the order shown
  * ("other" last); every other folder is an app's data. */
-const OMARCHY = [
+export const OMARCHY = [
   '.config/omarchy/themes',
   '.config/omarchy/extensions',
   '.config/omarchy/hooks',
   '.config/omarchy',
 ];
-const WINDOWS = [
+export const WINDOWS = [
   '.config/hypr/bindings.lua',
   '.config/hypr/input.lua',
   '.config/hypr/looknfeel.lua',
@@ -22,8 +22,41 @@ const WINDOWS = [
   '.config/hypr/hyprsunset.conf',
   '.config/hypr',
 ];
-const PLUGINS = ['.config/omarchy/plugins', '.config/omarchy/shell.json'];
+export const PLUGINS = ['.config/omarchy/plugins', '.config/omarchy/shell.json'];
 const isOmarchy = (f: Folder) => [...OMARCHY, ...WINDOWS, ...PLUGINS].includes(f.path);
+
+/** Which tab a sentence from `describe_changes` (src-tauri/src/sync/data.rs) belongs on. */
+function tabOf(change: string, folders: Folder[]): TabId | undefined {
+  const folder = folders.find((f) => change.startsWith(`${f.name} `));
+  if (folder) {
+    if (PLUGINS.includes(folder.path)) return 'plugins';
+    return OMARCHY.includes(folder.path) || WINDOWS.includes(folder.path) ? 'omarchy' : 'data';
+  }
+  if (change.startsWith('Plugin ')) return 'plugins';
+  if (change.startsWith('Theme set to ') || change === 'Background changed') return 'omarchy';
+  if (
+    change.startsWith('Automatic sync switched ') ||
+    change.startsWith('Synced apps install without asking on ') ||
+    change.startsWith('Synced apps wait for approval on ') ||
+    change.startsWith('Bar indicator switched ') ||
+    change.includes(' renamed to ')
+  )
+    return 'settings';
+  if (
+    change.endsWith(' added to the synced apps') ||
+    change.endsWith(' taken out of the synced apps') ||
+    change.startsWith('Install steps for ') ||
+    change.includes(' switched off for ') ||
+    change.includes(' switched on for ')
+  )
+    return 'apps';
+  return undefined;
+}
+
+/** The unsynced changes that belong on `tab`, so each tab's banner only shows its own. */
+export function pendingForTab(pending: string[], tab: TabId, folders: Folder[]): string[] {
+  return pending.filter((c) => tabOf(c, folders) === tab);
+}
 
 function FolderGroup({
   s,

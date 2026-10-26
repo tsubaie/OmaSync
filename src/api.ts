@@ -274,7 +274,6 @@ export const api = {
   setApp: (app: string, on: boolean) => invoke<Data>('set_app', { app, on }),
   /** Leaves a synced app out on this computer only, or takes it back. */
   appHere: (app: string, on: boolean) => invoke<Data>('app_here', { app, on }),
-  addApps: (apps: string[]) => invoke<Data>('add_apps', { apps }),
   setFolder: (path: string, on: boolean) => invoke<Data>('set_folder', { path, on }),
   folderHere: (path: string, on: boolean) => invoke<Data>('folder_here', { path, on }),
   setAuto: (on: boolean) => invoke<Data>('set_auto', { on }),
