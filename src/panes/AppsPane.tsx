@@ -15,6 +15,7 @@ function source(from: string | undefined): [string, string] {
       "From the Arch User Repository: made by the community, used only when Omarchy and Arch don't have it.",
     ];
   if (from === 'elsewhere') return ['No repository', 'Installs with the steps you add.'];
+  if (from === 'distro') return ['System', "From this computer's Linux distribution."];
   return from
     ? [
         from,

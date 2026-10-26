@@ -203,9 +203,9 @@ struct Catalog {
 #[tauri::command]
 fn folders() -> Catalog {
     let home = Ctx::load().home;
-    let folders = sync::FOLDERS
-        .iter()
-        .map(|&(path, name, default)| Folder {
+    let folders = sync::folders_for_profile(&sync::here().profile())
+        .into_iter()
+        .map(|(path, name, default)| Folder {
             path,
             name,
             default,
@@ -306,7 +306,7 @@ async fn undo(sha: String, on_step: Channel<String>) -> Result<Report> {
     .map_err(Problem::from)
 }
 
-/// Only the three tools setup needs; the page can't ask pacman for anything else.
+/// Only the three tools setup needs; the page can't ask the package manager for anything else.
 #[tauri::command]
 async fn install_helpers() -> Result<()> {
     blocking(|ctx| {

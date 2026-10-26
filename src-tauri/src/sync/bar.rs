@@ -52,14 +52,8 @@ pub fn ensure_bar_indicator(ctx: &Ctx, data: &Data) -> Result<(), String> {
     let current = BAR_FILES
         .iter()
         .all(|(name, text)| std::fs::read_to_string(dir.join(name)).is_ok_and(|t| t == *text));
-    // Only whether the shell's command is there: it answers `--version` with its usage and
-    // exit code 1, so `has` would say it's missing on every Omarchy.
-    let shell = Command::new("omarchy-shell")
-        .arg("--version")
-        .stdin(Stdio::null())
-        .output()
-        .is_ok();
-    if off || current || !shell {
+    let desktop = here();
+    if off || current || !desktop.profile().supports_bar_indicator || !desktop.has_shell() {
         return Ok(());
     }
     set_bar_indicator(ctx, true)
@@ -67,6 +61,7 @@ pub fn ensure_bar_indicator(ctx: &Ctx, data: &Data) -> Result<(), String> {
 
 /// Puts the indicator on the bar, or takes it off, through Omarchy's own plugin commands.
 pub fn set_bar_indicator(ctx: &Ctx, on: bool) -> Result<(), String> {
+    let desktop = here();
     let dir = ctx.home.join(PLUGIN_DIR).join(BAR_PLUGIN);
     if on {
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
@@ -80,11 +75,11 @@ pub fn set_bar_indicator(ctx: &Ctx, on: bool) -> Result<(), String> {
         for (name, text) in BAR_FILES {
             std::fs::write(dir.join(name), text).map_err(|e| e.to_string())?;
         }
-        run(None, "omarchy-shell", &["shell", "rescanPlugins"])?;
+        desktop.shell(&["shell", "rescanPlugins"])?;
         // The shell scans in the background, so the new plugin may take a moment to be known.
         let mut enabled = Err(String::new());
         for _ in 0..20 {
-            enabled = run(None, "omarchy", &["plugin", "enable", BAR_PLUGIN]);
+            enabled = desktop.plugin(&["enable", BAR_PLUGIN]);
             if enabled.is_ok() {
                 break;
             }
@@ -93,12 +88,12 @@ pub fn set_bar_indicator(ctx: &Ctx, on: bool) -> Result<(), String> {
         enabled?;
         // The shell caches each plugin folder's files from when it first read them, so a new
         // or changed widget file only loads after a restart (about a second; the bar redraws).
-        run(None, "omarchy", &["restart", "shell"]).map(|_| ())
+        desktop.restart_shell()
     } else {
         // Already off (or never on) is fine: the goal is that it's gone.
-        let _ = run(None, "omarchy", &["plugin", "disable", BAR_PLUGIN]);
+        let _ = desktop.plugin(&["disable", BAR_PLUGIN]);
         std::fs::remove_dir_all(&dir).map_err(|e| e.to_string())?;
-        let _ = run(None, "omarchy-shell", &["shell", "rescanPlugins"]);
+        let _ = desktop.shell(&["shell", "rescanPlugins"]);
         Ok(())
     }
 }

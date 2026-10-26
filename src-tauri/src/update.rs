@@ -20,7 +20,7 @@ pub enum How {
 }
 
 /// This binary's path. Once a package has replaced the file, Linux reports the running copy
-/// as "… (deleted)"; the path is what pacman and the relaunch need.
+/// as "… (deleted)"; the path is what the package manager and the relaunch need.
 pub fn exe_path() -> String {
     let exe = std::env::current_exe().unwrap_or_default();
     exe.to_string_lossy()
@@ -29,15 +29,11 @@ pub fn exe_path() -> String {
 }
 
 pub fn installed_how() -> How {
-    parse_owner(&run(None, "pacman", &["-Qo", &exe_path()]).unwrap_or_default())
+    how(sync::here().owner(&exe_path()).as_deref())
 }
 
-/// Reads `pacman -Qo`: "/usr/bin/omarchy-sync is owned by omarchy-sync 0.1.1-1".
-pub fn parse_owner(out: &str) -> How {
-    let owner = out
-        .rsplit(" is owned by ")
-        .next()
-        .and_then(|s| s.split_whitespace().next());
+/// How a copy owned by `owner` updates: only the release and AUR packages (Arch's) do.
+pub fn how(owner: Option<&str>) -> How {
     match owner {
         Some("omarchy-sync") => How::Package,
         Some("omarchy-sync-bin") => How::Aur,
@@ -175,19 +171,10 @@ mod tests {
 
     #[test]
     fn the_owning_package_decides_how_to_update() {
-        assert_eq!(
-            parse_owner("/usr/bin/omarchy-sync is owned by omarchy-sync 0.1.1-1"),
-            How::Package
-        );
-        assert_eq!(
-            parse_owner("/usr/bin/omarchy-sync is owned by omarchy-sync-bin 0.1.2-1"),
-            How::Aur
-        );
-        assert_eq!(parse_owner(""), How::Source);
-        assert_eq!(
-            parse_owner("error: No package owns /home/me/.local/bin/omarchy-sync"),
-            How::Source
-        );
+        assert_eq!(how(Some("omarchy-sync")), How::Package);
+        assert_eq!(how(Some("omarchy-sync-bin")), How::Aur);
+        assert_eq!(how(Some("omarchy")), How::Source);
+        assert_eq!(how(None), How::Source);
     }
 
     #[test]

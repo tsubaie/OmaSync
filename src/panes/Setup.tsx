@@ -8,7 +8,7 @@ import { NoticeLine } from './NoticeLine';
 /** What step 1 installs, named so nobody has to trust an unnamed "helper". */
 const TOOLS: Record<string, [string, string]> = {
   chezmoi: ['chezmoi', 'Copies your settings files to and from your private sync space.'],
-  'github-cli': [
+  gh: [
     'GitHub CLI',
     'Connects to your GitHub account to create and reach your private sync space.',
   ],

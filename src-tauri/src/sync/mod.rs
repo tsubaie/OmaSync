@@ -12,6 +12,7 @@ mod history;
 #[cfg(test)]
 mod lab;
 mod overview;
+mod platform;
 mod plugins;
 mod rules;
 #[cfg(test)]
@@ -32,10 +33,11 @@ pub use data::{Data, PluginUpdate, Script, describe_changes, is_plugin_id, name_
 pub use engine::{Conflict, Keep, Report, SyncError, disconnect, put_back_omarchy, resolve, sync};
 pub use history::undo;
 pub use overview::{Overview, overview};
+pub use platform::here;
 pub use plugins::{
     PluginsUpdated, add_plugin, install_plugins, remove_plugin, set_plugin_enabled, update_plugins,
 };
-pub use rules::{DATA_LABEL, FOLDERS, folder_app};
+pub use rules::{DATA_LABEL, FOLDERS, folder_app, folders_for_profile};
 pub use setup::{SetupState, install_helpers, join, probe, sign_in, start};
 pub use stage::{set_folder, set_plugin};
 
@@ -48,6 +50,7 @@ use data::*;
 use engine::*;
 use history::*;
 use overview::*;
+use platform::*;
 use plugins::*;
 use rules::*;
 use serde::{Deserialize, Serialize};

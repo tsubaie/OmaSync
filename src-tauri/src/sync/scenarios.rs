@@ -2150,3 +2150,28 @@ fn a_folder_switched_on_that_cant_be_added_stays_off() {
     );
     lab.sync_ok("a");
 }
+
+#[test]
+#[ignore]
+fn omarchy_gets_the_omarchy_adapter_and_every_folder() {
+    let mut lab = pair();
+    lab.join("b");
+    lab.ctx("b");
+    // The lab's fakes stand in for Omarchy, whatever the machine running it is.
+    let platform = here();
+    assert_eq!(platform.profile(), DistroProfile::OMARCHY);
+    assert_eq!(folders_for_profile(&platform.profile()), FOLDERS);
+    assert!(lab.data("b").folders.iter().any(|f| f == ".config/hypr"));
+    lab.sync_ok("b");
+    assert_eq!(
+        install_apps(&["firefox".into()]),
+        Ok(SnapshotOutcome::Unavailable)
+    );
+    let calls = lab.calls("b");
+    assert!(
+        calls.contains("omarchy version")
+            && calls.contains("yay -S --needed --noconfirm --sudo pkexec -- firefox"),
+        "{calls}"
+    );
+    lab.check("b");
+}

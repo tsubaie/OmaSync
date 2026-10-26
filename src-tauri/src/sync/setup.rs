@@ -6,7 +6,7 @@ pub const REPO: &str = "omarchy-sync";
 
 #[derive(Clone, Debug, Serialize)]
 pub struct SetupState {
-    /// Arch packages that must be installed before anything else.
+    /// Tools that must be installed before anything else; the package adapter names their packages.
     pub missing: Vec<&'static str>,
     pub signed_in: bool,
     /// Some(login) once signed in; `found` says whether that account already has synced settings.
@@ -16,10 +16,9 @@ pub struct SetupState {
 }
 
 pub fn probe(ctx: &Ctx) -> SetupState {
-    let missing: Vec<&'static str> = [("chezmoi", "chezmoi"), ("gh", "github-cli"), ("git", "git")]
+    let missing: Vec<&'static str> = ["chezmoi", "gh", "git"]
         .into_iter()
-        .filter(|(bin, _)| !has(bin))
-        .map(|(_, pkg)| pkg)
+        .filter(|bin| !has(bin))
         .collect();
     let mut s = SetupState {
         ready: false,
@@ -56,10 +55,8 @@ pub fn is_set_up(ctx: &Ctx) -> bool {
     ctx.src.join(".git").exists() && ctx.git(&["remote", "get-url", "origin"]).is_ok()
 }
 
-pub fn install_helpers(pkgs: &[&str]) -> Result<(), String> {
-    let mut args = vec!["pacman", "-S", "--needed", "--noconfirm"];
-    args.extend_from_slice(pkgs);
-    run(None, "pkexec", &args).map(|_| ())
+pub fn install_helpers(need: &[&str]) -> Result<(), String> {
+    here().install_helpers(need)
 }
 
 pub fn sign_in() -> Result<(), String> {
@@ -123,11 +120,11 @@ pub(crate) fn seed(ctx: &Ctx) -> Result<(), String> {
     // for terminals nobody may use.
     let installed = installed();
     let mut data = Data {
-        folders: FOLDERS
-            .iter()
-            .filter(|(p, _, on)| *on && ctx.home.join(p).exists())
-            .filter(|(p, _, _)| folder_app(p).is_none_or(|app| installed.contains(app)))
-            .map(|(p, _, _)| p.to_string())
+        folders: default_folders_for_profile(&here().profile())
+            .into_iter()
+            .filter(|p| ctx.home.join(p).exists())
+            .filter(|p| folder_app(p).is_none_or(|app| installed.contains(app)))
+            .map(String::from)
             .collect(),
         theme: ctx.current_theme(),
         ..Default::default()
