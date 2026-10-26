@@ -200,6 +200,52 @@ fn the_same_file_changed_on_both_asks_and_keeps_both_versions() {
     assert_eq!(lab.read("a", ".config/hypr/bindings.lua"), "a4");
 }
 
+/// Changes made while a clash waits for a choice (another file, a new web app) go out with
+/// the choice; choosing never puts the synced copies back over them.
+#[test]
+#[ignore]
+fn changes_made_while_a_clash_waits_stay_after_choosing() {
+    let mut lab = pair();
+    lab.join("b");
+    lab.write("a", ".config/hypr/bindings.lua", "a2");
+    lab.sync_ok("a");
+    lab.write("b", ".config/hypr/bindings.lua", "b2");
+    let clash = lab.clash("b");
+    lab.write(
+        "b",
+        ".config/alacritty/alacritty.toml",
+        "a = 1\n\nb = 20\n\nc = 3\n",
+    );
+    lab.write(
+        "b",
+        ".local/share/applications/Mail App.desktop",
+        "[Desktop Entry]\nExec=omarchy-launch-webapp https://mail.example\nIcon=mail\n",
+    );
+    lab.write(
+        "b",
+        ".local/share/icons/hicolor/256x256/apps/mail.png",
+        "png",
+    );
+    lab.resolve("b", &clash, |_| Keep::Theirs).unwrap();
+    lab.sync_ok("a");
+    for n in ["a", "b"] {
+        assert_eq!(lab.read(n, ".config/hypr/bindings.lua"), "a2", "{n}");
+        assert_eq!(
+            lab.read(n, ".config/alacritty/alacritty.toml"),
+            "a = 1\n\nb = 20\n\nc = 3\n",
+            "{n}"
+        );
+        assert!(
+            lab.exists(n, ".local/share/applications/Mail App.desktop"),
+            "{n}"
+        );
+        assert!(
+            lab.exists(n, ".local/share/icons/hicolor/256x256/apps/mail.png"),
+            "{n}"
+        );
+    }
+}
+
 #[test]
 #[ignore]
 fn undo_reaches_the_other_computer() {
@@ -1049,6 +1095,66 @@ fn random_run(seed: u64, steps: usize, log: &mut Vec<String>) {
 }
 
 // ---------- Found by the random-order run ----------
+
+/// The nightly run's seed 25 (#56): an undo switched a file back on, saving this computer's
+/// unsaved copy in a backup first, and a sync in the same second saved its backup over it.
+#[test]
+#[ignore]
+fn the_random_run_seed_25_keeps_every_version() {
+    let mut log = Vec::new();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        random_run(25, 20, &mut log)
+    }));
+    if let Err(e) = outcome {
+        eprintln!("seed 25 failed after:\n{}", log.join("\n"));
+        std::panic::resume_unwind(e);
+    }
+}
+
+/// A choices file that no longer reads (a typo, half a clash) stands for the last saved
+/// choices, never for none: nothing stops syncing, and nothing saves over it.
+#[test]
+#[ignore]
+fn a_choices_file_that_doesnt_read_never_reads_as_no_choices() {
+    let mut lab = pair();
+    lab.join("b");
+    let folders = lab.data("b").folders;
+    assert!(!folders.is_empty());
+    let path = lab.ctx("b").data_path();
+    std::fs::write(&path, "folders: [\n<<<<<<< broken\n").unwrap();
+    assert_eq!(lab.data("b").folders, folders);
+    assert!(lab.sync_fails("b").contains("can't be read"));
+    let tracked = lab.ctx("b").git(&["ls-files"]).unwrap();
+    assert!(
+        tracked.contains("dot_config/hypr/bindings.lua"),
+        "{tracked}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "folders: [\n<<<<<<< broken\n"
+    );
+}
+
+/// Another computer shared a choices file that doesn't read; this computer's own change to the
+/// choices still settles into one that does, with nothing left to choose.
+#[test]
+#[ignore]
+fn a_broken_choices_file_from_another_computer_settles_into_one_that_reads() {
+    let mut lab = pair();
+    lab.join("b");
+    lab.sync_ok("a");
+    let a = lab.ctx("a").clone();
+    std::fs::write(a.data_path(), "folders: [\n<<<<<<< broken\n").unwrap();
+    a.git(&["commit", "-qam", "Sync from a"]).unwrap();
+    a.git(&["push", "-q"]).unwrap();
+    lab.set_folder("b", ".config/alacritty", false).unwrap();
+    lab.sync_ok("b");
+    let text = std::fs::read_to_string(lab.ctx("b").data_path()).unwrap();
+    let data: Data = serde_yaml::from_str(&text).unwrap();
+    assert!(!data.folders.iter().any(|f| f == ".config/alacritty"));
+    assert!(data.folders.iter().any(|f| f == ".config/hypr"), "{text}");
+    assert!(lab.ctx("b").conflicted().is_empty());
+}
 
 #[test]
 #[ignore]

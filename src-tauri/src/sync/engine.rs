@@ -62,13 +62,15 @@ fn settle_data(ctx: &Ctx) -> Result<bool, String> {
         let conflicted = ctx.conflicted();
         // During a rebase, stage 2 is what came from GitHub and stage 3 is this computer's.
         let side = |n: u8, file: &str| ctx.git(&["show", &format!(":{n}:{file}")]).ok();
-        if conflicted.iter().any(|f| f == FILE) {
-            let data = |n: u8| -> Data {
-                side(n, FILE)
-                    .and_then(|t| serde_yaml::from_str(&t).ok())
-                    .unwrap_or_default()
-            };
-            ctx.save_data(&Data::merge(&data(1), &data(2), &data(3)))?;
+        let text = std::fs::read_to_string(ctx.data_path()).unwrap_or_default();
+        // Clashing, or combined line by line into something that doesn't read: rebuilt from
+        // the change being replayed (REBASE_HEAD), what it started from, and GitHub's.
+        if conflicted.iter().any(|f| f == FILE) || serde_yaml::from_str::<Data>(&text).is_err() {
+            ctx.save_data(&Data::merge_readable(
+                data_at(ctx, "REBASE_HEAD~"),
+                data_at(ctx, "HEAD"),
+                data_at(ctx, "REBASE_HEAD"),
+            ))?;
             ctx.git(&["add", FILE])?;
         }
         let text = std::fs::read_to_string(ctx.data_path()).unwrap_or_default();
@@ -79,18 +81,20 @@ fn settle_data(ctx: &Ctx) -> Result<bool, String> {
             if !switched_off(ctx, &choices, file, ":2", ":3") {
                 return Ok(false);
             }
-            if side(3, file).is_none() {
-                // This computer switched it off: the removal stands (the other computer's
-                // version is in the history it sent).
-                ctx.git(&["rm", "-q", "--", file])?;
+            // In a rebase, --ours is what came from GitHub and --theirs this computer's change.
+            // Either way the replayed step keeps a version rather than the removal, so no
+            // version drops out of the history; the file leaves the sync folder in a change of
+            // its own, below.
+            let keep = if side(3, file).is_none() {
+                // This computer switched it off: the other computer's version.
+                "--ours"
             } else {
-                // Another computer did: this computer's version stays in the history (the
-                // replayed change keeps it), and the file leaves the sync folder in a change
-                // of its own, below.
-                ctx.git(&["checkout", "--theirs", "--", file])?;
-                ctx.git(&["add", "--", file])?;
-                switched_off_here.push(file.clone());
-            }
+                // Another computer did: this computer's version.
+                "--theirs"
+            };
+            ctx.git(&["checkout", keep, "--", file])?;
+            ctx.git(&["add", "--", file])?;
+            switched_off_here.push(file.clone());
         }
         // Settled to exactly what came from GitHub: nothing left of this change to replay.
         let nothing_left = ctx.git(&["diff", "--cached", "--quiet"]).is_ok();
@@ -113,7 +117,7 @@ fn settle_data(ctx: &Ctx) -> Result<bool, String> {
                 "-m",
                 &format!("Sync from {}", ctx.host),
                 "-m",
-                "Switched off on another computer; this computer keeps its own copy.",
+                "Switched off on a computer; each computer keeps its own copy.",
             ])?;
         }
     }
@@ -141,10 +145,10 @@ fn all_clashes(ctx: &Ctx, first: Vec<String>) -> Vec<String> {
     let base = ctx
         .git(&["merge-base", "HEAD", "MERGE_HEAD"])
         .unwrap_or_default();
-    let choices = Data::merge(
-        &data_at(ctx, &base),
-        &data_at(ctx, "MERGE_HEAD"),
-        &data_at(ctx, "HEAD"),
+    let choices = Data::merge_readable(
+        data_at(ctx, &base),
+        data_at(ctx, "MERGE_HEAD"),
+        data_at(ctx, "HEAD"),
     );
     let files: Vec<String> = ctx
         .conflicted()
@@ -369,20 +373,19 @@ fn keep_version(ctx: &Ctx, source: &str, keep: Keep) -> Result<(), String> {
 fn settle_data_revs(ctx: &Ctx) -> Result<(), String> {
     let base = ctx.git(&["merge-base", "HEAD", "MERGE_HEAD"])?;
     let read = |rev: &str| data_at(ctx, rev);
-    ctx.save_data(&Data::merge(
-        &read(&base),
-        &read("MERGE_HEAD"),
-        &read("HEAD"),
+    ctx.save_data(&Data::merge_readable(
+        read(&base),
+        read("MERGE_HEAD"),
+        read("HEAD"),
     ))?;
     ctx.git(&["add", ".chezmoidata.yaml"]).map(|_| ())
 }
 
-/// The shared choices as they were at a revision (empty where unreadable).
-fn data_at(ctx: &Ctx, rev: &str) -> Data {
+/// The shared choices as they were at a revision (`None` where missing or unreadable).
+fn data_at(ctx: &Ctx, rev: &str) -> Option<Data> {
     ctx.git(&["show", &format!("{rev}:.chezmoidata.yaml")])
         .ok()
         .and_then(|t| serde_yaml::from_str(&t).ok())
-        .unwrap_or_default()
 }
 
 /// The saved copy of this computer's Omarchy settings from before it took the shared ones.
@@ -454,10 +457,10 @@ fn repair_data(ctx: &Ctx, before: &str) -> Result<(), String> {
         return Ok(());
     }
     let base = ctx.git(&["merge-base", before, "@{u}"])?;
-    ctx.save_data(&Data::merge(
-        &data_at(ctx, &base),
-        &data_at(ctx, "@{u}"),
-        &data_at(ctx, before),
+    ctx.save_data(&Data::merge_readable(
+        data_at(ctx, &base),
+        data_at(ctx, "@{u}"),
+        data_at(ctx, before),
     ))?;
     ctx.git(&["commit", "-q", "-am", &format!("Sync from {}", ctx.host)])
         .map(|_| ())
@@ -479,7 +482,7 @@ pub(crate) fn save_newly_synced(
     if new_here.is_empty() {
         return Ok(None);
     }
-    backup(ctx, &new_here, &format!("before-syncing-{}", now()))?;
+    backup_now(ctx, &new_here, "before-syncing")?;
     let what: Vec<&str> = new_here.iter().map(|f| label(f)).collect();
     let verb = if what.len() == 1 { "syncs" } else { "sync" };
     Ok(Some(format!(

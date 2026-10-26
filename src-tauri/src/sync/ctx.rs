@@ -166,9 +166,16 @@ impl Ctx {
     }
 
     pub fn load_data(&self) -> Data {
+        // A file that doesn't read (a typo, a clash's markers) isn't "no choices", which would
+        // stop syncing every folder: the last saved choices stand in until it reads again.
         let mut data: Data = std::fs::read_to_string(self.data_path())
             .ok()
             .and_then(|s| serde_yaml::from_str(&s).ok())
+            .or_else(|| {
+                self.git(&["show", "HEAD:.chezmoidata.yaml"])
+                    .ok()
+                    .and_then(|s| serde_yaml::from_str(&s).ok())
+            })
             .unwrap_or_default();
         data.adopt_legacy(&self.host, &self.hostname);
         if data.version < 2 {
@@ -190,7 +197,8 @@ impl Ctx {
     }
 
     /// Fails when the choices file is there but can't be read (a typo in a hand edit, a field
-    /// a newer version changed): saving over it would turn every choice off, on every computer.
+    /// a newer version changed). `load_data` then reads the last saved choices, but saving those
+    /// over it would lose the edit, so nothing saves until it reads again.
     pub fn data_readable(&self) -> Result<(), String> {
         match std::fs::read_to_string(self.data_path()) {
             Ok(text) if serde_yaml::from_str::<Data>(&text).is_err() => {

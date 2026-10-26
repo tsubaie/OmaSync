@@ -280,6 +280,18 @@ impl Data {
         }
     }
 
+    /// `merge` where a side may not read (`None`: missing, or broken by a hand edit or by git's
+    /// line-by-line combining). A broken side counts as the other one and a broken base as
+    /// empty, so a broken file never reads as every choice switched off.
+    pub fn merge_readable(base: Option<Data>, theirs: Option<Data>, mine: Option<Data>) -> Data {
+        let base = base.unwrap_or_default();
+        match (theirs, mine) {
+            (Some(theirs), Some(mine)) => Data::merge(&base, &theirs, &mine),
+            (Some(one), None) | (None, Some(one)) => one,
+            (None, None) => base,
+        }
+    }
+
     /// The same choices with every list in order, for comparing.
     pub fn sorted(mut self) -> Self {
         self.folders.sort();
@@ -486,6 +498,22 @@ pub fn describe_changes(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_side_that_doesnt_read_never_switches_choices_off() {
+        let with = |folders: &[&str]| Data {
+            folders: folders.iter().map(|f| f.to_string()).collect(),
+            ..Default::default()
+        };
+        let (base, theirs, mine) = (with(&["x"]), with(&["x", "t"]), with(&["x", "m"]));
+        let merged = |b: Option<&Data>, t: Option<&Data>, m: Option<&Data>| {
+            Data::merge_readable(b.cloned(), t.cloned(), m.cloned()).folders
+        };
+        assert_eq!(merged(Some(&base), None, Some(&mine)), mine.folders);
+        assert_eq!(merged(Some(&base), Some(&theirs), None), theirs.folders);
+        assert_eq!(merged(None, Some(&theirs), Some(&mine)), ["t", "x", "m"]);
+        assert_eq!(merged(Some(&base), None, None), base.folders);
+    }
 
     #[test]
     fn merging_keeps_both_computers_changes() {
