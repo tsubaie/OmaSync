@@ -375,6 +375,21 @@ fn undo_reaches_the_other_computer() {
 
 #[test]
 #[ignore]
+fn an_undo_says_the_computer_by_name_not_its_id() {
+    let mut lab = Lab::new();
+    lab.add_named("id-a", "laptop");
+    lab.start("id-a");
+    lab.write("id-a", ".config/hypr/bindings.lua", "new keys\n");
+    lab.sync_ok("id-a");
+    let author = lab.ctx("id-a").git(&["log", "-1", "--format=%an"]).unwrap();
+    assert_eq!(author.trim(), "id-a");
+    lab.undo("id-a", 0).unwrap();
+    let subject = lab.ctx("id-a").git(&["log", "-1", "--format=%s"]).unwrap();
+    assert_eq!(subject.trim(), "Undo: a change from laptop");
+}
+
+#[test]
+#[ignore]
 fn a_file_that_combined_into_nonsense_is_a_clash() {
     // Both add the same setting in different parts of a TOML file: git combines them without
     // a clash, but the result has it twice, which isn't valid TOML. B goes back to where it
@@ -673,7 +688,9 @@ fn an_older_omarchy_keeps_its_own_settings_until_it_tries_or_updates() {
     assert_eq!(lab.read("b", ".config/hypr/bindings.lua"), "-- b keys\n");
 
     // Trying them: b's own are saved first, and Put Back restores them exactly.
-    lab.edit("b", |d, host| d.computers.get_mut(host).unwrap().tried = 5);
+    lab.edit("b", |d, host| {
+        d.computers.get_mut(host).unwrap().tried = 5000
+    });
     let report = lab.sync_ok("b");
     assert!(
         report.notes.iter().any(|n| n.contains("saved first")),

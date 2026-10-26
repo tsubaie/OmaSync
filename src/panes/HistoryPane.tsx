@@ -7,20 +7,13 @@ import { Group, Link, Push, Row, Tile } from '../ui';
 
 /** What one sync changed, grouped by the names people know ("Ghostty terminal: Changed config"). */
 function Changes({ e, s }: { e: Entry; s: SyncState }) {
-  const how = new Map(e.files.map((f) => [f.path.split('/').pop()!, f.how]));
   return (
     <ul className="changes">
-      {byFolder(
-        e.files.map((f) => f.path),
-        s.catalog,
-      ).map(([label, names]) => (
+      {byFolder(e.files, s.catalog).map(([label, files]) => (
         <li key={label}>
           <span className="label">{label}</span>
-          {names.length > 0 && (
-            <span className="detail">
-              {' '}
-              {names.map((n) => `${how.get(n) ?? 'Changed'} ${n}`).join(', ')}
-            </span>
+          {files.length > 0 && (
+            <span className="detail"> {files.map((f) => `${f.how} ${f.name}`).join(', ')}</span>
           )}
         </li>
       ))}
@@ -42,7 +35,10 @@ function Backups({ s, backups }: { s: SyncState; backups: BackupEntry[] }) {
           key={b.name}
           lead={<Tile icon={Archive} kind="accent" size={24} />}
           title={b.label}
-          detail={`${ago(b.at, s.now)}: ${byFolder(b.folders, s.catalog)
+          detail={`${ago(b.at, s.now)}: ${byFolder(
+            b.folders.map((path) => ({ path })),
+            s.catalog,
+          )
             .map(([label]) => label)
             .join(', ')}`}
           end={

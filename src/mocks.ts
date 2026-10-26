@@ -461,7 +461,7 @@ mockIPC((cmd, args) => {
     case 'try_omarchy':
     case 'put_back_omarchy': {
       const trying = cmd === 'try_omarchy';
-      const me = { ...data.computers.aaaa11112222, tried: trying ? 5 : 0, paused: !trying };
+      const me = { ...data.computers.aaaa11112222, tried: trying ? 5001 : 0, paused: !trying };
       data = { ...data, computers: { ...data.computers, aaaa11112222: me } };
       return trying ? data : null;
     }

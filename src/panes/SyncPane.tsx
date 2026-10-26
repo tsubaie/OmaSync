@@ -24,10 +24,13 @@ import { NoticeLine } from './NoticeLine';
  * kind of setting is one row with its files.
  */
 function unsyncedRows(ov: Overview, catalog: Catalog): [string, string][] {
-  return byFolder(ov.unshared, catalog).flatMap(([label, files]) =>
+  return byFolder(
+    ov.unshared.map((path) => ({ path })),
+    catalog,
+  ).flatMap(([label, files]) =>
     label === catalog.data_label
       ? ov.choice_changes.map((change): [string, string] => [change, label])
-      : [[label, shortList(files)] as [string, string]],
+      : [[label, shortList(files.map((f) => f.name))] as [string, string]],
   );
 }
 
@@ -251,7 +254,7 @@ function ConflictGroup({ s }: { s: SyncState }) {
       {versions.map((v) => (
         <div className="row clash" key={v.source}>
           <div className="text">
-            <div>{byFolder([v.path], s.catalog)[0][0]}</div>
+            <div>{byFolder([v], s.catalog)[0][0]}</div>
             <div className="detail">~/{v.path}</div>
             {s.conflict!.broken.includes(v.path) && (
               <div className="detail warn">
@@ -399,25 +402,26 @@ function ScriptedApps({ s }: { s: SyncState }) {
 
 const has = (list: unknown[]) => (list.length === 1 ? 'has' : 'have');
 
-const major = (version?: string) => {
-  const n = Number.parseInt(version ?? '', 10);
-  return Number.isNaN(n) ? null : n;
+/** Omarchy's major and minor version as one number, as the engine counts them (4.5.0 is 4005). */
+const release = (version?: string) => {
+  const m = /^(\d+)(?:\.(\d+))?/.exec(version ?? '');
+  return m ? Number(m[1]) * 1000 + Math.min(Number(m[2] ?? 0), 999) : null;
 };
 
 /**
- * Computers on different Omarchy major versions. The shared Omarchy settings follow the newest;
+ * Computers on different Omarchy major or minor versions. The shared Omarchy settings follow the newest;
  * an older computer keeps its own until it's updated, and can try the newer ones with a way back.
  */
 function OmarchyVersions({ s }: { s: SyncState }) {
   const [confirm, setConfirm] = useState(false);
   const computers = Object.entries(s.data?.computers ?? {});
   const me = s.data?.computers[s.host];
-  const mine = major(me?.omarchy);
-  const newest = Math.max(0, ...computers.map(([, c]) => major(c.omarchy) ?? 0));
+  const mine = release(me?.omarchy);
+  const newest = Math.max(0, ...computers.map(([, c]) => release(c.omarchy) ?? 0));
   if (!me || mine === null || newest === 0) return null;
-  const ahead = computers.filter(([, c]) => major(c.omarchy) === newest);
+  const ahead = computers.filter(([, c]) => release(c.omarchy) === newest);
   const behind = computers.filter(
-    ([id, c]) => id !== s.host && (major(c.omarchy) ?? newest) < newest,
+    ([id, c]) => id !== s.host && (release(c.omarchy) ?? newest) < newest,
   );
   const names = (list: typeof computers) => shortList(list.map(([id]) => s.nameOf(id)));
 
@@ -425,7 +429,7 @@ function OmarchyVersions({ s }: { s: SyncState }) {
     return (
       <Group title="Trying Newer Omarchy Settings">
         <Row
-          title={`This computer has Omarchy ${me.omarchy} and uses the settings from Omarchy ${newest}.`}
+          title={`This computer has Omarchy ${me.omarchy} and uses the settings from Omarchy ${Math.floor(newest / 1000)}.${newest % 1000}.`}
           detail="If something doesn't work, put back the settings it had before. Updating Omarchy here keeps the newer ones for good."
           end={
             <Push
@@ -691,8 +695,11 @@ export function SyncPane({ s }: { s: SyncState }) {
               title="Coming to This Computer"
               footer={`${from} Syncing applies these here, and History can undo them.`}
             >
-              {byFolder(ov.incoming_files, s.catalog).map(([label, files]) => (
-                <Row key={label} title={label} detail={files.join(', ')} />
+              {byFolder(
+                ov.incoming_files.map((path) => ({ path })),
+                s.catalog,
+              ).map(([label, files]) => (
+                <Row key={label} title={label} detail={files.map((f) => f.name).join(', ')} />
               ))}
             </Group>
           )}

@@ -11,22 +11,35 @@ export function ago(unix: number, now: number) {
   return `${plural(Math.floor(s / 86400), 'day')} ago`;
 }
 
-/** Groups paths under home by their plain folder name, keeping the file names. */
-export function byFolder(paths: string[], catalog: Catalog): [string, string[]][] {
-  const name = (path: string) => {
+/** Where web app icons live; they go with the web apps (see `Data::syncs`). */
+const ICON_DIR = '.local/share/icons/hicolor/256x256/apps';
+
+/**
+ * Groups files under home by their plain folder name, each kept whole with its file name, so
+ * two files of the same name in different folders stay apart.
+ */
+export function byFolder<T extends { path: string }>(
+  files: T[],
+  catalog: Catalog,
+): [string, (T & { name: string })[]][] {
+  const folder = (path: string) => {
     if (path === catalog.data_label) return path;
     // Only the background in use syncs, kept apart from the folders (see save_background).
     if (path.startsWith('.background/')) return 'Background';
+    const target = path.startsWith(`${ICON_DIR}/`)
+      ? `.local/share/applications${path.slice(ICON_DIR.length)}`
+      : path;
     const match = catalog.folders
-      .filter((f) => path === f.path || path.startsWith(`${f.path}/`))
+      .filter((f) => target === f.path || target.startsWith(`${f.path}/`))
       .toSorted((a, b) => b.path.length - a.path.length)[0];
     return match ? match.name : path;
   };
-  const groups = new Map<string, string[]>();
-  for (const path of paths) {
-    const key = name(path);
+  const groups = new Map<string, (T & { name: string })[]>();
+  for (const file of files) {
+    const key = folder(file.path);
     if (!groups.has(key)) groups.set(key, []);
-    if (path !== catalog.data_label) groups.get(key)!.push(path.split('/').pop()!);
+    if (file.path !== catalog.data_label)
+      groups.get(key)!.push({ ...file, name: file.path.split('/').pop()! });
   }
   return [...groups.entries()].toSorted((a, b) => a[0].localeCompare(b[0]));
 }
