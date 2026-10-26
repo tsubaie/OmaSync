@@ -340,7 +340,7 @@ pub fn resolve(
         // files, which would otherwise save the clashing ones back over the choice.
         settle_pause(ctx).map_err(fail)?;
         let saved_first = save_newly_synced(ctx, &synced_before).map_err(fail)?;
-        run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
+        apply_chezmoi(ctx).map_err(fail)?;
         saved_first
     };
     // Joined: the rest is an ordinary sync (apply here, share, apps and plugins).
@@ -606,7 +606,7 @@ fn sync_inner(
     step("Updating this computer");
     notes.extend(settle_pause(ctx).map_err(fail)?);
     notes.extend(save_newly_synced(ctx, &synced_before).map_err(fail)?);
-    run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
+    apply_chezmoi(ctx).map_err(fail)?;
     notes.extend(remove_plugins_removed_elsewhere(ctx).map_err(fail)?);
     let data = ctx.load_data();
     // The Current theme switch governs applying it too.

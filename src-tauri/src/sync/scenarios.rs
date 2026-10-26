@@ -738,6 +738,92 @@ fn joining_backs_up_this_computers_own_theme_and_background_first() {
     );
 }
 
+/// Gives a computer its own theme and a background in its pictures.
+fn own_look(lab: &mut Lab, name: &str) {
+    lab.write(name, ".local/state/omarchy/current/theme.name", "bees\n");
+    lab.write(name, "Pictures/bees.jpg", "b's jpg");
+    let home = lab.ctx(name).home.clone();
+    let link = home.join(".local/state/omarchy/current/background");
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(home.join("Pictures/bees.jpg"), link).unwrap();
+}
+
+#[test]
+#[ignore]
+fn joining_takes_the_shared_theme_and_background_instead_of_replacing_them() {
+    let mut lab = pair();
+    own_look(&mut lab, "b");
+    lab.join("b");
+    lab.settle();
+    assert_eq!(lab.ctx("b").current_theme().as_deref(), Some("mine"));
+    let shown = lab.ctx("b").current_background().unwrap();
+    assert_eq!(shown.file_name().unwrap(), "hills.jpg");
+    for who in ["a", "b"] {
+        let data = lab.data(who);
+        assert_eq!(data.theme.as_deref(), Some("mine"));
+        assert_eq!(data.background.as_deref(), Some("hills.jpg"));
+    }
+}
+
+#[test]
+#[ignore]
+fn a_computer_that_leaves_the_theme_out_keeps_its_own_look_and_shares_none() {
+    let mut lab = pair();
+    own_look(&mut lab, "b");
+    lab.join_keeping("b", &[".config/omarchy/themes"]);
+    lab.settle();
+    assert_eq!(lab.ctx("b").current_theme().as_deref(), Some("bees"));
+    let shown = lab.ctx("b").current_background().unwrap();
+    assert_eq!(shown.file_name().unwrap(), "bees.jpg");
+    assert!(!lab.calls("b").contains("theme set") && !lab.calls("b").contains("theme bg set"));
+    let data = lab.data("a");
+    assert_eq!(data.theme.as_deref(), Some("mine"));
+    assert_eq!(data.background.as_deref(), Some("hills.jpg"));
+    // Nor does it show its own look as waiting to be shared.
+    let b = lab.ctx("b").clone();
+    assert!(look_changes(&b, &b.load_data()).is_empty());
+}
+
+#[test]
+#[ignore]
+fn each_computer_keeps_its_battery_widget_and_the_shell_reloads_new_settings() {
+    let shell = ".config/omarchy/shell.json";
+    let file = |bar: &str, off: &[&str]| {
+        let off: Vec<String> = off.iter().map(|p| format!("\n    \"{p}\"")).collect();
+        format!(
+            "{{\n  \"bar\": \"{bar}\",\n  \"disabledPlugins\": [{}\n  ]\n}}\n",
+            off.join(",")
+        )
+    };
+    // a is a desktop with the battery widget off; b is a laptop with it on.
+    let mut lab = pair();
+    lab.write("a", shell, file("a", &["omarchy.lock", "omarchy.battery"]));
+    lab.sync_ok("a");
+    lab.battery("b", true);
+    lab.write("b", shell, file("b", &[]));
+    lab.join("b");
+    assert_eq!(lab.read("b", shell), file("a", &["omarchy.lock"]));
+    assert!(lab.calls("b").contains("omarchy restart shell"));
+    // b's bar reaches a with a's widget still off, and neither shares the switch back (settle
+    // would fail).
+    lab.write("b", shell, file("b2", &["omarchy.lock"]));
+    lab.settle();
+    assert_eq!(
+        lab.read("a", shell),
+        file("b2", &["omarchy.lock", "omarchy.battery"])
+    );
+    // Undoing b's change puts a's bar back, and the shell reloads it.
+    std::fs::write(lab.ctx("a").home.join(".lab/calls"), "").unwrap();
+    lab.undo("a", 0).unwrap();
+    assert_eq!(
+        lab.read("a", shell),
+        file("a", &["omarchy.lock", "omarchy.battery"])
+    );
+    assert!(lab.calls("a").contains("omarchy restart shell"));
+    lab.settle();
+    assert_eq!(lab.read("b", shell), file("a", &["omarchy.lock"]));
+}
+
 #[test]
 #[ignore]
 fn joining_with_a_folder_kept_separate_leaves_it_as_it_was() {
@@ -1156,6 +1242,9 @@ fn caches_git_folders_and_backup_files_never_travel() {
         "x",
     );
     lab.write("a", ".config/hypr/bindings.lua.bak.1", "old");
+    for f in ["x.bak", "x.bak-2", "x.orig", "x~", ".keep"] {
+        lab.write("a", &format!(".config/hypr/{f}"), "old");
+    }
     lab.write("a", ".config/omarchy/backgrounds/big.jpg", "jpg");
     lab.write("a", ".config/hypr/monitors.conf", "monitor=eDP-1");
     install_plugins(lab.ctx("b"), &["dock".into()]).unwrap();
@@ -1164,6 +1253,11 @@ fn caches_git_folders_and_backup_files_never_travel() {
         ".config/omarchy/plugins/dock/.git/config",
         ".config/omarchy/plugins/dock/node_modules/x/index.js",
         ".config/hypr/bindings.lua.bak.1",
+        ".config/hypr/x.bak",
+        ".config/hypr/x.bak-2",
+        ".config/hypr/x.orig",
+        ".config/hypr/x~",
+        ".config/hypr/.keep",
         ".config/omarchy/backgrounds/big.jpg",
         ".config/hypr/monitors.conf",
     ] {
@@ -1173,6 +1267,26 @@ fn caches_git_folders_and_backup_files_never_travel() {
     // its .git folder, so chezmoi keeps listing it.
     let new = stage(lab.ctx("a"), &lab.data("a"), &|_| {}).unwrap();
     assert_eq!(new, 0);
+}
+
+#[test]
+#[ignore]
+fn backup_files_an_older_version_shared_leave_the_sync_folder() {
+    let mut lab = pair();
+    lab.join("b");
+    let ctx = lab.ctx("a").clone();
+    for f in ["bindings.lua.bak-1", ".keep", "input.lua.orig"] {
+        std::fs::write(ctx.src.join("dot_config/hypr").join(f), "old").unwrap();
+    }
+    ctx.git(&["add", "-A"]).unwrap();
+    ctx.git(&["commit", "-q", "-m", "Sync from a"]).unwrap();
+    // Nothing new at the top: the next sync still takes them out, for everyone.
+    lab.settle();
+    let left = ctx.git(&["ls-files", "dot_config/hypr"]).unwrap();
+    assert!(
+        !left.contains(".bak-") && !left.contains(".keep") && !left.contains(".orig"),
+        "{left}"
+    );
 }
 
 #[test]
