@@ -166,10 +166,22 @@ pub(crate) fn adopt(ctx: &Ctx, url: &str, step: &dyn Fn(&str)) -> Result<PathBuf
     data.computers.entry(ctx.host.clone()).or_default().paused = paused;
     ctx.save_data(&data)?;
     step("Backing up this computer's current settings");
-    let backup = backup(ctx, &data.folders, &format!("before-first-sync-{}", now()))?;
+    let backup = backup_now(ctx, &data.folders, "before-first-sync")?;
     step("Updating this computer");
     run(None, "chezmoi", &["apply", "--force"])?;
     Ok(backup)
+}
+
+/// `backup` named `{prefix}-{now}`, never over an earlier one: two in the same second (an
+/// undo, then a sync) each keep their own file.
+pub(crate) fn backup_now(ctx: &Ctx, folders: &[String], prefix: &str) -> Result<PathBuf, String> {
+    let dir = ctx.home.join(".local/share/omarchy-sync/backups");
+    let stamp = format!("{prefix}-{}", now());
+    let name = std::iter::once(stamp.clone())
+        .chain((2..).map(|n| format!("{stamp}-{n}")))
+        .find(|n| !dir.join(format!("{n}.tar.gz")).exists())
+        .unwrap_or(stamp);
+    backup(ctx, folders, &name)
 }
 
 pub(crate) fn backup(ctx: &Ctx, folders: &[String], name: &str) -> Result<PathBuf, String> {
@@ -188,4 +200,36 @@ pub(crate) fn backup(ctx: &Ctx, folders: &[String], name: &str) -> Result<PathBu
         run(None, "tar", &args)?;
     }
     Ok(file)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backups_made_in_the_same_second_each_keep_their_own_file() {
+        let home = TempDir::new("backups").unwrap();
+        let ctx = Ctx {
+            home: home.path().to_path_buf(),
+            src: home.path().join("src"),
+            host: "h".into(),
+            hostname: "h".into(),
+        };
+        let folders = vec![".config/hypr".to_string()];
+        let file = ctx.home.join(".config/hypr/bindings.lua");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        // Fast enough to share a second, at least the first two.
+        let made: Vec<PathBuf> = ["first", "second", "third"]
+            .iter()
+            .map(|content| {
+                std::fs::write(&file, content).unwrap();
+                backup_now(&ctx, &folders, "before-syncing").unwrap()
+            })
+            .collect();
+        for (path, content) in made.iter().zip(["first", "second", "third"]) {
+            let f = path.to_string_lossy();
+            let kept = run(None, "tar", &["-xOzf", &f, ".config/hypr/bindings.lua"]);
+            assert_eq!(kept.as_deref(), Ok(content), "{path:?}");
+        }
+    }
 }
