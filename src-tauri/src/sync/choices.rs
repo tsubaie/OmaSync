@@ -154,6 +154,10 @@ impl Data {
     }
 
     pub fn place_plugin(&mut self, computer: &str, plugin: &str, on: bool) {
+        // Synced again: computers that haven't removed their copy yet keep it.
+        if on {
+            self.removed_plugins.remove(plugin);
+        }
         let owners: Vec<String> = self
             .computers
             .iter()

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Input, Label, Text, TextField } from 'react-aria-components';
-import { api, type Folder, type Plugin } from '../api';
+import { api, type Folder, type Plugin, type PluginsUpdated } from '../api';
 import type { SyncState } from '../state';
 import { CircleCheck, Download } from 'lucide-react';
 import { plural } from '../format';
@@ -150,28 +150,18 @@ export function PluginsPane({ s }: { s: SyncState }) {
   const [removing, setRemoving] = useState<string | null>(null);
   const { computers, name, column, columns, many } = s.matrix;
   /** Runs one of Omarchy's plugin commands, then looks again. */
-  const omarchy = (
+  const omarchy = <T,>(
     label: string,
-    work: (onStep: (step: string) => void) => Promise<unknown>,
-    said?: (out: string) => void,
+    work: (onStep: (step: string) => void) => Promise<T>,
+    said?: (out: T) => void,
   ) =>
     s.act(label, work, (out) => {
-      said?.(String(out ?? ''));
+      said?.(out);
       return s.refresh();
     });
-  /** Omarchy's word, a line per plugin: one line as it is, several summed up. */
-  const updated = (out: string) => {
-    const lines = out.trim().split('\n').filter(Boolean);
-    const changed = lines.filter((l) => l.startsWith('Updated')).length;
-    const text =
-      lines.length > 1
-        ? changed
-          ? `Updated ${plural(changed, 'plugin')}; the rest were up to date.`
-          : 'All your plugins are up to date.'
-        : lines[0] || 'Your plugins are up to date.';
-    s.setNotice({ good: true, text });
-  };
-  const newer = fromGit.filter((p) => p.update === true).length;
+  /** The summary of an update: a warning when a plugin was skipped or failed. */
+  const updated = ({ text, warn }: PluginsUpdated) => s.setNotice({ good: true, warn, text });
+  const newer = fromGit.filter((p) => p.update === 'newer').length;
   const updatingAll = s.plan.length > 0 && s.plan.every((step) => step.startsWith('Updating '));
   return (
     <>
@@ -184,7 +174,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
         <>
           <Group
             title="Your Plugins"
-            footer="Sync puts a plugin on a computer after you approve it there; switching it off never removes it. Enabled is part of your bar layout, so it reaches every computer."
+            footer="Sync puts a plugin on a computer after you approve it there; switching it off never removes it. Removing a synced plugin removes it from every computer that syncs it at its next sync; to keep it on one as its own, switch Sync off there first. Enabled is part of your bar layout, so it reaches every computer."
           >
             {fromGit.length > 0 && (
               <Row
@@ -192,7 +182,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
                 detail={`${plural(fromGit.length, 'plugin')} came from git; Omarchy fetches the newest version of each. ${
                   newer
                     ? `${plural(newer, 'update')} available.`
-                    : fromGit.some((p) => p.update !== null)
+                    : fromGit.some((p) => p.update === 'current')
                       ? 'All up to date.'
                       : ''
                 }`}
@@ -343,7 +333,8 @@ function EnabledToggle({ s, p }: { s: SyncState; p: Plugin }) {
  * A plugin in three lines: its name, kind and source; its description, cut to one line (the
  * whole on hover); and, for one of your own, the plugin itself, apart from the Sync switches in
  * the row's columns: its Enabled switch (the shell's on or off, kept in the bar layout), the
- * day's word on updates (Up to date, or Update in the accent colour when there's one), and
+ * day's word on updates (Up to date, Changed on this computer with no Update, or Update in the
+ * accent colour when there's one), and
  * Remove. One of Omarchy's own has only Enabled, at the end of its row.
  */
 function PluginText({
@@ -400,22 +391,25 @@ function PluginText({
             Enabled
             <EnabledToggle s={s} p={p} />
           </span>
-          {p.update === false && (
+          {p.update === 'current' && (
             <span className="who good">
               <CircleCheck size={13} strokeWidth={2.25} aria-hidden="true" />
               Up to date
             </span>
           )}
-          {onUpdate && p.source && p.update !== false && (
+          {p.update === 'edited' && <span className="who">Changed on this computer</span>}
+          {onUpdate && p.source && (p.update === 'newer' || p.update === null) && (
             <Link
-              accent={p.update === true}
+              accent={p.update === 'newer'}
               label={
-                p.update ? `Update (an update is available for ${p.name})` : `Update (${p.name})`
+                p.update === 'newer'
+                  ? `Update (an update is available for ${p.name})`
+                  : `Update (${p.name})`
               }
               disabled={!s.idle}
               onPress={onUpdate}
             >
-              {p.update && <Download size={13} strokeWidth={2.25} aria-hidden="true" />}
+              {p.update === 'newer' && <Download size={13} strokeWidth={2.25} aria-hidden="true" />}
               {s.busy === `Updating ${p.name}` ? 'Updating…' : 'Update'}
             </Link>
           )}
@@ -434,8 +428,9 @@ function PluginText({
       {removing && (
         <div className="confirm">
           <p className="detail">
-            Removes {p.name} from this computer only. Your other computers keep it, and the bar
-            layout keeps its settings.
+            {synced
+              ? `Removes ${p.name} from every computer at its next sync.`
+              : `Removes ${p.name} from this computer. It isn't synced, so your other computers keep theirs.`}
           </p>
           <div className="actions">
             <Link onPress={() => onRemoving?.(false)}>Cancel</Link>
@@ -447,7 +442,7 @@ function PluginText({
                 onRemove?.();
               }}
             >
-              Remove from This Computer
+              {synced ? 'Remove from Every Computer' : 'Remove from This Computer'}
             </Push>
           </div>
         </div>

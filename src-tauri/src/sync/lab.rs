@@ -9,7 +9,8 @@
 //!    history or in a backup;
 //! 3. a version that reached the history stays there for good (or is still the file on this
 //!    computer, or in a backup, when a switch took its folder out of the sync);
-//! 4. settings that don't sync here are never touched.
+//! 4. settings that don't sync here are never touched (a plugin another computer removed goes,
+//!    once saved in a backup).
 //!
 //! Scenarios run one at a time, because chezmoi and git find their folders through environment
 //! variables, which are process-wide.
@@ -54,10 +55,19 @@ case "$1 $2" in
   "theme set") mkdir -p "$XDG_STATE_HOME/omarchy/current"; echo "$3" > "$XDG_STATE_HOME/omarchy/current/theme.name" ;;
   "theme bg") mkdir -p "$XDG_STATE_HOME/omarchy/current"; ln -sfn "$4" "$XDG_STATE_HOME/omarchy/current/background" ;;
   "plugin list"|"plugin catalog") echo "${LAB_PLUGIN_JSON:-[]}" ;;
-  "plugin add") d="$HOME/.config/omarchy/plugins/$(basename "$3" .git)"; mkdir -p "$d"
+  "plugin add") case "$3" in *unreachable*) echo "lab: couldn't reach $3" >&2; exit 1 ;; esac
+    d="$HOME/.config/omarchy/plugins/$(basename "$3" .git)"; mkdir -p "$d"
     echo "{\"name\":\"$(basename "$3" .git)\"}" > "$d/manifest.json"
     git init -q "$d" && git -C "$d" remote add origin "$3" ;;
-  "plugin remove") rm -rf "$HOME/.config/omarchy/plugins/$3" ;;
+  "plugin remove") rm -rf "$HOME/.config/omarchy/plugins/$3"
+    # The shell drops a removed plugin's place on the bar (a line each in the lab's layouts).
+    [ -f "$HOME/.config/omarchy/shell.json" ] && sed -i "/\"$3\"/d" "$HOME/.config/omarchy/shell.json"; true ;;
+  # Like Omarchy's: a fast-forward from the source, refused over local changes.
+  "plugin update") d="$HOME/.config/omarchy/plugins/$3"
+    [ -d "$(git -C "$d" remote get-url origin)" ] || { echo "$3 is up to date."; exit 0; }
+    git -C "$d" fetch -q origin HEAD && [ "$(git -C "$d" rev-parse HEAD)" = "$(git -C "$d" rev-parse FETCH_HEAD)" ] && { echo "$3 is up to date."; exit 0; }
+    git -C "$d" merge -q --ff-only FETCH_HEAD >/dev/null 2>&1 || { echo "omarchy-plugin-update: cannot fast-forward '$3'; you have local changes in $d" >&2; exit 1; }
+    echo "Updated $3." ;;
 esac"#,
     ),
     (
@@ -570,8 +580,11 @@ impl Lab {
             } else {
                 let now = disk(path);
                 if let Some(before) = m.untouched.get(path) {
+                    // Only a plugin another computer removed goes, and only once saved.
                     assert!(
-                        *before == now,
+                        *before == now
+                            || now.is_none()
+                                && before.as_ref().is_some_and(|b| in_backups(path, b)),
                         "{name}: {path} doesn't sync here but changed"
                     );
                 }

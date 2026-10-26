@@ -419,9 +419,12 @@ async fn add_plugin(url: String) -> Result<()> {
         .map_err(Problem::from)
 }
 
-/// Updates one plugin from git, or all of them, a step each. Returns what Omarchy said.
+/// Updates one plugin from git, or all of them, a step each. Returns a summary to show.
 #[tauri::command]
-async fn update_plugins(id: Option<String>, on_step: Channel<String>) -> Result<String> {
+async fn update_plugins(
+    id: Option<String>,
+    on_step: Channel<String>,
+) -> Result<sync::PluginsUpdated> {
     if let Some(id) = &id {
         plugin_id(id)?;
     }
@@ -430,7 +433,8 @@ async fn update_plugins(id: Option<String>, on_step: Channel<String>) -> Result<
         .map_err(Problem::from)
 }
 
-/// Removes a plugin from this computer only (after the person confirmed).
+/// Removes a plugin here and, at their next sync, from the computers that sync it (after the
+/// person confirmed).
 #[tauri::command]
 async fn remove_plugin(id: String) -> Result<()> {
     plugin_id(&id)?;

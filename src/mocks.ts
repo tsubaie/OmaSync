@@ -241,7 +241,7 @@ const status = (): Status => ({
         enabled: true,
         can_disable: true,
         source: 'https://github.com/sspaeti/omarchy-plugin-timezones.git',
-        update: !timezonesUpdated,
+        update: timezonesUpdated ? 'current' : 'newer',
       },
       {
         id: 'webcam',
@@ -399,7 +399,12 @@ mockIPC((cmd, args) => {
     case 'update_plugins':
       timezonesUpdated = true;
       if (!a.id) emit(a.onStep, ['\u0001plan\tUpdating Timezones', 'Updating Timezones']);
-      return a.id ? `${a.id} is up to date.` : 'Updated timezones.';
+      return a.id
+        ? { text: 'Timezones is up to date.', warn: false }
+        : {
+            text: "Updated 1 plugin; the rest were up to date. Webcam Controls has changes on this computer, so it wasn't updated.",
+            warn: true,
+          };
     case 'set_plugin_enabled':
     case 'add_plugin':
     case 'remove_plugin':

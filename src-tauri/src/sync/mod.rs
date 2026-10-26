@@ -28,11 +28,13 @@ pub use bar::{bar_indicator, ensure_bar_indicator, set_bar_indicator};
 pub use ctx::{Ctx, edit, edit_locked, friendly, is_git_address, run, sync_space};
 // What the updater shares with a sync.
 pub(crate) use ctx::{TempDir, curl_percent, lock, lock_wait, plan, run_progress};
-pub use data::{Data, Script, describe_changes, is_plugin_id, name_taken, toggle};
+pub use data::{Data, PluginUpdate, Script, describe_changes, is_plugin_id, name_taken, toggle};
 pub use engine::{Conflict, Keep, Report, SyncError, disconnect, put_back_omarchy, resolve, sync};
 pub use history::undo;
 pub use overview::{Overview, overview};
-pub use plugins::{add_plugin, install_plugins, remove_plugin, set_plugin_enabled, update_plugins};
+pub use plugins::{
+    PluginsUpdated, add_plugin, install_plugins, remove_plugin, set_plugin_enabled, update_plugins,
+};
 pub use rules::{DATA_LABEL, FOLDERS, folder_app};
 pub use setup::{SetupState, install_helpers, join, probe, sign_in, start};
 pub use stage::{set_folder, set_plugin};
