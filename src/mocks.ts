@@ -200,6 +200,14 @@ const status = (): Status => ({
     // "repo": an app here comes from its maker's own repository, which this computer lacks.
     repos_here: [],
     snapper_available: false,
+    backups: [
+      {
+        name: `before-first-sync-${now - 86400}.tar.gz`,
+        label: 'Before first sync',
+        at: now - 86400,
+        folders: ['.config/hypr', '.config/omarchy'],
+      },
+    ],
     missing_repos:
       scenario === 'repo'
         ? [
@@ -284,10 +292,29 @@ const status = (): Status => ({
   },
 });
 
+// "signin": not signed in yet; "first" and "joining": signed in, with no synced settings yet or
+// with some to bring in. Ghostty isn't installed, so a first computer doesn't sync it by default.
 const setup: SetupState =
   scenario === 'setup'
-    ? { missing: ['chezmoi'], signed_in: false, login: null, found: false, ready: false }
-    : { missing: [], signed_in: true, login: 'someone', found: false, ready: true };
+    ? {
+        missing: ['chezmoi'],
+        signed_in: false,
+        login: null,
+        found: false,
+        ready: false,
+        folders: [],
+      }
+    : {
+        missing: [],
+        signed_in: scenario !== 'signin',
+        login: scenario === 'signin' ? null : 'someone',
+        found: scenario === 'joining',
+        ready: !['signin', 'first', 'joining'].includes(scenario),
+        folders: FOLDERS.map(([path, , on]) => ({
+          path,
+          default: on && path !== '.config/ghostty',
+        })),
+      };
 
 // Two settings changed on both computers: keyboard shortcuts and the terminal.
 const conflict: Problem = {
@@ -405,6 +432,14 @@ mockIPC((cmd, args) => {
             text: "Updated 1 plugin; the rest were up to date. Webcam Controls has changes on this computer, so it wasn't updated.",
             warn: true,
           };
+    case 'sign_in':
+      return null;
+    case 'start':
+    case 'join':
+      // Stays put, so the page can be checked with what it sent.
+      return new Promise(() => {});
+    case 'restore_backup':
+      return null;
     case 'set_plugin_enabled':
     case 'add_plugin':
     case 'remove_plugin':

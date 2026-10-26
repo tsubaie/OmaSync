@@ -691,6 +691,56 @@ fn joining_backs_up_this_computers_own_theme_and_background_first() {
     );
 }
 
+#[test]
+#[ignore]
+fn joining_with_a_folder_kept_separate_leaves_it_as_it_was() {
+    let mut lab = pair();
+    let toml = ".config/alacritty/alacritty.toml";
+    lab.write("b", toml, "b's own\n");
+    lab.join_keeping("b", &[".config/alacritty"]);
+    assert_eq!(lab.read("b", toml), "b's own\n");
+    assert_eq!(lab.read("b", ".config/hypr/bindings.lua"), "-- a keys\n");
+    let me = lab.data("b").computers["b"].clone();
+    assert_eq!(me.skip_files, [".config/alacritty"]);
+    // And it stays out afterwards, while a keeps syncing it.
+    lab.write("a", toml, "a = 2\n");
+    lab.settle();
+    assert_eq!(lab.read("b", toml), "b's own\n");
+}
+
+#[test]
+#[ignore]
+fn a_safety_backup_comes_back_and_what_it_replaced_is_kept() {
+    let mut lab = pair();
+    let backup = lab.join("b");
+    let keys = ".config/hypr/bindings.lua";
+    assert_eq!(lab.read("b", keys), "-- a keys\n");
+    let ctx = lab.ctx("b").clone();
+    let name = backup.file_name().unwrap().to_string_lossy().into_owned();
+    let listed = list_backups(&ctx);
+    let entry = listed.iter().find(|b| b.name == name).unwrap();
+    assert_eq!(entry.label, "Before first sync");
+    assert!(
+        entry.folders.iter().any(|f| f == ".config/hypr"),
+        "{entry:?}"
+    );
+
+    restore_backup(&ctx, &name).unwrap();
+    assert_eq!(lab.read("b", keys), "-- b keys\n");
+    // What it replaced went into a backup of its own first.
+    let before = list_backups(&ctx)
+        .into_iter()
+        .find(|b| b.label == "Before restoring")
+        .unwrap();
+    let tar = ctx.backups().join(&before.name);
+    let saved = run(None, "tar", &["-xOzf", &tar.to_string_lossy(), keys]);
+    assert_eq!(saved.as_deref(), Ok("-- a keys"));
+    // Restored files in synced folders share at the next sync.
+    lab.settle();
+    assert_eq!(lab.read("a", keys), "-- b keys\n");
+    assert!(restore_backup(&ctx, "../escape.tar.gz").is_err());
+}
+
 /// A repository another computer recorded, with its key, for `add_repository`.
 fn chaotic() -> Data {
     let mut data = Data::default();
@@ -2097,11 +2147,11 @@ esac
         );
     }
     let a = lab.ctx("a").clone();
-    start(&a, &|_| {}).unwrap();
+    start(&a, None, &|_| {}).unwrap();
     assert!(lab.calls("a").contains("gh repo create"));
     lab.sync_ok("a");
     let b = lab.ctx("b").clone();
-    join(&b, "lab", &|_| {}).unwrap();
+    join(&b, "lab", &[], &|_| {}).unwrap();
     lab.check("b");
     lab.sync_ok("b");
     unsafe {

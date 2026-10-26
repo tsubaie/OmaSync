@@ -349,7 +349,7 @@ impl Lab {
     /// The first computer: creates the sync space, as Setup's "Save this computer's settings".
     pub fn start(&mut self, name: &str) {
         let ctx = self.ctx(name).clone();
-        seed(&ctx).unwrap();
+        seed(&ctx, None).unwrap();
         ctx.git(&["remote", "add", "origin", &self.remote]).unwrap();
         self.sync_ok(name);
     }
@@ -357,8 +357,15 @@ impl Lab {
     /// Another computer takes the synced settings ("Use My Synced Settings"), then syncs.
     /// Returns its backup.
     pub fn join(&mut self, name: &str) -> PathBuf {
+        self.join_keeping(name, &[])
+    }
+
+    /// Joins, keeping this computer's own version of `keep` (Setup's "Keep Separate on This
+    /// Computer").
+    pub fn join_keeping(&mut self, name: &str, keep: &[&str]) -> PathBuf {
         let ctx = self.ctx(name).clone();
-        let backup = adopt(&ctx, &self.remote, &|_| {}).unwrap();
+        let keep: Vec<String> = keep.iter().map(|f| f.to_string()).collect();
+        let backup = adopt(&ctx, &self.remote, &keep, &|_| {}).unwrap();
         self.check(name);
         self.sync_ok(name);
         backup

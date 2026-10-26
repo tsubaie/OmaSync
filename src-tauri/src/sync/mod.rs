@@ -38,7 +38,10 @@ pub use plugins::{
     PluginsUpdated, add_plugin, install_plugins, remove_plugin, set_plugin_enabled, update_plugins,
 };
 pub use rules::{DATA_LABEL, FOLDERS, folder_app, folders_for_profile};
-pub use setup::{SetupState, install_helpers, join, probe, sign_in, start};
+pub use setup::{
+    BackupEntry, SetupState, install_helpers, is_backup_name, join, probe, restore_backup, sign_in,
+    start,
+};
 pub use stage::{set_folder, set_plugin};
 
 // Shared by the modules, each of which starts with `use super::*`.

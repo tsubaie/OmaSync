@@ -77,6 +77,7 @@ pub fn folders_for_profile(profile: &DistroProfile) -> Vec<(&'static str, &'stat
 }
 
 /// The folders of `folders_for_profile` that are on by default.
+#[cfg(test)]
 pub fn default_folders_for_profile(profile: &DistroProfile) -> Vec<&'static str> {
     folders_for_profile(profile)
         .into_iter()

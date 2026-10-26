@@ -430,10 +430,7 @@ fn settle_pause(ctx: &Ctx) -> Result<Option<String>, String> {
 /// pauses syncing them again.
 pub fn put_back_omarchy(ctx: &Ctx) -> Result<(), String> {
     let _lock = lock_wait(ctx)?;
-    let file = ctx
-        .home
-        .join(".local/share/omarchy-sync/backups")
-        .join(format!("{OMARCHY_BACKUP}.tar.gz"));
+    let file = ctx.backups().join(format!("{OMARCHY_BACKUP}.tar.gz"));
     let (f, h) = (file.to_string_lossy(), ctx.home.to_string_lossy());
     // The folders are only cleared once the saved copy is known to read.
     run(None, "tar", &["-tzf", &f])?;

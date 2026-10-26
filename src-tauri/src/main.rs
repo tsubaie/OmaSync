@@ -42,6 +42,7 @@ fn main() {
             sign_in,
             start,
             join,
+            restore_backup,
             install_apps,
             install_plugins,
             set_app_script,
@@ -326,22 +327,45 @@ fn sign_in() -> Result<()> {
     sync::sign_in().map_err(Problem::from)
 }
 
+/// The folders the page chose, each one the app knows.
+fn known_folders(paths: Vec<String>) -> Result<Vec<String>> {
+    paths
+        .iter()
+        .map(|p| known_folder(p).map(String::from))
+        .collect()
+}
+
+/// `folders`: the ones chosen to sync (None: the defaults).
 #[tauri::command]
-async fn start(on_step: Channel<String>) -> Result<()> {
-    blocking(move |ctx| sync::start(ctx, &steps(on_step)))
+async fn start(folders: Option<Vec<String>>, on_step: Channel<String>) -> Result<()> {
+    let folders = folders.map(known_folders).transpose()?;
+    blocking(move |ctx| sync::start(ctx, folders.as_deref(), &steps(on_step)))
         .await
         .map_err(Problem::from)
 }
 
-/// Returns where this computer's previous settings were backed up.
+/// Returns where this computer's previous settings were backed up. `skip_folders`: the ones
+/// this computer keeps its own version of.
 #[tauri::command]
-async fn join(on_step: Channel<String>) -> Result<String> {
+async fn join(skip_folders: Option<Vec<String>>, on_step: Channel<String>) -> Result<String> {
+    let keep = known_folders(skip_folders.unwrap_or_default())?;
     blocking(move |ctx| {
         let login = sync::run(None, "gh", &["api", "user", "--jq", ".login"])?;
-        sync::join(ctx, &login, &steps(on_step)).map(|p| p.display().to_string())
+        sync::join(ctx, &login, &keep, &steps(on_step)).map(|p| p.display().to_string())
     })
     .await
     .map_err(Problem::from)
+}
+
+/// Puts a safety backup back; `name` must be a plain backup file name, never a path.
+#[tauri::command]
+async fn restore_backup(name: String) -> Result<()> {
+    if !sync::is_backup_name(&name) {
+        return Err("not a backup".to_string().into());
+    }
+    blocking(move |ctx| sync::restore_backup(ctx, &name))
+        .await
+        .map_err(Problem::from)
 }
 
 /// Installs exactly the synced apps this computer is missing, nothing the page names itself.

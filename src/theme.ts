@@ -116,6 +116,7 @@ export function applyLook(look: Look) {
   const root = document.documentElement;
   const p = palette(look.colors_toml);
   for (const [name, value] of Object.entries(p)) root.style.setProperty(`--${name}`, css(value));
-  root.style.colorScheme = luminance(p.bg) < 0.2 ? 'dark' : 'light';
+  // The same line palette() draws between light and dark themes.
+  root.style.colorScheme = luminance(p.bg) <= 0.4 ? 'dark' : 'light';
   root.classList.toggle('no-motion', !look.motion);
 }

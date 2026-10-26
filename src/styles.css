@@ -667,6 +667,11 @@ output {
 .compare tr.changed td {
   background: color-mix(in srgb, var(--warn) 16%, transparent);
 }
+.compare tr.fold td {
+  padding: 3px 10px;
+  text-align: center;
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
 .compare tr.changed td.gap {
   background: color-mix(in srgb, var(--warn) 6%, transparent);
 }

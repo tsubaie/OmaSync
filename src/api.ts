@@ -55,6 +55,19 @@ export type SetupState = {
   login: string | null;
   found: boolean;
   ready: boolean;
+  /** Every folder setup offers; `default`: a first computer syncs it unless told otherwise. */
+  folders: { path: string; default: boolean }[];
+};
+/** A safety backup in ~/.local/share/omarchy-sync/backups. */
+export type BackupEntry = {
+  /** Its file name, which restoreBackup takes. */
+  name: string;
+  /** What it was made before, in words. */
+  label: string;
+  /** Unix time. */
+  at: number;
+  /** The folders and files in it, under home. */
+  folders: string[];
 };
 
 export type Computer = {
@@ -130,6 +143,8 @@ export type Overview = {
   repos_here: MissingRepo[];
   /** Whether a snapshot of the system is taken before installing apps or adding a repository. */
   snapper_available: boolean;
+  /** The safety backups, newest first. */
+  backups: BackupEntry[];
 };
 export type Status = {
   overview: Overview;
@@ -198,9 +213,15 @@ export const api = {
   undo: (sha: string, onStep: OnStep) => invoke<Report>('undo', { sha, onStep: steps(onStep) }),
   installHelpers: () => invoke<void>('install_helpers'),
   signIn: () => invoke<void>('sign_in'),
-  start: (onStep: OnStep) => invoke<void>('start', { onStep: steps(onStep) }),
-  /** Returns where this computer's previous settings were backed up. */
-  join: (onStep: OnStep) => invoke<string>('join', { onStep: steps(onStep) }),
+  /** `folders`: the ones chosen to sync; the defaults when left out. */
+  start: (onStep: OnStep, folders?: string[]) =>
+    invoke<void>('start', { folders: folders ?? null, onStep: steps(onStep) }),
+  /** Returns where this computer's previous settings were backed up. `skipFolders`: the ones
+   * this computer keeps its own version of. */
+  join: (onStep: OnStep, skipFolders?: string[]) =>
+    invoke<string>('join', { skipFolders: skipFolders ?? null, onStep: steps(onStep) }),
+  /** Puts a safety backup's files back, after backing up what they replace. */
+  restoreBackup: (name: string) => invoke<void>('restore_backup', { name }),
   installApps: () => invoke<Snapshot>('install_apps'),
   /** Adds an extra repository this computer needs (asks for the password). */
   addRepository: (name: string) => invoke<Snapshot>('add_repository', { name }),

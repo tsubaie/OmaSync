@@ -229,6 +229,11 @@ impl Ctx {
             .collect()
     }
 
+    /// Where the safety backups (`.tar.gz`, one per change that could lose something) go.
+    pub(crate) fn backups(&self) -> PathBuf {
+        self.home.join(".local/share/omarchy-sync/backups")
+    }
+
     /// Where Omarchy keeps what's current (theme, background) and the app its status.
     pub fn state_dir(&self) -> PathBuf {
         std::env::var("XDG_STATE_HOME")

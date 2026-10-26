@@ -93,6 +93,27 @@ export function diffLines(mine: string, theirs: string): DiffRow[] {
   return rows;
 }
 
+/**
+ * The runs of unchanged rows worth hiding: more than 6 in a row, keeping 3 next to each change.
+ * Each is [first, end) as row indexes.
+ */
+export function folds(rows: DiffRow[], context = 3): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i < rows.length;) {
+    if (rows[i].changed) {
+      i++;
+      continue;
+    }
+    let j = i;
+    while (j < rows.length && !rows[j].changed) j++;
+    const start = i === 0 ? 0 : i + context;
+    const end = j === rows.length ? j : j - context;
+    if (j - i > 2 * context && end > start) out.push([start, end]);
+    i = j;
+  }
+  return out;
+}
+
 /** Said before a change to the system, where a snapshot of it is taken first. */
 export const SNAPSHOT_FIRST =
   "A snapshot of this computer's system is taken first, so you can go back to it from the startup menu.";
