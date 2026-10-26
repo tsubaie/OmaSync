@@ -155,6 +155,12 @@ let barIndicator = true;
 /** The mock's one plugin with an update, until it's updated. */
 let timezonesUpdated = false;
 
+// Like the Rust side: order and empty lists don't count. Two fixed sentences stand in.
+const choiceChanges = () =>
+  same(data) !== same(shared)
+    ? ['yazi switched off for this computer', 'Kitty terminal left out on this computer']
+    : [];
+
 const status = (): Status => ({
   host: 'aaaa11112222',
   sync_space: 'https://github.com/someone/omarchy-sync',
@@ -165,7 +171,7 @@ const status = (): Status => ({
   data,
   overview: {
     unshared: scenario === 'conflict' ? ['.config/hypr/bindings.lua'] : [],
-    choice_changes: [],
+    choice_changes: choiceChanges(),
     incoming: 0,
     online: true,
     computers: [
@@ -408,14 +414,8 @@ mockIPC((cmd, args) => {
         ? Promise.reject(conflict)
         : { notes: [], waiting: [], snapshot: null };
     }
-    case 'add_apps':
-      data = { ...data, apps: [...new Set([...data.apps, ...(a.apps as string[])])] };
-      return data;
     case 'choices_changed':
-      // Like the Rust side: order and empty lists don't count. One fixed sentence stands in.
-      return same(data) !== same(shared)
-        ? ['yazi switched off for this computer', 'Kitty terminal left out on this computer']
-        : [];
+      return choiceChanges();
     case 'install_plugins': {
       const laptop = data.computers.aaaa11112222;
       const added = (a.only as string[] | null) ?? ['webcam'];

@@ -221,10 +221,6 @@ export function AppsPane({ s }: { s: SyncState }) {
   const { overview: ov, data } = s;
   if (!ov || !data) return null;
   const apps = [...new Set([...data.apps, ...ov.apps.mine])].toSorted();
-  // Sync All leaves out apps that can't sync yet (no install steps).
-  const needsScript = (a: string) =>
-    (ov.apps.outside.includes(a) || a in (data.outside ?? {})) && !data.outside?.[a];
-  const unsynced = apps.filter((a) => !data.apps.includes(a) && !needsScript(a));
   const q = query.trim().toLowerCase();
   const shown = apps.filter(
     (app) => !q || app.includes(q) || (ov.apps.about[app] ?? '').toLowerCase().includes(q),
@@ -270,14 +266,6 @@ export function AppsPane({ s }: { s: SyncState }) {
         >
           {uninstalledShown.map(row)}
         </Group>
-      )}
-      {unsynced.length > 1 && (
-        <div className="actions">
-          {/* One change for all of them, shared on the next sync. */}
-          <Push disabled={!s.idle} onPress={() => s.edit(() => api.addApps(unsynced))}>
-            Sync All {unsynced.length} Apps to Every Computer
-          </Push>
-        </div>
       )}
     </>
   );

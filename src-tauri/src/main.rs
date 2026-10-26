@@ -63,7 +63,6 @@ fn main() {
             set_app,
             app_here,
             plugin_here,
-            add_apps,
             set_folder,
             folder_here,
             set_auto,
@@ -658,20 +657,6 @@ async fn install_with_script(app: String, on_step: Channel<String>) -> Result<Sn
     })
     .await
     .map_err(Problem::from)
-}
-
-#[tauri::command]
-async fn add_apps(apps: Vec<String>) -> Result<Data> {
-    edit(move |d, _| {
-        // Apps from outside the repos without an install script can't reach other computers.
-        for a in apps
-            .iter()
-            .filter(|a| sync::is_package_name(a) && d.outside.get(*a) != Some(&None))
-        {
-            sync::toggle(&mut d.apps, a, true);
-        }
-    })
-    .await
 }
 
 /// Folders are limited to the known list; the page can't make chezmoi add arbitrary paths.

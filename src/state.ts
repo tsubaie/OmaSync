@@ -163,6 +163,8 @@ export function useSync() {
       );
       if (!st) return;
       setStatus(st);
+      // Changes already on disk (from an earlier session) show in their tab's banner too.
+      setPending(st.overview?.choice_changes ?? []);
       lastRefresh.current = Date.now();
       setNow(Math.floor(Date.now() / 1000));
       setChecked(Math.floor(Date.now() / 1000));
