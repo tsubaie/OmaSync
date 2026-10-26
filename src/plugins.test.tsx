@@ -18,7 +18,7 @@ const plugin = (id: string, update: Plugin['update']): Plugin => ({
   update,
 });
 
-const pane = (plugins: Plugin[]) =>
+const pane = (plugins: Plugin[], s: Partial<SyncState> = {}) =>
   renderToStaticMarkup(
     <PluginsPane
       s={
@@ -30,9 +30,10 @@ const pane = (plugins: Plugin[]) =>
           catalog: { folders: [] },
           data: { folders: ['.config/omarchy/plugins'], apps: [], plugins: [], computers: {} },
           overview: { plugins, apps: { installed: [] }, computers: [] },
-          matrix: { computers: ['me'], name: () => 'This computer', column: () => '', many: false },
           wantsPlugin: () => false,
           whoHas: () => [],
+          pluginsWaiting: [],
+          ...s,
         } as unknown as SyncState
       }
     />,
@@ -54,7 +55,57 @@ describe('a plugin from git', () => {
   });
 
   it('tells how to keep a plugin when it is removed elsewhere', () => {
-    expect(pane([])).toContain('to keep it on one as its own, switch Sync off there first');
+    expect(pane([])).toContain(
+      'to keep it on one as its own, choose Don&#x27;t Sync on This Computer there first',
+    );
+  });
+});
+
+describe('your plugins', () => {
+  const two = {
+    data: {
+      folders: ['.config/omarchy/plugins'],
+      apps: [],
+      plugins: ['dock', 'webcam'],
+      computers: {},
+    },
+    overview: {
+      plugins: [],
+      apps: { installed: [] },
+      computers: [
+        ['me', 1],
+        ['desk', 1],
+      ],
+    },
+  } as unknown as Partial<SyncState>;
+  const here = plugin('dock', null);
+  const waiting = { ...plugin('webcam', null), here: false, enabled: null };
+  const html = (wants: boolean) =>
+    pane([here, waiting], {
+      ...two,
+      overview: { ...two.overview!, plugins: [here, waiting] },
+      wantsPlugin: () => wants,
+      pluginsWaiting: wants ? [waiting] : [],
+    });
+
+  it('lists those not on this computer apart, each with Install', () => {
+    const out = html(true);
+    const [mine, missing] = out.split('<h2>Not Installed on This Computer</h2>');
+    expect(mine).toContain('aria-label="Sync dock (all computers)"');
+    expect(mine).not.toContain('webcam');
+    expect(missing).toContain('aria-label="Sync webcam (all computers)"');
+    expect(missing).toContain('>Install<');
+  });
+
+  it('has one switch each, and leaves this computer out like Configurations', () => {
+    const out = html(true);
+    expect(out.match(/role="switch"/g)).toHaveLength(2);
+    expect(out).not.toContain('Enabled');
+    expect(out).toContain('>Don&#x27;t Sync on This Computer</button>');
+    const skipped = html(false);
+    expect(skipped).toContain('>Sync on This Computer</button>');
+    expect(skipped).not.toContain('>Don&#x27;t Sync on This Computer</button>');
+    expect(skipped).not.toContain('>Install<');
   });
 });
 

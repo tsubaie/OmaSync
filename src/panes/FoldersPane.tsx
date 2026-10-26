@@ -4,7 +4,7 @@ import { api, type Folder, type Plugin, type PluginsUpdated } from '../api';
 import type { SyncState } from '../state';
 import { CircleCheck, Download } from 'lucide-react';
 import { plural } from '../format';
-import { Caution, ComputerList, Group, Link, Progress, Push, Row, Toggle } from '../ui';
+import { Caution, Group, Link, Progress, Push, Row, Toggle } from '../ui';
 
 /** Omarchy's own parts, its window settings and its plugins, each listed in the order shown
  * ("other" last); every other folder is an app's data. */
@@ -147,7 +147,7 @@ export function AppDataPane({ s }: { s: SyncState }) {
   return <FolderGroup s={s} pick={(f) => !isOmarchy(f) && relevant(f)} />;
 }
 
-/** Like Apps: one list in a fixed order, one switch per computer. */
+/** Like Apps: plugins here first, then those your other computers sync that this one lacks. */
 export function PluginsPane({ s }: { s: SyncState }) {
   const { data } = s;
   const plugins = s.overview?.plugins ?? [];
@@ -157,7 +157,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
   const fromGit = mine.filter((p) => p.here && p.source);
   const [adding, setAdding] = useState(false);
   const [removing, setRemoving] = useState<string | null>(null);
-  const { computers, name, column, columns, many } = s.matrix;
+  const many = (s.overview?.computers.length ?? 0) > 1;
   /** Runs one of Omarchy's plugin commands, then looks again. */
   const omarchy = <T,>(
     label: string,
@@ -171,6 +171,45 @@ export function PluginsPane({ s }: { s: SyncState }) {
   /** The summary of an update: a warning when a plugin was skipped or failed. */
   const updated = ({ text, warn }: PluginsUpdated) => s.setNotice({ good: true, warn, text });
   const newer = fromGit.filter((p) => p.update === 'newer').length;
+  /** One of your plugins: its one Sync switch (every computer), and Install when it's waiting here. */
+  const row = (p: Plugin) => {
+    const toggle = (
+      <Toggle
+        on={!!data?.plugins?.includes(p.id)}
+        label={many ? `Sync ${p.name} (all computers)` : `Sync ${p.name}`}
+        disabled={!s.idle}
+        onChange={(on) => s.edit(() => api.setPlugin(p.id, on))}
+      />
+    );
+    return (
+      <div className="row" key={p.id}>
+        <PluginText
+          s={s}
+          p={p}
+          many={many}
+          removing={removing === p.id}
+          onRemoving={(on) => setRemoving(on ? p.id : null)}
+          onUpdate={() =>
+            omarchy(`Updating ${p.name}`, (onStep) => api.updatePlugins(p.id, onStep), updated)
+          }
+          onRemove={() => omarchy(`Removing ${p.name}`, () => api.removePlugin(p.id))}
+        />
+        {s.pluginsWaiting.some((w) => w.id === p.id) ? (
+          <div className="inline">
+            <Push
+              disabled={!s.idle}
+              onPress={() => omarchy(`Installing ${p.name}`, () => api.installPlugins([p.id]))}
+            >
+              Install
+            </Push>
+            {toggle}
+          </div>
+        ) : (
+          toggle
+        )}
+      </div>
+    );
+  };
   const updatingAll = s.plan.length > 0 && s.plan.every((step) => step.startsWith('Updating '));
   return (
     <>
@@ -183,7 +222,7 @@ export function PluginsPane({ s }: { s: SyncState }) {
         <>
           <Group
             title="Your Plugins"
-            footer="Sync puts a plugin on a computer after you approve it there; switching it off never removes it. Removing a synced plugin removes it from every computer that syncs it at its next sync; to keep it on one as its own, switch Sync off there first. Enabled is part of your bar layout, so it reaches every computer."
+            footer="A switch syncs a plugin to all your computers, where it's added after you approve it, or stops it everywhere; switching it off never removes it. Removing a synced plugin removes it from every computer that syncs it at its next sync; to keep it on one as its own, choose Don't Sync on This Computer there first."
           >
             {fromGit.length > 0 && (
               <Row
@@ -234,57 +273,16 @@ export function PluginsPane({ s }: { s: SyncState }) {
               )}
             </Row>
             {mine.length === 0 && <Row title="No plugins of your own on any computer yet." />}
-            {mine.length > 0 && !many && (
-              <div className="row matrix head" style={columns} aria-hidden="true">
-                <span>Plugin</span>
-                {computers.map((c) => (
-                  <span key={c}>{column(c)}</span>
-                ))}
-              </div>
-            )}
-            {mine.map((p) => (
-              <div className={`row matrix ${many ? 'many' : ''}`} style={columns} key={p.id}>
-                <PluginText
-                  s={s}
-                  p={p}
-                  removing={removing === p.id}
-                  onRemoving={(on) => setRemoving(on ? p.id : null)}
-                  onUpdate={() =>
-                    omarchy(
-                      `Updating ${p.name}`,
-                      (onStep) => api.updatePlugins(p.id, onStep),
-                      updated,
-                    )
-                  }
-                  onRemove={() => omarchy(`Removing ${p.name}`, () => api.removePlugin(p.id))}
-                />
-                {many ? (
-                  <ComputerList
-                    subject={p.name}
-                    computers={computers.map((c) => ({
-                      id: c,
-                      name: name(c),
-                      on: s.wantsPlugin(c, p.id),
-                    }))}
-                    disabled={!s.idle}
-                    onChange={(c, on) => s.edit(() => api.setPlugin(c, p.id, on))}
-                  />
-                ) : (
-                  computers.map((c) => (
-                    <div className="cell" key={c}>
-                      <span className="cell-label">{column(c)}</span>
-                      <Toggle
-                        on={s.wantsPlugin(c, p.id)}
-                        label={`${p.name} synced on ${name(c)}`}
-                        disabled={!s.idle}
-                        onChange={(on) => s.edit(() => api.setPlugin(c, p.id, on))}
-                      />
-                    </div>
-                  ))
-                )}
-              </div>
-            ))}
+            {mine.filter((p) => p.here).map(row)}
           </Group>
+          {mine.some((p) => !p.here) && (
+            <Group
+              title="Not Installed on This Computer"
+              footer="Synced from your other computers. Install one here, or leave this computer out."
+            >
+              {mine.filter((p) => !p.here).map(row)}
+            </Group>
+          )}
           {omarchys.length > 0 && (
             <Group
               title="Omarchy's Own Plugins"
@@ -339,16 +337,16 @@ function EnabledToggle({ s, p }: { s: SyncState; p: Plugin }) {
 }
 
 /**
- * A plugin in three lines: its name, kind and source; its description, cut to one line (the
- * whole on hover); and, for one of your own, the plugin itself, apart from the Sync switches in
- * the row's columns: its Enabled switch (the shell's on or off, kept in the bar layout), the
- * day's word on updates (Up to date, Changed on this computer with no Update, or Update in the
- * accent colour when there's one), and
- * Remove. One of Omarchy's own has only Enabled, at the end of its row.
+ * A plugin in a few lines: its name, kind and source; its description, cut to one line (the
+ * whole on hover); and, for one of your own, the day's word on updates (Up to date, Changed on
+ * this computer with no Update, or Update in the accent colour when there's one), Remove, and
+ * like Configurations whether this computer is left out. One of Omarchy's own has only its
+ * Enabled switch, at the end of its row.
  */
 function PluginText({
   s,
   p,
+  many,
   removing = false,
   onRemoving,
   onUpdate,
@@ -356,6 +354,8 @@ function PluginText({
 }: {
   s: SyncState;
   p: Plugin;
+  /** Set for one of your own: whether there are other computers to stay in step with. */
+  many?: boolean;
   removing?: boolean;
   onRemoving?: (on: boolean) => void;
   onUpdate?: () => void;
@@ -363,15 +363,13 @@ function PluginText({
 }) {
   const { data, host } = s;
   const synced = !!data?.plugins?.includes(p.id);
-  const missingHere = synced && s.wantsPlugin(host, p.id) && !p.here;
+  const here = s.wantsPlugin(host, p.id);
   /** Where an unshared plugin is, for the computers that have it. */
   const only = () => {
     const where = [...(p.here ? ['this computer'] : []), ...s.whoHas(p.id)];
     return where.length ? `Only on ${where.join(' and ')}` : '';
   };
-  const detail = missingHere
-    ? 'Added here after you approve it'
-    : p.description || (!p.first_party && !synced ? only() : '');
+  const detail = p.description || (!p.first_party && !synced ? only() : '');
   const kinds = p.kinds.map((k) => KINDS[k] ?? k).join(', ');
   return (
     <div className="text">
@@ -389,17 +387,12 @@ function PluginText({
         )}
       </div>
       {detail && (
-        <div className={`detail ${missingHere ? 'warn' : 'clipped'}`} title={detail}>
+        <div className="detail clipped" title={detail}>
           {detail}
         </div>
       )}
       {p.here && !removing && (onUpdate || onRemoving) && (
         <div className="plugin-here">
-          <span className="who">This plugin:</span>
-          <span className="who">
-            Enabled
-            <EnabledToggle s={s} p={p} />
-          </span>
           {p.update === 'current' && (
             <span className="who good">
               <CircleCheck size={13} strokeWidth={2.25} aria-hidden="true" />
@@ -432,6 +425,21 @@ function PluginText({
               Remove…
             </Link>
           )}
+        </div>
+      )}
+      {many !== undefined && synced && (many || !here) && (
+        <div className="inline">
+          {here ? (
+            <span className="detail">On for all your computers, this one included.</span>
+          ) : (
+            <span className="detail warn">
+              Not synced on this computer: it isn't added here while your other computers stay in
+              step.
+            </span>
+          )}
+          <Link disabled={!s.idle} onPress={() => s.edit(() => api.pluginHere(p.id, !here))}>
+            {here ? "Don't Sync on This Computer" : 'Sync on This Computer'}
+          </Link>
         </div>
       )}
       {removing && (

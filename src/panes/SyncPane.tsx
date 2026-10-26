@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { Button, Radio, RadioGroup } from 'react-aria-components';
 import {
   Check,
@@ -16,7 +16,7 @@ import {
 import { api, type Catalog, type Keep, type Overview, type Versions } from '../api';
 import { SNAPSHOT_FIRST, ago, byFolder, diffLines, folds, plural, shortList } from '../format';
 import type { SyncState } from '../state';
-import { Caution, Group, Link, OmarchyLogo, Progress, Push, Row, Tile } from '../ui';
+import { Caution, Group, Link, OmarchyLogo, Progress, Push, Row, Tile, Toggle } from '../ui';
 import { NoticeLine } from './NoticeLine';
 
 /**
@@ -508,8 +508,55 @@ function OmarchyVersions({ s }: { s: SyncState }) {
   );
 }
 
+/** A waiting item's switch for the batch, and the link that leaves this computer out for good. */
+function Waiting({
+  s,
+  title,
+  label,
+  on,
+  onChange,
+  leaveOut,
+  lead,
+  detail,
+}: {
+  s: SyncState;
+  title: string;
+  label: string;
+  on: boolean;
+  onChange: (on: boolean) => void;
+  leaveOut: () => Promise<unknown>;
+  lead: ReactNode;
+  detail?: string;
+}) {
+  return (
+    <Row
+      lead={lead}
+      title={title}
+      detail={detail}
+      end={<Toggle on={on} label={label} disabled={!s.idle} onChange={onChange} />}
+    >
+      <div className="inline">
+        <Link disabled={!s.idle} onPress={leaveOut}>
+          Don't Sync on This Computer
+        </Link>
+      </div>
+    </Row>
+  );
+}
+
+/** `set` with `item` switched on or off. */
+const flip = (set: Set<string>, item: string, off: boolean) => {
+  const next = new Set(set);
+  if (off) next.add(item);
+  else next.delete(item);
+  return next;
+};
+
 export function SyncPane({ s }: { s: SyncState }) {
   const ov = s.overview;
+  /** Waiting apps and plugins switched off for the next Install or Add (all are on at first). */
+  const [skipApps, setSkipApps] = useState<Set<string>>(() => new Set());
+  const [skipPlugins, setSkipPlugins] = useState<Set<string>>(() => new Set());
   if (s.conflict) {
     return (
       <>
@@ -523,6 +570,8 @@ export function SyncPane({ s }: { s: SyncState }) {
   const showWaiting = s.waiting.length > 0 && s.waiting.join() !== s.dismissed && s.idle;
   const pluginIds = s.pluginsWaiting.map((p) => p.id).join();
   const showPlugins = pluginIds !== '' && pluginIds !== s.dismissedPlugins && s.idle;
+  const apps = s.waiting.filter((a) => !skipApps.has(a));
+  const plugins = s.pluginsWaiting.filter((p) => !skipPlugins.has(p.id));
   const from =
     ov?.incoming_from.length === 1
       ? `From ${s.nameOf(ov.incoming_from[0])}.`
@@ -546,23 +595,35 @@ export function SyncPane({ s }: { s: SyncState }) {
               }
             >
               {s.waiting.map((app) => (
-                <Row key={app} lead={<Tile icon={Package} kind="apps" size={24} />} title={app} />
+                <Waiting
+                  key={app}
+                  s={s}
+                  lead={<Tile icon={Package} kind="apps" size={24} />}
+                  title={app}
+                  label={`Install ${app}`}
+                  on={!skipApps.has(app)}
+                  onChange={(on) => setSkipApps(flip(skipApps, app, !on))}
+                  leaveOut={() => s.edit(() => api.appHere(app, false))}
+                />
               ))}
               <div className="row actions">
                 <Push onPress={() => s.setDismissed(s.waiting.join())}>Not Now</Push>
                 <Push
+                  disabled={apps.length === 0}
                   onPress={() =>
                     s.act(
                       'Installing apps',
-                      () => api.installApps(),
+                      () => api.installApps(apps.length === s.waiting.length ? undefined : apps),
                       (snapshot) => {
-                        s.changed(`Installed ${s.waiting.join(', ')}.`, snapshot);
+                        s.changed(`Installed ${apps.join(', ')}.`, snapshot);
                         return s.refresh();
                       },
                     )
                   }
                 >
-                  Install
+                  {apps.length === s.waiting.length
+                    ? 'Install'
+                    : `Install ${plural(apps.length, 'App')}`}
                 </Push>
               </div>
             </Group>
@@ -588,16 +649,39 @@ export function SyncPane({ s }: { s: SyncState }) {
               footer="Your other computers have these. Adding one brings it and its files here."
             >
               {s.pluginsWaiting.map((p) => (
-                <Row
+                <Waiting
                   key={p.id}
+                  s={s}
                   lead={<Tile icon={Puzzle} kind="plain" size={24} />}
                   title={p.name}
                   detail={`On ${s.whoHas(p.id).join(' and ')}`}
+                  label={`Add ${p.name}`}
+                  on={!skipPlugins.has(p.id)}
+                  onChange={(on) => setSkipPlugins(flip(skipPlugins, p.id, !on))}
+                  leaveOut={() => s.edit(() => api.pluginHere(p.id, false))}
                 />
               ))}
               <div className="row actions">
                 <Push onPress={() => s.setDismissedPlugins(pluginIds)}>Not Now</Push>
-                <Push onPress={() => s.edit(() => api.installPlugins())}>Add</Push>
+                <Push
+                  disabled={plugins.length === 0}
+                  onPress={() =>
+                    s.act(
+                      'Adding plugins',
+                      () =>
+                        api.installPlugins(
+                          plugins.length === s.pluginsWaiting.length
+                            ? undefined
+                            : plugins.map((p) => p.id),
+                        ),
+                      () => s.refresh(),
+                    )
+                  }
+                >
+                  {plugins.length === s.pluginsWaiting.length
+                    ? 'Add'
+                    : `Add ${plural(plugins.length, 'Plugin')}`}
+                </Push>
               </div>
             </Group>
           )}

@@ -636,6 +636,53 @@ fn a_background_that_no_longer_exists_doesnt_stop_the_sync() {
     assert_eq!(lab.data("b").background.as_deref(), Some("hills.jpg"));
 }
 
+/// Setup's "Choose What Syncs…": the first computer shares only the apps and plugins left on,
+/// and a joining one leaves out those it switched off, while the others stay in step (#86).
+#[test]
+#[ignore]
+fn setup_shares_and_takes_only_the_apps_and_plugins_chosen() {
+    let mut lab = Lab::new();
+    lab.add("a");
+    lab.write("a", ".config/hypr/bindings.lua", "-- a keys\n");
+    lab.write(
+        "a",
+        ".config/omarchy/plugins/dock/manifest.json",
+        r#"{"name":"Dock"}"#,
+    );
+    lab.write(
+        "a",
+        ".config/omarchy/plugins/solo/manifest.json",
+        r#"{"name":"Solo"}"#,
+    );
+    lab.start_choosing("a", Some(&["firefox", "zed"]), Some(&["dock"]));
+    let d = lab.data("a");
+    assert_eq!(
+        (d.apps, d.plugins),
+        (
+            vec!["firefox".into(), "zed".into()],
+            vec!["dock".to_string()]
+        )
+    );
+    let synced = |p: &str| {
+        lab.ctx("a")
+            .src
+            .join("dot_config/omarchy/plugins")
+            .join(p)
+            .exists()
+    };
+    assert!(synced("dock") && !synced("solo"));
+
+    lab.add("b");
+    lab.join_skipping("b", &[], &["zed"], &["dock"]);
+    let d = lab.data("b");
+    assert!(d.wants_app("b", "firefox") && !d.wants_app("b", "zed"));
+    assert!(d.missing_plugins("b").is_empty());
+    assert!(!lab.exists("b", ".config/omarchy/plugins/dock"));
+    lab.settle();
+    let d = lab.data("a");
+    assert!(d.wants_app("a", "zed") && d.wants_plugin("a", "dock"));
+}
+
 #[test]
 #[ignore]
 fn a_synced_app_waits_for_a_yes_and_can_be_declined_per_computer() {
@@ -652,7 +699,7 @@ fn a_synced_app_waits_for_a_yes_and_can_be_declined_per_computer() {
         !lab.calls("b").contains("yay"),
         "nothing installs without a yes"
     );
-    lab.edit("b", |d, host| d.set_app(host, "firefox", false));
+    lab.edit("b", |d, host| d.set_app_here(host, "firefox", false));
     let report = lab.sync_ok("b");
     assert!(report.waiting.is_empty());
     assert_eq!(status(&lab, "b"), "synced");
@@ -1778,7 +1825,7 @@ fn removing_a_synced_plugin_removes_it_from_the_computers_that_sync_it() {
     lab.settle();
     assert!(lab.read("c", ".config/omarchy/shell.json").contains("dock"));
     // c wants to keep Dock as its own, so it switches Sync off for itself first.
-    set_plugin(lab.ctx("c"), "c", "dock", false).unwrap();
+    set_plugin(lab.ctx("c"), Some("c"), "dock", false).unwrap();
     lab.settle();
 
     remove_plugin(lab.ctx("a"), "dock").unwrap();
@@ -2147,11 +2194,11 @@ esac
         );
     }
     let a = lab.ctx("a").clone();
-    start(&a, None, &|_| {}).unwrap();
+    start(&a, None, None, None, &|_| {}).unwrap();
     assert!(lab.calls("a").contains("gh repo create"));
     lab.sync_ok("a");
     let b = lab.ctx("b").clone();
-    join(&b, "lab", &[], &|_| {}).unwrap();
+    join(&b, "lab", &[], &[], &[], &|_| {}).unwrap();
     lab.check("b");
     lab.sync_ok("b");
     unsafe {

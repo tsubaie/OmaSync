@@ -348,8 +348,16 @@ impl Lab {
 
     /// The first computer: creates the sync space, as Setup's "Save this computer's settings".
     pub fn start(&mut self, name: &str) {
+        self.start_choosing(name, None, None);
+    }
+
+    /// Starts with the apps and plugins chosen in Setup's "Choose What Syncs…".
+    pub fn start_choosing(&mut self, name: &str, apps: Option<&[&str]>, plugins: Option<&[&str]>) {
         let ctx = self.ctx(name).clone();
-        seed(&ctx, None).unwrap();
+        let own =
+            |l: Option<&[&str]>| l.map(|l| l.iter().map(|x| x.to_string()).collect::<Vec<_>>());
+        let (apps, plugins) = (own(apps), own(plugins));
+        seed(&ctx, None, apps.as_deref(), plugins.as_deref()).unwrap();
         ctx.git(&["remote", "add", "origin", &self.remote]).unwrap();
         self.sync_ok(name);
     }
@@ -363,9 +371,28 @@ impl Lab {
     /// Joins, keeping this computer's own version of `keep` (Setup's "Keep Separate on This
     /// Computer").
     pub fn join_keeping(&mut self, name: &str, keep: &[&str]) -> PathBuf {
+        self.join_skipping(name, keep, &[], &[])
+    }
+
+    /// Joins, also leaving out synced apps and plugins (Setup's switches for them).
+    pub fn join_skipping(
+        &mut self,
+        name: &str,
+        keep: &[&str],
+        apps: &[&str],
+        plugins: &[&str],
+    ) -> PathBuf {
         let ctx = self.ctx(name).clone();
-        let keep: Vec<String> = keep.iter().map(|f| f.to_string()).collect();
-        let backup = adopt(&ctx, &self.remote, &keep, &|_| {}).unwrap();
+        let own = |l: &[&str]| l.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        let backup = adopt(
+            &ctx,
+            &self.remote,
+            &own(keep),
+            &own(apps),
+            &own(plugins),
+            &|_| {},
+        )
+        .unwrap();
         self.check(name);
         self.sync_ok(name);
         backup

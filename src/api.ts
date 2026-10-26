@@ -57,6 +57,9 @@ export type SetupState = {
   ready: boolean;
   /** Every folder setup offers; `default`: a first computer syncs it unless told otherwise. */
   folders: { path: string; default: boolean }[];
+  /** A first computer's own apps and plugins, or those the synced settings share when `found`. */
+  apps: string[];
+  plugins: { id: string; name: string }[];
 };
 /** A safety backup in ~/.local/share/omarchy-sync/backups. */
 export type BackupEntry = {
@@ -213,16 +216,27 @@ export const api = {
   undo: (sha: string, onStep: OnStep) => invoke<Report>('undo', { sha, onStep: steps(onStep) }),
   installHelpers: () => invoke<void>('install_helpers'),
   signIn: () => invoke<void>('sign_in'),
-  /** `folders`: the ones chosen to sync; the defaults when left out. */
-  start: (onStep: OnStep, folders?: string[]) =>
-    invoke<void>('start', { folders: folders ?? null, onStep: steps(onStep) }),
+  /** `folders`, `apps`, `plugins`: the ones chosen to sync; the defaults when left out. */
+  start: (onStep: OnStep, folders?: string[], apps?: string[], plugins?: string[]) =>
+    invoke<void>('start', {
+      folders: folders ?? null,
+      apps: apps ?? null,
+      plugins: plugins ?? null,
+      onStep: steps(onStep),
+    }),
   /** Returns where this computer's previous settings were backed up. `skipFolders`: the ones
-   * this computer keeps its own version of. */
-  join: (onStep: OnStep, skipFolders?: string[]) =>
-    invoke<string>('join', { skipFolders: skipFolders ?? null, onStep: steps(onStep) }),
+   * this computer keeps its own version of; `skipApps`, `skipPlugins`: the synced ones it leaves out. */
+  join: (onStep: OnStep, skipFolders?: string[], skipApps?: string[], skipPlugins?: string[]) =>
+    invoke<string>('join', {
+      skipFolders: skipFolders ?? null,
+      skipApps: skipApps ?? null,
+      skipPlugins: skipPlugins ?? null,
+      onStep: steps(onStep),
+    }),
   /** Puts a safety backup's files back, after backing up what they replace. */
   restoreBackup: (name: string) => invoke<void>('restore_backup', { name }),
-  installApps: () => invoke<Snapshot>('install_apps'),
+  /** Installs the waiting apps, or only those in `only`. */
+  installApps: (only?: string[]) => invoke<Snapshot>('install_apps', { only: only ?? null }),
   /** Adds an extra repository this computer needs (asks for the password). */
   addRepository: (name: string) => invoke<Snapshot>('add_repository', { name }),
   tryOmarchy: () => invoke<Data>('try_omarchy'),
@@ -241,10 +255,12 @@ export const api = {
   /** Whether the sync choices differ from what was last shared. */
   /** What changed in the choices since they were last shared, in sentences; none when nothing. */
   choicesChanged: () => invoke<string[]>('choices_changed'),
-  setPlugin: (computer: string, plugin: string, on: boolean) =>
-    invoke<Data>('set_plugin', { computer, plugin, on }),
-  /** Adds the synced plugins this computer is waiting for. */
-  installPlugins: () => invoke<Data>('install_plugins'),
+  /** A plugin's one switch: synced on every computer, or on none. */
+  setPlugin: (plugin: string, on: boolean) => invoke<Data>('set_plugin', { plugin, on }),
+  /** Leaves a synced plugin out on this computer only, or takes it back. */
+  pluginHere: (plugin: string, on: boolean) => invoke<Data>('plugin_here', { plugin, on }),
+  /** Adds the synced plugins this computer is waiting for, or only those in `only`. */
+  installPlugins: (only?: string[]) => invoke<Data>('install_plugins', { only: only ?? null }),
   /** Switches a plugin on or off in the Omarchy shell on this computer. */
   setPluginEnabled: (id: string, on: boolean) => invoke<void>('set_plugin_enabled', { id, on }),
   /** Adds a plugin from its git address and switches it on here. */
@@ -254,8 +270,10 @@ export const api = {
     invoke<PluginsUpdated>('update_plugins', { id: id ?? null, onStep: steps(onStep) }),
   /** Removes a plugin here now, and from the computers that sync it at their next sync. */
   removePlugin: (id: string) => invoke<void>('remove_plugin', { id }),
-  setApp: (computer: string, app: string, on: boolean) =>
-    invoke<Data>('set_app', { computer, app, on }),
+  /** An app's one switch: synced on every computer, or on none. */
+  setApp: (app: string, on: boolean) => invoke<Data>('set_app', { app, on }),
+  /** Leaves a synced app out on this computer only, or takes it back. */
+  appHere: (app: string, on: boolean) => invoke<Data>('app_here', { app, on }),
   addApps: (apps: string[]) => invoke<Data>('add_apps', { apps }),
   setFolder: (path: string, on: boolean) => invoke<Data>('set_folder', { path, on }),
   folderHere: (path: string, on: boolean) => invoke<Data>('folder_here', { path, on }),

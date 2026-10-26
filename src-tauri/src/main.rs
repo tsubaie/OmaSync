@@ -61,6 +61,8 @@ fn main() {
             update_plugins,
             remove_plugin,
             set_app,
+            app_here,
+            plugin_here,
             add_apps,
             set_folder,
             folder_here,
@@ -335,23 +337,58 @@ fn known_folders(paths: Vec<String>) -> Result<Vec<String>> {
         .collect()
 }
 
-/// `folders`: the ones chosen to sync (None: the defaults).
+/// `folders`, `apps`, `plugins`: the ones chosen to sync (None: the defaults).
 #[tauri::command]
-async fn start(folders: Option<Vec<String>>, on_step: Channel<String>) -> Result<()> {
+async fn start(
+    folders: Option<Vec<String>>,
+    apps: Option<Vec<String>>,
+    plugins: Option<Vec<String>>,
+    on_step: Channel<String>,
+) -> Result<()> {
     let folders = folders.map(known_folders).transpose()?;
-    blocking(move |ctx| sync::start(ctx, folders.as_deref(), &steps(on_step)))
-        .await
-        .map_err(Problem::from)
+    apps.iter().flatten().try_for_each(|a| app_name(a))?;
+    plugins.iter().flatten().try_for_each(|p| plugin_id(p))?;
+    blocking(move |ctx| {
+        sync::start(
+            ctx,
+            folders.as_deref(),
+            apps.as_deref(),
+            plugins.as_deref(),
+            &steps(on_step),
+        )
+    })
+    .await
+    .map_err(Problem::from)
 }
 
 /// Returns where this computer's previous settings were backed up. `skip_folders`: the ones
-/// this computer keeps its own version of.
+/// this computer keeps its own version of; `skip_apps`, `skip_plugins`: the synced ones it
+/// leaves out.
 #[tauri::command]
-async fn join(skip_folders: Option<Vec<String>>, on_step: Channel<String>) -> Result<String> {
+async fn join(
+    skip_folders: Option<Vec<String>>,
+    skip_apps: Option<Vec<String>>,
+    skip_plugins: Option<Vec<String>>,
+    on_step: Channel<String>,
+) -> Result<String> {
     let keep = known_folders(skip_folders.unwrap_or_default())?;
+    let (skip_apps, skip_plugins) = (
+        skip_apps.unwrap_or_default(),
+        skip_plugins.unwrap_or_default(),
+    );
+    skip_apps.iter().try_for_each(|a| app_name(a))?;
+    skip_plugins.iter().try_for_each(|p| plugin_id(p))?;
     blocking(move |ctx| {
         let login = sync::run(None, "gh", &["api", "user", "--jq", ".login"])?;
-        sync::join(ctx, &login, &keep, &steps(on_step)).map(|p| p.display().to_string())
+        sync::join(
+            ctx,
+            &login,
+            &keep,
+            &skip_apps,
+            &skip_plugins,
+            &steps(on_step),
+        )
+        .map(|p| p.display().to_string())
     })
     .await
     .map_err(Problem::from)
@@ -368,17 +405,21 @@ async fn restore_backup(name: String) -> Result<()> {
         .map_err(Problem::from)
 }
 
-/// Installs exactly the synced apps this computer is missing, nothing the page names itself.
-/// Returns how the snapshot of the system before it went.
+/// Installs exactly the synced apps this computer is missing, or those of them in `only`;
+/// nothing else the page names. Returns how the snapshot of the system before it went.
 #[tauri::command]
-async fn install_apps() -> Result<SnapshotOutcome> {
-    blocking(|ctx| {
-        let missing = sync::missing_apps(
+async fn install_apps(only: Option<Vec<String>>) -> Result<SnapshotOutcome> {
+    only.iter().flatten().try_for_each(|a| app_name(a))?;
+    blocking(move |ctx| {
+        let mut missing = sync::missing_apps(
             &ctx.load_data(),
             &ctx.host,
             &sync::installed(),
             &sync::repos_here(),
         );
+        if let Some(only) = &only {
+            missing.retain(|a| only.contains(a));
+        }
         if missing.is_empty() {
             Ok(SnapshotOutcome::Unavailable)
         } else {
@@ -389,11 +430,16 @@ async fn install_apps() -> Result<SnapshotOutcome> {
     .map_err(Problem::from)
 }
 
-/// Adds exactly the synced plugins this computer is waiting for, nothing the page names itself.
+/// Adds exactly the synced plugins this computer is waiting for, or those of them in `only`;
+/// nothing else the page names.
 #[tauri::command]
-async fn install_plugins() -> Result<Data> {
+async fn install_plugins(only: Option<Vec<String>>) -> Result<Data> {
+    only.iter().flatten().try_for_each(|p| plugin_id(p))?;
     blocking(move |ctx| {
-        let ids = ctx.load_data().missing_plugins(&ctx.host);
+        let mut ids = ctx.load_data().missing_plugins(&ctx.host);
+        if let Some(only) = &only {
+            ids.retain(|p| only.contains(p));
+        }
         sync::install_plugins(ctx, &ids).map(|()| ctx.load_data())
     })
     .await
@@ -408,13 +454,28 @@ fn plugin_id(id: &str) -> Result<()> {
     }
 }
 
-/// Whether one computer gets a plugin; see `Data::place`.
+fn app_name(app: &str) -> Result<()> {
+    if sync::is_package_name(app) {
+        Ok(())
+    } else {
+        Err(format!("not an app: {app}").into())
+    }
+}
+
+/// Whether one computer gets a plugin (see `Data::place`), or with no computer every one.
 #[tauri::command]
-async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> {
+async fn set_plugin(computer: Option<String>, plugin: String, on: bool) -> Result<Data> {
     plugin_id(&plugin)?;
-    blocking(move |ctx| sync::set_plugin(ctx, &computer, &plugin, on))
+    blocking(move |ctx| sync::set_plugin(ctx, computer.as_deref(), &plugin, on))
         .await
         .map_err(Problem::from)
+}
+
+/// Leaves a synced plugin out on this computer only, or takes it back.
+#[tauri::command]
+async fn plugin_here(plugin: String, on: bool) -> Result<Data> {
+    plugin_id(&plugin)?;
+    edit(move |d, host| d.set_plugin_here(host, &plugin, on)).await
 }
 
 /// Switches a plugin on or off in the Omarchy shell on this computer.
@@ -507,11 +568,10 @@ async fn edit(change: impl FnOnce(&mut Data, &str) + Send + 'static) -> Result<D
         .map_err(Problem::from)
 }
 
+/// Whether one computer gets an app (see `Data::place`), or with no computer every one.
 #[tauri::command]
-async fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
-    if !sync::is_package_name(&app) {
-        return Err(format!("not an app: {app}").into());
-    }
+async fn set_app(computer: Option<String>, app: String, on: bool) -> Result<Data> {
+    app_name(&app)?;
     let ctx = Ctx::load();
     // An app from outside the repos syncs only through its install script.
     if on && ctx.load_data().outside.get(&app) == Some(&None) {
@@ -521,7 +581,18 @@ async fn set_app(computer: String, app: String, on: bool) -> Result<Data> {
         .into());
     }
     let installed_here = sync::installed().contains(&app);
-    edit(move |d, host| d.place_app(host, installed_here, &computer, &app, on)).await
+    edit(move |d, host| match &computer {
+        Some(c) => d.place_app(host, installed_here, c, &app, on),
+        None => d.set_app_all(host, &app, on),
+    })
+    .await
+}
+
+/// Leaves a synced app out on this computer only, or takes it back.
+#[tauri::command]
+async fn app_here(app: String, on: bool) -> Result<Data> {
+    app_name(&app)?;
+    edit(move |d, host| d.set_app_here(host, &app, on)).await
 }
 
 /// Saves how to install an app from outside Arch's repos and the AUR: one command, run in an

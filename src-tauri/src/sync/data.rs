@@ -664,9 +664,9 @@ mod tests {
         };
         let before = d.clone().sorted();
         toggle(&mut d.apps, "b", false);
-        d.set_app("x", "a", false);
+        d.set_app_here("x", "a", false);
         toggle(&mut d.apps, "b", true);
-        d.set_app("x", "a", true);
+        d.set_app_here("x", "a", true);
         assert_ne!(d.apps, vec!["b".to_string(), "a".to_string()]);
         assert_eq!(d.sorted(), before);
     }
@@ -707,7 +707,7 @@ mod tests {
             apps: vec!["steam".into()],
             ..Default::default()
         };
-        d.set_app("laptop", "steam", false);
+        d.set_app_here("laptop", "steam", false);
         d.computers.entry("desktop".into()).or_default();
         let yaml = serde_yaml::to_string(&d).unwrap();
         assert!(yaml.contains("desktop: {}"), "{yaml}");

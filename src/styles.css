@@ -420,6 +420,11 @@ output {
   align-items: center;
   flex-wrap: wrap;
 }
+/* At the end of a row (Install beside a switch): kept on one line. */
+.row > .inline {
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
 
 /* Capsule buttons, as in macOS 26. */
 .push {
@@ -1163,47 +1168,6 @@ kbd {
   gap: 4px;
 }
 
-/* ---------- Apps matrix ---------- */
-
-.matrix {
-  display: grid;
-  grid-template-columns: 1fr repeat(var(--n), 104px);
-}
-/* Many computers: one column for the app, its computers as a list it opens. */
-.matrix.many {
-  grid-template-columns: 1fr;
-}
-.computer-list ul {
-  list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
-  max-width: 360px;
-}
-.computer-list li {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 5px 0;
-  font-size: 12.5px;
-  border-top: 0.5px solid var(--line);
-}
-/* Switches sit at the right edge of their column, as in System Settings. */
-.matrix > .cell,
-.matrix.head > span:not(:first-child) {
-  justify-self: end;
-  text-align: right;
-}
-.matrix.head {
-  font-size: 11px;
-  color: var(--quiet);
-  min-height: 0;
-  padding-top: 8px;
-  padding-bottom: 4px;
-}
-.cell-label {
-  display: none;
-}
-
 /* ---------- Setup ---------- */
 
 .page {
@@ -1338,24 +1302,6 @@ kbd {
   .device {
     width: 84px;
   }
-  .matrix {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
-    gap: 6px;
-  }
-  .matrix.head {
-    display: none;
-  }
-  .cell {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-  }
-  .cell-label {
-    display: inline;
-    font-size: 11px;
-  }
 }
 
 /* Respect "reduce motion": Hyprland/GNOME animations off (set by the app) or the web setting. */
@@ -1376,7 +1322,7 @@ kbd {
 
 /* ---------- Plugins ---------- */
 
-/* Under a plugin that's here: its Enabled switch, then Update and Remove. */
+/* Under a plugin that's here: whether it's up to date, then Update and Remove. */
 .plugin-here {
   display: flex;
   flex-wrap: wrap;

@@ -52,12 +52,12 @@ You set up Omarchy just the way you like it: keyboard shortcuts, a theme, a few 
     <td><b>Configurations.</b> Omarchy and window settings, each with its own switch. Only the theme and background you're using sync, and your other computers switch to them.</td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/apps.png" alt="Installed Apps: one switch per computer for each app." /></td>
-    <td><img src="docs/screenshots/plugins.png" alt="Plugins: the plugins and their bar layout, then each plugin with a switch per computer." /></td>
+    <td><img src="docs/screenshots/apps.png" alt="Installed Apps: one sync switch for each app." /></td>
+    <td><img src="docs/screenshots/plugins.png" alt="Plugins: the plugins and their bar layout, then each plugin with its sync switch." /></td>
   </tr>
   <tr>
-    <td><b>Apps.</b> Choose which apps go on which computer. They install after you approve them, or automatically if you allow it. Switching one off never uninstalls it.</td>
-    <td><b>Plugins.</b> Every Omarchy shell plugin, on or off, with a sync switch per computer; add one from its git address, update it or remove it, plus your bar layout and plugin settings.</td>
+    <td><b>Apps.</b> Choose which apps sync to your computers, and leave any one computer out. They install after you approve them, or automatically if you allow it. Switching one off never uninstalls it.</td>
+    <td><b>Plugins.</b> Every Omarchy shell plugin, with a sync switch for your own; add one from its git address, update it or remove it, plus your bar layout and plugin settings.</td>
   </tr>
   <tr>
     <td><img src="docs/screenshots/history.png" alt="History: a sync with the files it changed, and Undo asking first." /></td>
@@ -137,7 +137,7 @@ If another computer already uses this computer's name (Omarchy names every compu
 
 **One window.** Opening Omarchy Sync again, from the launcher or the bar, brings the open window forward on its Sync page instead of starting a second copy.
 
-**Several computers.** The Sync page shows this computer, your private sync space, and your other computers. When there's more than one other computer, they show as a stack with a count, such as "3 Other Computers". With more than three computers, **Installed Apps** and **Plugins** list the computers under each item instead of one column per computer.
+**Several computers.** The Sync page shows this computer, your private sync space, and your other computers. When there's more than one other computer, they show as a stack with a count, such as "3 Other Computers".
 
 **Different Omarchy versions.** Each computer records its Omarchy version. Omarchy's own settings (`~/.config/omarchy` and `~/.config/hypr`) follow the newest major version, since settings made for Omarchy 5 may not work on Omarchy 4. A computer on an older major version keeps its own Omarchy settings while everything else still syncs, and its Sync page says so and offers **Update Omarchy**. The newer computers say which ones to update, never themselves. When the older computer catches up, it saves its own settings and takes the shared ones. To try the newer settings before updating, choose **Try Their Settings Anyway…**: this computer's settings are saved first, and **Put Back My Settings** restores them exactly and pauses again. That way back stays on this computer only. History's Undo, by contrast, would undo the change on every computer.
 
@@ -145,14 +145,16 @@ If another computer already uses this computer's name (Omarchy names every compu
 
 **Choosing what syncs.** **Configurations** and **App Data** list everything that can sync, each with a switch: off stops syncing it everywhere. **Don't Sync on This Computer** leaves only this computer out: it keeps its own version while the others stay in step. App Data shows an app's settings folder when the app is installed here or synced to any computer, or when the folder already syncs; Omarchy ships settings for several terminals whether or not you use them, so a folder for an app that isn't installed here says so, and at first setup only the installed apps' folders switch on.
 
-**Apps and plugins.** In **Installed Apps** and **Plugins**, each computer has its own switch:
+**Apps and plugins.** In **Installed Apps** and **Plugins**, each app and plugin has one switch, like Configurations:
 
-- Switching an app on for a computer means it should have that app. Switching it on for another computer shares it.
-- When a synced app or plugin isn't on this computer yet, it waits on the Sync screen with **Install** (or **Add**) and **Not Now**, and you get a notification.
+- Switching it on syncs it to all your computers; off stops it everywhere. **Don't Sync on This Computer** leaves only this computer out.
+- Those your other computers sync that this one doesn't have are listed apart, under **Not Installed on This Computer**, each with **Install**.
+- When a synced app or plugin isn't on this computer yet, it also waits on the Sync screen, where you can switch off the ones to leave out of **Install** (or **Add**), choose **Don't Sync on This Computer**, or press **Not Now**, and you get a notification.
+- At first setup, **Choose What Syncs…** lists apps and plugins too: a first computer picks which to share, and a joining one which to leave out.
 - To skip the waiting, turn on **Add synced apps and plugins without asking** in Settings.
 - Switching anything off never uninstalls it.
 
-**Managing plugins.** **Plugins** also lists every plugin Omarchy knows on this computer, its own ones included, each with a sync switch per computer and, underneath, an **Enabled** switch; enabled or not is part of your bar layout, so it reaches your other computers with the next sync. **Add Plugin…** takes a plugin's git address and adds it the way `omarchy plugin add` does, after a warning: a plugin runs with your access, so only add one from a source you trust. A plugin that came from git shows where it's from and can be updated with **Update Plugin** (or all of them at once); another computer that syncs it adds it from git too, rather than copying its files, so every copy can be updated. One changed on this computer says so and isn't updated, since Omarchy won't update over your changes. **Remove Plugin…** removes a synced plugin here now and from every computer that syncs it at its next sync (each saves its copy in a backup first); to keep it on one computer as its own, switch Sync off there first.
+**Managing plugins.** **Plugins** also lists every plugin Omarchy knows on this computer, its own ones included: yours with their sync switch, Omarchy's with an **Enabled** switch; enabled or not is part of your bar layout, so it reaches your other computers with the next sync. **Add Plugin…** takes a plugin's git address and adds it the way `omarchy plugin add` does, after a warning: a plugin runs with your access, so only add one from a source you trust. A plugin that came from git shows where it's from and can be updated with **Update Plugin** (or all of them at once); another computer that syncs it adds it from git too, rather than copying its files, so every copy can be updated. One changed on this computer says so and isn't updated, since Omarchy won't update over your changes. **Remove Plugin…** removes a synced plugin here now and from every computer that syncs it at its next sync (each saves its copy in a backup first); to keep it on one computer as its own, choose **Don't Sync on This Computer** there first.
 
 - Each app's row says where it comes from: Arch's repositories, Omarchy's, its maker's own repository, or the AUR (used only as a last resort).
 - Apps from their maker's own repository (like ChatGPT's) never fall back to the AUR. Each computer records its extra repositories and their signing keys. **Apps → Repositories** lists the ones this computer has, and **Repositories to Add** the ones it still needs, with the repository's address and its key's owner and fingerprint. **Add Repository…** adds one only after you agree, with your password, and **Show Commands** gives the same steps to run in a terminal yourself. Until then, the apps that need it stay off and locked on this computer, and the Sync page points to Repositories. An app already installed here whose repository has gone (an Omarchy upgrade can rewrite `pacman.conf`) shows there too, since it can't update until the repository is back.

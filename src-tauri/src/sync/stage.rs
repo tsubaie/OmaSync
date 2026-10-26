@@ -382,16 +382,20 @@ pub fn set_folder(ctx: &Ctx, folder: &str, on: bool) -> Result<Data, String> {
     Ok(data)
 }
 
-/// Whether one computer gets a plugin (see `Data::place`), with the sync folder following when
-/// that starts or stops sharing it, under one hold of the lock.
-pub fn set_plugin(ctx: &Ctx, computer: &str, id: &str, on: bool) -> Result<Data, String> {
+/// Whether one computer gets a plugin (see `Data::place`), or with no computer every one (see
+/// `Data::set_plugin_all`), with the sync folder following when that starts or stops sharing
+/// it, under one hold of the lock.
+pub fn set_plugin(ctx: &Ctx, computer: Option<&str>, id: &str, on: bool) -> Result<Data, String> {
     let _lock = lock_wait(ctx)?;
     let before = ctx.load_data().plugins.iter().any(|p| p == id);
     let saved = std::fs::read(ctx.data_path()).ok();
     let data = edit_locked(ctx, |d, host| {
         // This computer's copy may be the one shared, so it counts as having what's here.
         d.computers.entry(host.into()).or_default().plugins = ctx.local_plugins();
-        d.place_plugin(computer, id, on);
+        match computer {
+            Some(c) => d.place_plugin(c, id, on),
+            None => d.set_plugin_all(host, id, on),
+        }
     })?;
     let after = data.plugins.iter().any(|p| p == id);
     if before != after

@@ -81,7 +81,14 @@ const catalog: Catalog = {
 
 let data: Data = {
   folders: FOLDERS.filter(([, , on]) => on).map(([path]) => path),
-  apps: ['brave-bin', 'yazi', 'quicknote', ...(scenario === 'repo' ? ['chatgpt-bin'] : [])],
+  // "waiting": two synced apps this computer hasn't installed yet.
+  apps: [
+    'brave-bin',
+    'yazi',
+    'quicknote',
+    ...(scenario === 'repo' ? ['chatgpt-bin'] : []),
+    ...(scenario === 'waiting' ? ['obsidian', 'vlc'] : []),
+  ],
   // On Desktop only, from outside the repos: it waits here for its install command.
   outside: { quicknote: { command: 'curl -fsSL https://example.com/quicknote.sh | bash' } },
   plugins: ['timezones', 'webcam'],
@@ -118,34 +125,29 @@ const shared = data;
 const same = (d: Data) =>
   JSON.stringify(d, (_, v) => (Array.isArray(v) ? (v.length ? v.toSorted() : undefined) : v));
 
-/** A copy of Data::place in choices.rs, enough for the tests. */
-function place(
-  d: Data,
-  list: 'apps' | 'plugins',
-  skip: 'skip_apps' | 'skip_plugins',
-  computer: string,
-  item: string,
-  on: boolean,
-  owners: string[],
-): Data {
+type Skip = 'skip_apps' | 'skip_plugins';
+const without = (list: string[] | undefined, item: string) =>
+  (list ?? []).filter((x) => x !== item);
+
+/** Data::set_app_all and set_plugin_all in choices.rs: one switch for every computer. */
+function setAll(d: Data, list: 'apps' | 'plugins', skip: Skip, item: string, on: boolean): Data {
   const next: Data = structuredClone(d);
-  const ids = Object.keys(next.computers);
-  const wants = (id: string) =>
-    !!next[list]?.includes(item) && !(next.computers[id][skip] ?? []).includes(item);
-  const set = (id: string, yes: boolean) => {
-    const rest = (next.computers[id][skip] ?? []).filter((x) => x !== item);
-    next.computers[id][skip] = yes ? rest : [...rest, item];
-  };
-  if (on && !ids.some(wants)) {
-    next[list] = [...(next[list] ?? []), item];
-    for (const id of ids) set(id, id === computer || owners.includes(id));
-  } else set(computer, on);
-  if (!ids.some(wants)) {
-    next[list] = (next[list] ?? []).filter((x) => x !== item);
-    for (const id of ids) set(id, true);
-  }
+  next[list] = on ? [...without(next[list], item), item] : without(next[list], item);
+  for (const [id, c] of Object.entries(next.computers))
+    if (!on || id === 'aaaa11112222') c[skip] = without(c[skip], item);
   return next;
 }
+
+/** Data::set_app_here and set_plugin_here: this computer only. */
+function setHere(d: Data, skip: Skip, item: string, on: boolean): Data {
+  const next: Data = structuredClone(d);
+  const me = next.computers.aaaa11112222;
+  me[skip] = on ? without(me[skip], item) : [...without(me[skip], item), item];
+  return next;
+}
+
+/** Apps installed here; installing one adds it. */
+let installed = ['brave-bin', 'yazi', 'spotify', 'tapecalc'];
 
 // On by default, like the real app.
 let barIndicator = true;
@@ -180,7 +182,7 @@ const status = (): Status => ({
       ).slice(0, extra),
     ],
     apps: {
-      installed: ['brave-bin', 'yazi', 'tapecalc'],
+      installed,
       mine: ['brave-bin', 'yazi', 'spotify', 'tapecalc'],
       // ("repo": chatgpt-bin waits for its maker's repository.)
       // Installed from its own repository, not Arch's or the AUR.
@@ -257,7 +259,7 @@ const status = (): Status => ({
         description: 'Control any webcam from the bar.',
         kinds: ['bar-widget', 'panel'],
         first_party: false,
-        here: false,
+        here: !!data.computers.aaaa11112222.plugins?.includes('webcam'),
         enabled: null,
         can_disable: true,
         source: null,
@@ -303,6 +305,8 @@ const setup: SetupState =
         found: false,
         ready: false,
         folders: [],
+        apps: [],
+        plugins: [],
       }
     : {
         missing: [],
@@ -314,6 +318,8 @@ const setup: SetupState =
           path,
           default: on && path !== '.config/ghostty',
         })),
+        apps: ['brave-bin', 'yazi'],
+        plugins: [{ id: 'timezones', name: 'Timezones' }],
       };
 
 // Two settings changed on both computers: keyboard shortcuts and the terminal.
@@ -412,15 +418,19 @@ mockIPC((cmd, args) => {
         : [];
     case 'install_plugins': {
       const laptop = data.computers.aaaa11112222;
+      const added = (a.only as string[] | null) ?? ['webcam'];
       data = {
         ...data,
         computers: {
           ...data.computers,
-          aaaa11112222: { ...laptop, plugins: ['timezones', 'webcam'] },
+          aaaa11112222: { ...laptop, plugins: [...new Set([...(laptop.plugins ?? []), ...added])] },
         },
       };
       return data;
     }
+    case 'install_apps':
+      installed = [...installed, ...((a.only as string[] | null) ?? ['quicknote'])];
+      return 'Unavailable';
     case 'resolve_conflict':
       return { notes: [], waiting: [], snapshot: null };
     case 'update_plugins':
@@ -459,7 +469,8 @@ mockIPC((cmd, args) => {
       barIndicator = !!a.on;
       return null;
     case 'install_with_script':
-      return null;
+      installed = [...installed, a.app];
+      return 'Unavailable';
     case 'set_app_script':
       data = {
         ...data,
@@ -473,25 +484,17 @@ mockIPC((cmd, args) => {
       data = { ...data, outside: { ...data.outside, [a.app as string]: null } };
       return data;
     case 'set_app':
-      data = place(data, 'apps', 'skip_apps', a.computer as string, a.app as string, !!a.on, [
-        'aaaa11112222',
-      ]);
+      data = setAll(data, 'apps', 'skip_apps', a.app, !!a.on);
       return data;
-    case 'set_plugin': {
-      const owners = Object.keys(data.computers).filter((id) =>
-        data.computers[id].plugins?.includes(a.plugin as string),
-      );
-      data = place(
-        data,
-        'plugins',
-        'skip_plugins',
-        a.computer as string,
-        a.plugin as string,
-        !!a.on,
-        owners,
-      );
+    case 'app_here':
+      data = setHere(data, 'skip_apps', a.app, !!a.on);
       return data;
-    }
+    case 'set_plugin':
+      data = setAll(data, 'plugins', 'skip_plugins', a.plugin, !!a.on);
+      return data;
+    case 'plugin_here':
+      data = setHere(data, 'skip_plugins', a.plugin, !!a.on);
+      return data;
     case 'rename_computer':
       data = {
         ...data,

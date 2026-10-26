@@ -20,13 +20,11 @@ const TOOLS: Record<string, [string, string]> = {
 export const NOT_SIGNED_IN =
   "GitHub sign-in isn't finished yet. Complete the code prompt in your terminal and browser first.";
 
-/** `chosen`: the folders a first computer syncs (undefined: the defaults); `keep`: the ones a
- * joining computer keeps its own version of. */
+/** `begin`: starts syncing (a first computer) or joins, with the choices made. */
 function action(
   s: SyncState,
   st: SetupState,
-  chosen: string[] | undefined,
-  keep: string[],
+  begin: (onStep: (step: string) => void) => Promise<unknown>,
 ): [string, () => void] {
   const install = () => s.act('Installing', () => api.installHelpers(), s.probe);
   if (st.missing.length === 1)
@@ -43,15 +41,9 @@ function action(
   if (!st.signed_in)
     return ['Sign In to GitHub', () => api.signIn().then(() => s.setSigningIn(true), s.fail)];
   if (st.found) {
-    return [
-      'Use My Synced Settings',
-      () => s.act('Getting ready', (onStep) => api.join(onStep, keep), s.finishSetup, 'first'),
-    ];
+    return ['Use My Synced Settings', () => s.act('Getting ready', begin, s.finishSetup, 'first')];
   }
-  return [
-    'Start Syncing',
-    () => s.act('Getting ready', (onStep) => api.start(onStep, chosen), s.finishSetup, 'first'),
-  ];
+  return ['Start Syncing', () => s.act('Getting ready', begin, s.finishSetup, 'first')];
 }
 
 const toggle = (list: string[], path: string, on: boolean) =>
@@ -64,6 +56,10 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
   const [picked, setPicked] = useState<string[] | null>(null);
   /** The folders a joining computer keeps its own version of. */
   const [keep, setKeep] = useState<string[]>([]);
+  /** The apps and plugins switched from their default: on a first computer no app syncs and
+   * every plugin does; a joining computer takes all the synced ones. */
+  const [flipApps, setFlipApps] = useState<string[]>([]);
+  const [flipPlugins, setFlipPlugins] = useState<string[]>([]);
   const waiting = s.signingIn && !st.signed_in;
   const { setSetup } = s;
   // While signing in happens in the terminal and browser, look every 2 seconds and whenever the
@@ -132,7 +128,20 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
         : st.found
           ? "We found settings from your other computers. Here's what happens when you use them:"
           : "This is your first computer, so its settings become the starting point for the others. Here's what happens when you start:";
-  const [label, go] = action(s, st, picked ?? undefined, keep);
+  const appOn = (app: string) => (st.found ? !flipApps.includes(app) : flipApps.includes(app));
+  const pluginOn = (id: string) => !flipPlugins.includes(id);
+  const [label, go] = action(s, st, (onStep) =>
+    st.found
+      ? api.join(onStep, keep, flipApps, flipPlugins)
+      : api.start(
+          onStep,
+          picked ?? undefined,
+          flipApps.length ? flipApps : undefined,
+          flipPlugins.length
+            ? st.plugins.filter((p) => pluginOn(p.id)).map((p) => p.id)
+            : undefined,
+        ),
+  );
 
   return (
     <div className="setup">
@@ -213,6 +222,56 @@ export function Setup({ s, st }: { s: SyncState; st: SetupState }) {
               />
             );
           })}
+        </Group>
+      )}
+      {s.idle && st.signed_in && choosing && st.apps.length > 0 && (
+        <Group
+          title="Apps"
+          footer={
+            st.found
+              ? "Switched off: it isn't offered to install on this computer, while your other computers keep it. You can change this later."
+              : 'Switched on: your other computers offer to install it. You can change this later on Installed Apps.'
+          }
+        >
+          {st.apps.map((app) => (
+            <Row
+              key={app}
+              title={app}
+              detail={st.found && !appOn(app) ? 'Not offered on this computer' : undefined}
+              end={
+                <Toggle
+                  on={appOn(app)}
+                  label={st.found ? `Sync ${app} on this computer` : `Sync ${app}`}
+                  onChange={() => setFlipApps(toggle(flipApps, app, !flipApps.includes(app)))}
+                />
+              }
+            />
+          ))}
+        </Group>
+      )}
+      {s.idle && st.signed_in && choosing && st.plugins.length > 0 && (
+        <Group
+          title="Plugins"
+          footer={
+            st.found
+              ? "Switched off: it isn't added to this computer, while your other computers keep it. You can change this later."
+              : 'Switched off: it stays on this computer only. You can change this later on Plugins.'
+          }
+        >
+          {st.plugins.map((p) => (
+            <Row
+              key={p.id}
+              title={p.name}
+              detail={st.found && !pluginOn(p.id) ? 'Not added on this computer' : undefined}
+              end={
+                <Toggle
+                  on={pluginOn(p.id)}
+                  label={st.found ? `Sync ${p.name} on this computer` : `Sync ${p.name}`}
+                  onChange={(v) => setFlipPlugins(toggle(flipPlugins, p.id, !v))}
+                />
+              }
+            />
+          ))}
         </Group>
       )}
       <div className="actions">

@@ -52,13 +52,26 @@ impl Data {
         }
     }
 
-    #[cfg(test)]
-    pub fn set_app(&mut self, host: &str, app: &str, on: bool) {
+    /// Leaves an app out on this computer only (or takes it back), like `set_folder_here`.
+    pub fn set_app_here(&mut self, host: &str, app: &str, on: bool) {
         toggle(
             &mut self.computers.entry(host.into()).or_default().skip_apps,
             app,
             !on,
         );
+    }
+
+    /// The app's one switch: on syncs it to every computer, this one included; off stops it
+    /// everywhere, and no computer's skip is left behind.
+    pub fn set_app_all(&mut self, host: &str, app: &str, on: bool) {
+        toggle(&mut self.apps, app, on);
+        if on {
+            self.set_app_here(host, app, true);
+        } else {
+            for c in self.computers.values_mut() {
+                toggle(&mut c.skip_apps, app, false);
+            }
+        }
     }
 
     pub fn set_folder_here(&mut self, host: &str, folder: &str, on: bool) {
@@ -78,13 +91,27 @@ impl Data {
                 .is_some_and(|c| c.skip_plugins.iter().any(|p| p == plugin))
     }
 
-    #[cfg(test)]
-    pub fn set_plugin(&mut self, host: &str, plugin: &str, on: bool) {
+    /// Leaves a synced plugin out on this computer only (or takes it back).
+    pub fn set_plugin_here(&mut self, host: &str, plugin: &str, on: bool) {
         toggle(
             &mut self.computers.entry(host.into()).or_default().skip_plugins,
             plugin,
             !on,
         );
+    }
+
+    /// The plugin's one switch, as `set_app_all`.
+    pub fn set_plugin_all(&mut self, host: &str, plugin: &str, on: bool) {
+        toggle(&mut self.plugins, plugin, on);
+        if on {
+            // Synced again: computers that haven't removed their copy yet keep it.
+            self.removed_plugins.remove(plugin);
+            self.set_plugin_here(host, plugin, true);
+        } else {
+            for c in self.computers.values_mut() {
+                toggle(&mut c.skip_plugins, plugin, false);
+            }
+        }
     }
 
     /// Switches an app or plugin on or off for one computer. Switching it on while no computer
@@ -260,9 +287,9 @@ mod tests {
             d.missing_plugins("c"),
             vec!["clock".to_string(), "dock".to_string()]
         );
-        d.set_plugin("a", "dock", false);
+        d.set_plugin_here("a", "dock", false);
         assert!(d.missing_plugins("a").is_empty());
-        d.set_plugin("a", "dock", true);
+        d.set_plugin_here("a", "dock", true);
         d.folders.clear();
         assert!(d.missing_plugins("a").is_empty());
     }
@@ -299,17 +326,43 @@ mod tests {
     }
 
     #[test]
+    fn one_switch_reaches_every_computer_and_here_leaves_one_out() {
+        let mut d = Data::default();
+        d.set_app_all("here", "zed", true);
+        d.set_app_here("lap", "zed", false);
+        assert!(d.wants_app("here", "zed") && d.wants_app("desk", "zed"));
+        assert!(!d.wants_app("lap", "zed"));
+        // Off everywhere leaves no skip behind, so on again reaches Lap too.
+        d.set_app_all("here", "zed", false);
+        assert!(d.apps.is_empty() && d.computers.values().all(|c| c.skip_apps.is_empty()));
+        d.set_app_all("here", "zed", true);
+        assert!(d.wants_app("lap", "zed"));
+        // Turning it on here clears this computer's own skip.
+        d.set_app_here("here", "zed", false);
+        d.set_app_all("here", "zed", true);
+        assert!(d.wants_app("here", "zed"));
+
+        d.removed_plugins.insert("dock".into(), vec!["lap".into()]);
+        d.set_plugin_all("here", "dock", true);
+        assert!(d.removed_plugins.is_empty() && d.wants_plugin("lap", "dock"));
+        d.set_plugin_here("lap", "dock", false);
+        assert!(!d.wants_plugin("lap", "dock") && d.wants_plugin("here", "dock"));
+        d.set_plugin_all("here", "dock", false);
+        assert!(d.plugins.is_empty() && d.computers.values().all(|c| c.skip_plugins.is_empty()));
+    }
+
+    #[test]
     fn apps_respect_per_computer_skips() {
         let mut d = Data {
             apps: vec!["steam".into(), "spotify".into()],
             ..Default::default()
         };
-        d.set_app("laptop", "steam", false);
+        d.set_app_here("laptop", "steam", false);
         assert!(!d.wants_app("laptop", "steam"));
         assert!(d.wants_app("laptop", "spotify"));
         assert!(d.wants_app("desktop", "steam"));
         assert!(!d.wants_app("desktop", "zoom"));
-        d.set_app("laptop", "steam", true);
+        d.set_app_here("laptop", "steam", true);
         assert!(d.wants_app("laptop", "steam"));
     }
 
