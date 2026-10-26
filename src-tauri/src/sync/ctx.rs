@@ -398,10 +398,21 @@ pub fn friendly(err: &str) -> String {
     }
 }
 
+/// Kept outside the sync folder, so it works before `chezmoi init` makes that folder and while
+/// `disconnect` moves it aside.
+pub(crate) fn lock_path(ctx: &Ctx) -> Result<PathBuf, String> {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = ctx.state_dir().join("omarchy-sync");
+    private_dir(&dir, true).map_err(|e| e.to_string())?;
+    // An older version may have made it open to read.
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| e.to_string())?;
+    Ok(dir.join("sync.lock"))
+}
+
 /// Only one sync at a time, whether it comes from the window or the background timer.
 pub(crate) fn lock(ctx: &Ctx) -> Result<std::fs::File, String> {
-    let file =
-        std::fs::File::create(ctx.src.join(".git/omarchy-sync.lock")).map_err(|e| e.to_string())?;
+    let file = std::fs::File::create(lock_path(ctx)?).map_err(|e| e.to_string())?;
     file.try_lock()
         .map_err(|_| "another sync is running".to_string())?;
     Ok(file)
@@ -409,8 +420,7 @@ pub(crate) fn lock(ctx: &Ctx) -> Result<std::fs::File, String> {
 
 /// Waits for any running sync (window or background timer) to finish, then holds the lock.
 pub(crate) fn lock_wait(ctx: &Ctx) -> Result<std::fs::File, String> {
-    let file =
-        std::fs::File::create(ctx.src.join(".git/omarchy-sync.lock")).map_err(|e| e.to_string())?;
+    let file = std::fs::File::create(lock_path(ctx)?).map_err(|e| e.to_string())?;
     file.lock().map_err(|e| e.to_string())?;
     Ok(file)
 }
@@ -420,11 +430,97 @@ pub(crate) fn lock_wait(ctx: &Ctx) -> Result<std::fs::File, String> {
 /// over by it, then committed and pushed as the old value.
 pub fn edit(ctx: &Ctx, change: impl FnOnce(&mut Data, &str)) -> Result<Data, String> {
     let _lock = lock_wait(ctx)?;
+    edit_locked(ctx, change)
+}
+
+/// `edit` for a caller already holding the lock.
+pub fn edit_locked(ctx: &Ctx, change: impl FnOnce(&mut Data, &str)) -> Result<Data, String> {
     ctx.data_readable()?;
     let mut data = ctx.load_data();
     change(&mut data, &ctx.host);
     ctx.save_data(&data)?;
     Ok(data)
+}
+
+/// Makes a folder only this user can open (0700). `recursive` makes missing parents too.
+fn private_dir(dir: &Path, recursive: bool) -> std::io::Result<()> {
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(recursive)
+        .mode(0o700)
+        .create(dir)
+}
+
+/// A fresh private folder for files handed to another program (pkexec, luac, gpg), removed
+/// when dropped. Its name can't be guessed, and it's made new, never reused: a fixed name in
+/// /tmp could be made first by another user, who could then swap what root installs.
+pub(crate) struct TempDir(PathBuf);
+
+impl TempDir {
+    pub(crate) fn new(prefix: &str) -> Result<TempDir, String> {
+        // The first that's set: the user's runtime folder (private, cleared at logout), cache, /tmp.
+        let var = |k: &str| {
+            std::env::var_os(k)
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+        };
+        let root = var("XDG_RUNTIME_DIR")
+            .filter(|p| p.is_dir())
+            .or_else(|| var("XDG_CACHE_HOME"))
+            .or_else(|| var("HOME").map(|h| h.join(".cache")))
+            .unwrap_or_else(std::env::temp_dir);
+        TempDir::new_in(&root.join("omarchy-sync-tmp"), prefix)
+    }
+
+    pub(crate) fn new_in(base: &Path, prefix: &str) -> Result<TempDir, String> {
+        use std::io::Read;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNT: AtomicU64 = AtomicU64::new(0);
+        let err = |e: std::io::Error| format!("temporary folder: {e}");
+        match private_dir(base, true) {
+            Err(e) if e.kind() != std::io::ErrorKind::AlreadyExists => return Err(err(e)),
+            _ => {}
+        }
+        // Only a real folder of ours: in /tmp another user could have made it first.
+        let meta = std::fs::symlink_metadata(base).map_err(err)?;
+        let me = std::fs::metadata("/proc/self").map_err(err)?.uid();
+        if !meta.is_dir() || meta.uid() != me {
+            return Err(format!("temporary folder: {} isn't ours", base.display()));
+        }
+        if meta.mode() & 0o777 != 0o700 {
+            std::fs::set_permissions(base, std::fs::Permissions::from_mode(0o700)).map_err(err)?;
+        }
+        let mut urandom = std::fs::File::open("/dev/urandom").map_err(err)?;
+        for _ in 0..100 {
+            let mut random = [0u8; 8];
+            urandom.read_exact(&mut random).map_err(err)?;
+            let name = format!(
+                "{prefix}-{}-{}-{:016x}",
+                std::process::id(),
+                COUNT.fetch_add(1, Ordering::Relaxed),
+                u64::from_ne_bytes(random)
+            );
+            let dir = base.join(name);
+            // Not recursive: fails when the name exists, even as a symlink, so nothing is reused.
+            match private_dir(&dir, false) {
+                Ok(()) => return Ok(TempDir(dir)),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => return Err(err(e)),
+            }
+        }
+        Err("temporary folder: no free name".into())
+    }
+
+    pub(crate) fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
 }
 
 pub fn now() -> i64 {
@@ -459,6 +555,68 @@ pub fn sync_space(ctx: &Ctx) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn test_base(name: &str) -> PathBuf {
+        let base = std::env::temp_dir().join(format!("omarchy-sync-test-{name}-{}", now()));
+        let _ = std::fs::remove_dir_all(&base);
+        base
+    }
+
+    #[test]
+    fn temp_dirs_are_new_private_and_gone_when_dropped() {
+        let base = test_base("tempdir");
+        let dirs: Vec<TempDir> = std::thread::scope(|s| {
+            let workers: Vec<_> = (0..8)
+                .map(|_| {
+                    s.spawn(|| {
+                        (0..20)
+                            .map(|_| TempDir::new_in(&base, "t").unwrap())
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            workers
+                .into_iter()
+                .flat_map(|w| w.join().unwrap())
+                .collect()
+        });
+        let names: BTreeSet<&Path> = dirs.iter().map(|d| d.path()).collect();
+        assert_eq!(names.len(), 160);
+        for d in &dirs {
+            let mode = std::fs::metadata(d.path()).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700);
+        }
+        let base_mode = std::fs::metadata(&base).unwrap().permissions().mode();
+        assert_eq!(base_mode & 0o777, 0o700);
+        let kept = dirs[0].path().to_path_buf();
+        std::fs::write(kept.join("file"), "x").unwrap();
+        drop(dirs);
+        assert!(!kept.exists());
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn temp_dirs_arent_named_by_process_alone_or_made_through_a_link() {
+        let dir = TempDir::new("check").unwrap();
+        let name = dir
+            .path()
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        assert_ne!(name, format!("check-{}", std::process::id()));
+        assert!(
+            !dir.path()
+                .starts_with(format!("/tmp/omarchy-sync-check-{}", std::process::id()))
+        );
+        let base = test_base("link");
+        std::fs::create_dir_all(&base).unwrap();
+        std::os::unix::fs::symlink(&base, base.with_extension("link")).unwrap();
+        assert!(TempDir::new_in(&base.with_extension("link"), "t").is_err());
+        let _ = std::fs::remove_file(base.with_extension("link"));
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn reads_curl_percentages() {

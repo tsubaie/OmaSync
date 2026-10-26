@@ -156,8 +156,8 @@ fn repo_key(name: &str) -> Option<RepoKey> {
     if fingerprint.len() != 40 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
         return None;
     }
-    let dir = std::env::temp_dir().join(format!("omarchy-sync-keys-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).ok()?;
+    let tmp = TempDir::new("keys").ok()?;
+    let dir = tmp.path();
     let ring = ["pubring.gpg", "pubring.kbx"]
         .iter()
         .find(|f| std::fs::copy(Path::new("/etc/pacman.d/gnupg").join(f), dir.join(f)).is_ok());
@@ -167,7 +167,7 @@ fn repo_key(name: &str) -> Option<RepoKey> {
         all.extend_from_slice(args);
         run(None, "gpg", &all).ok()
     };
-    let key = ring.and_then(|_| {
+    ring.and_then(|_| {
         let armored = gpg(&["--export", "--armor", &fingerprint])?;
         let owner = gpg(&["--list-keys", "--with-colons", &fingerprint])?
             .lines()
@@ -183,9 +183,7 @@ fn repo_key(name: &str) -> Option<RepoKey> {
                 owner,
                 armored,
             })
-    });
-    let _ = std::fs::remove_dir_all(&dir);
-    key
+    })
 }
 
 /// Adds an extra repository on this computer, as recorded from another one: its settings file
@@ -231,8 +229,8 @@ pub fn add_repository(data: &Data, name: &str) -> Result<(), String> {
     if !servers_ok || !repo.sig_level.iter().all(|l| LEVELS.contains(&l.as_str())) {
         return Err(format!("the settings recorded for {name} don't look right"));
     }
-    let dir = std::env::temp_dir().join(format!("omarchy-sync-repo-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let tmp = TempDir::new("repo")?;
+    let dir = tmp.path();
     let mut conf = format!("[{name}]\n");
     if !repo.sig_level.is_empty() {
         conf.push_str(&format!("SigLevel = {}\n", repo.sig_level.join(" ")));
@@ -255,7 +253,6 @@ pub fn add_repository(data: &Data, name: &str) -> Result<(), String> {
                 .armored
                 .starts_with("-----BEGIN PGP PUBLIC KEY BLOCK-----")
         {
-            let _ = std::fs::remove_dir_all(&dir);
             return Err(format!("the key recorded for {name} doesn't look right"));
         }
         std::fs::write(dir.join("repo.key"), &key.armored).map_err(|e| e.to_string())?;
@@ -267,14 +264,12 @@ pub fn add_repository(data: &Data, name: &str) -> Result<(), String> {
     }
     script.push_str("pacman -Sy --noconfirm\n");
     std::fs::write(dir.join("add.sh"), &script).map_err(|e| e.to_string())?;
-    let result = run(
+    run(
         None,
         "pkexec",
         &["bash", &dir.join("add.sh").to_string_lossy()],
     )
-    .map(|_| ());
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+    .map(|_| ())
 }
 
 /// Synced apps from outside the repos that this computer wants, with their install scripts.

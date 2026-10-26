@@ -123,15 +123,11 @@ pub fn install(ctx: &Ctx, version: &str, step: &dyn Fn(&str)) -> Result<(), Stri
             "Restarting Omarchy Sync",
         ],
     );
-    let dir = std::env::temp_dir().join(format!("omarchy-sync-update-{}", std::process::id()));
-    let result = download_and_install(&dir, version, step);
-    let _ = std::fs::remove_dir_all(&dir);
-    result
+    let dir = sync::TempDir::new("update")?;
+    download_and_install(dir.path(), version, step)
 }
 
 fn download_and_install(dir: &Path, version: &str, step: &dyn Fn(&str)) -> Result<(), String> {
-    let _ = std::fs::remove_dir_all(dir);
-    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let base = format!("https://github.com/{GITHUB_REPO}/releases/download/v{version}");
     let file = format!("omarchy-sync-{version}-1-x86_64.pkg.tar.zst");
     let path = dir.join(&file);

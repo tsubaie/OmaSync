@@ -387,19 +387,9 @@ fn plugin_id(id: &str) -> Result<()> {
 #[tauri::command]
 async fn set_plugin(computer: String, plugin: String, on: bool) -> Result<Data> {
     plugin_id(&plugin)?;
-    let before = Ctx::load().load_data().plugins.contains(&plugin);
-    let id = plugin.clone();
-    let data = edit(move |d, host| {
-        // This computer's copy may be the one shared, so it counts as having what's here.
-        d.computers.entry(host.into()).or_default().plugins = Ctx::load().local_plugins();
-        d.place_plugin(&computer, &id, on);
-    })
-    .await?;
-    let after = data.plugins.contains(&plugin);
-    if before != after {
-        blocking(move |ctx| sync::track_plugin(ctx, &plugin, after)).await?;
-    }
-    Ok(data)
+    blocking(move |ctx| sync::set_plugin(ctx, &computer, &plugin, on))
+        .await
+        .map_err(Problem::from)
 }
 
 /// Switches a plugin on or off in the Omarchy shell on this computer.
@@ -596,16 +586,9 @@ fn known_folder(path: &str) -> Result<&'static str> {
 #[tauri::command]
 async fn set_folder(path: String, on: bool) -> Result<Data> {
     let path = known_folder(&path)?;
-    // Stop tracking before saving "off": once saved, the ignore rules hide it from chezmoi,
-    // which then can't forget it. Starting is the other way round.
-    if !on {
-        blocking(move |ctx| sync::track(ctx, path, false)).await?;
-    }
-    let data = edit(move |d, _| sync::toggle(&mut d.folders, path, on)).await?;
-    if on {
-        blocking(move |ctx| sync::track(ctx, path, true)).await?;
-    }
-    Ok(data)
+    blocking(move |ctx| sync::set_folder(ctx, path, on))
+        .await
+        .map_err(Problem::from)
 }
 
 /// Tries the newer Omarchy's settings on this paused computer; the sync that follows saves its
