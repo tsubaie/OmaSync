@@ -43,9 +43,16 @@ jobs:
         timeout-minutes: 5
         # A mirror that stops answering is retried instead of waited on.
         run: |
-          echo 'Acquire::Retries "3"; Acquire::http::Timeout "20"; Acquire::https::Timeout "20";' | sudo tee /etc/apt/apt.conf.d/99retries >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libgtk-3-dev librsvg2-dev
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99retries >/dev/null
+          ok=0
+          for i in 1 2 3; do
+            if sudo apt-get update && timeout 90 sudo apt-get install -y --no-install-recommends --no-upgrade libwebkit2gtk-4.1-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev libgtk-3-dev librsvg2-dev; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          [ "$ok" = 1 ]
       - name: chezmoi, for the two-computer sync test
         run: sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
       - uses: dtolnay/rust-toolchain@master
@@ -84,8 +91,16 @@ jobs:
         timeout-minutes: 5
         # A mirror that stops answering is retried instead of waited on.
         run: |
-          echo 'Acquire::Retries "3"; Acquire::http::Timeout "20"; Acquire::https::Timeout "20";' | sudo tee /etc/apt/apt.conf.d/99retries >/dev/null
-          for i in 1 2 3; do pnpm exec playwright install --with-deps webkit && break; [ "$i" = 3 ] && exit 1; sleep 5; done
+          printf 'Acquire::Retries "3";\nAcquire::http::Timeout "20";\nAcquire::https::Timeout "20";\n' | sudo tee /etc/apt/apt.conf.d/99retries >/dev/null
+          ok=0
+          for i in 1 2 3; do
+            if timeout 120 pnpm exec playwright install --with-deps webkit; then
+              ok=1
+              break
+            fi
+            sleep 5
+          done
+          [ "$ok" = 1 ]
       - run: pnpm test:e2e
       - if: failure()
         uses: actions/upload-artifact@v4
