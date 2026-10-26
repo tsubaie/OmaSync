@@ -267,7 +267,9 @@ test('each plugin is switched on per computer, like apps', async ({ page }) => {
   ]);
 });
 
-test('plugins are switched on, added from git, updated and removed here', async ({ page }) => {
+test('plugins are switched on, added from git, updated and removed everywhere', async ({
+  page,
+}) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Plugins' }).click();
   expect(await a11y(page)).toEqual([]);
@@ -290,16 +292,19 @@ test('plugins are switched on, added from git, updated and removed here', async 
   ]);
   // The day's check found an update: Update stands out; updating marks it up to date.
   await page.getByRole('button', { name: /^Update \(an update is available/ }).click();
-  await expect(page.getByText('timezones is up to date.')).toBeVisible();
+  await expect(page.getByText('Timezones is up to date.')).toBeVisible();
   await expect(page.getByText('Up to date', { exact: true })).toBeVisible();
   // Omarchy's own plugins link to their folder in Omarchy's repository.
   await expect(page.getByRole('button', { name: 'Open github.com (Clock)' })).toBeVisible();
   expect(await calls(page, 'update_plugins')).toEqual([
     expect.objectContaining({ args: expect.objectContaining({ id: 'timezones' }) }),
   ]);
-  // Update All, at the top, goes plugin by plugin and sums up what Omarchy said.
+  // Update All, at the top, goes plugin by plugin and sums up; a skipped plugin makes it a
+  // warning.
   await page.getByRole('button', { name: 'Update All' }).click();
-  await expect(page.getByText('Updated timezones.')).toBeVisible();
+  const summary = page.getByText(/^Updated 1 plugin; the rest were up to date\. Webcam Controls/);
+  await expect(summary).toBeVisible();
+  await expect(page.locator('output.notice.warn')).toContainText("so it wasn't updated.");
   expect(await calls(page, 'update_plugins')).toEqual([
     expect.objectContaining({ args: expect.objectContaining({ id: 'timezones' }) }),
     expect.objectContaining({ args: expect.objectContaining({ id: null }) }),
@@ -314,10 +319,13 @@ test('plugins are switched on, added from git, updated and removed here', async 
   expect(await calls(page, 'add_plugin')).toEqual([
     { cmd: 'add_plugin', args: { url: 'https://github.com/acme/omarchy-weather.git' } },
   ]);
-  // Removing asks first and says it's this computer only.
+  // Removing a synced plugin asks first and says it goes from every computer.
+  await expect(page.getByText('switch Sync off there first', { exact: false })).toBeVisible();
   await page.getByRole('button', { name: 'Remove… (Timezones)' }).click();
-  await expect(page.getByText('Removes Timezones from this computer only.')).toBeVisible();
-  await page.getByRole('button', { name: 'Remove from This Computer' }).click();
+  await expect(
+    page.getByText('Removes Timezones from every computer at its next sync.'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Remove from Every Computer' }).click();
   expect(await calls(page, 'remove_plugin')).toEqual([
     { cmd: 'remove_plugin', args: { id: 'timezones' } },
   ]);

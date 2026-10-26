@@ -610,6 +610,7 @@ fn sync_inner(
     notes.extend(settle_pause(ctx).map_err(fail)?);
     notes.extend(save_newly_synced(ctx, &synced_before).map_err(fail)?);
     run(None, "chezmoi", &["apply", "--force"]).map_err(fail)?;
+    notes.extend(remove_plugins_removed_elsewhere(ctx).map_err(fail)?);
     let data = ctx.load_data();
     // The Current theme switch governs applying it too.
     if let Some(theme) = &data.theme

@@ -1710,6 +1710,72 @@ fn an_apps_settings_folder_syncs_from_the_start_when_the_app_is_installed() {
 
 #[test]
 #[ignore]
+fn removing_a_synced_plugin_removes_it_from_the_computers_that_sync_it() {
+    let mut lab = pair();
+    lab.join("b");
+    lab.add("c");
+    lab.join("c");
+    // Dock is placed on every bar, a line each.
+    lab.write(
+        "a",
+        ".config/omarchy/shell.json",
+        "{\"bar\": [\n  \"omarchy.clock\",\n  \"dock\"\n]}\n",
+    );
+    lab.sync_ok("a");
+    for who in ["b", "c"] {
+        install_plugins(lab.ctx(who), &["dock".into()]).unwrap();
+    }
+    lab.settle();
+    assert!(lab.read("c", ".config/omarchy/shell.json").contains("dock"));
+    // c wants to keep Dock as its own, so it switches Sync off for itself first.
+    set_plugin(lab.ctx("c"), "c", "dock", false).unwrap();
+    lab.settle();
+
+    remove_plugin(lab.ctx("a"), "dock").unwrap();
+    assert!(!lab.exists("a", ".config/omarchy/plugins/dock"));
+    let data = lab.data("a");
+    assert!(!data.plugins.contains(&"dock".to_string()));
+    assert_eq!(data.removed_plugins["dock"], vec!["b".to_string()]);
+    // The next sync doesn't offer it here again.
+    assert!(data.missing_plugins("a").is_empty());
+    lab.sync_ok("a");
+
+    let report = lab.sync_ok("b");
+    assert!(
+        report
+            .notes
+            .iter()
+            .any(|n| n.starts_with("Removed Dock here")),
+        "{:?}",
+        report.notes
+    );
+    assert!(!lab.exists("b", ".config/omarchy/plugins/dock"));
+    assert!(!lab.read("b", ".config/omarchy/shell.json").contains("dock"));
+    lab.settle();
+    // c kept its copy, now its own and unsynced; nobody is asked to remove it any more.
+    assert!(lab.exists("c", ".config/omarchy/plugins/dock/manifest.json"));
+    assert!(!lab.calls("c").contains("plugin remove dock"));
+    let data = lab.data("c");
+    assert!(
+        data.removed_plugins.is_empty(),
+        "{:?}",
+        data.removed_plugins
+    );
+    assert!(!data.plugins.contains(&"dock".to_string()));
+    assert!(
+        !lab.ctx("a")
+            .src
+            .join("dot_config/omarchy/plugins/dock")
+            .exists()
+    );
+    // Nothing comes back at the next syncs either.
+    lab.settle();
+    assert!(!lab.exists("a", ".config/omarchy/plugins/dock"));
+    assert!(!lab.exists("b", ".config/omarchy/plugins/dock"));
+}
+
+#[test]
+#[ignore]
 fn a_plugin_from_git_says_when_its_source_has_something_newer_once_a_day() {
     let lab = pair();
     // The plugin's source: a repository with one commit, cloned as the plugin (as
@@ -1738,21 +1804,118 @@ fn a_plugin_from_git_says_when_its_source_has_something_newer_once_a_day() {
     )
     .unwrap();
     let a = lab.ctx("a");
-    assert_eq!(plugin_updates_today(a).get("gitty"), Some(&false));
+    let state = |id: &str| plugin_updates_today(a).get(id).copied();
+    assert_eq!(state("gitty"), Some(PluginUpdate::Current));
     // A plugin that isn't from git (dock) isn't asked about.
-    assert!(!plugin_updates_today(a).contains_key("dock"));
+    assert_eq!(state("dock"), None);
     // Its maker publishes a change: the day's answer stands until the plugin is updated or
     // added, or the day is over.
     std::fs::write(upstream.join("manifest.json"), r#"{"name":"Gitty 2"}"#).unwrap();
     git(&["commit", "-q", "-am", "two"]);
-    assert_eq!(plugin_updates_today(a).get("gitty"), Some(&false));
+    assert_eq!(state("gitty"), Some(PluginUpdate::Current));
     forget_plugin_updates(a);
-    assert_eq!(plugin_updates_today(a).get("gitty"), Some(&true));
+    assert_eq!(state("gitty"), Some(PluginUpdate::Newer));
     // Update All asks Omarchy plugin by plugin, only for the ones from git.
-    update_plugins(a, None, &|_| {}).unwrap();
+    let done = update_plugins(a, None, &|_| {}).unwrap();
+    assert_eq!(
+        (done.text.as_str(), done.warn),
+        ("Updated 1 plugin.", false)
+    );
     let log = lab.calls("a");
     assert!(log.contains("plugin update gitty --yes"), "{log}");
     assert!(!log.contains("plugin update dock"), "{log}");
+    assert_eq!(state("gitty"), Some(PluginUpdate::Current));
+
+    // The person's own commit puts this copy ahead of its source: still current.
+    let local = |args: &[&str]| {
+        let mut all = vec!["-c", "user.name=me", "-c", "user.email=me@example.com"];
+        all.extend(args);
+        run(Some(&dir), "git", &all).unwrap()
+    };
+    std::fs::write(dir.join("Widget.qml"), "mine\n").unwrap();
+    local(&["add", "."]);
+    local(&["commit", "-q", "-m", "mine"]);
+    forget_plugin_updates(a);
+    assert_eq!(state("gitty"), Some(PluginUpdate::Current));
+    // An uncommitted change here: edited, whatever the source has (a new file alone isn't).
+    std::fs::write(dir.join("notes.txt"), "new file\n").unwrap();
+    forget_plugin_updates(a);
+    assert_eq!(state("gitty"), Some(PluginUpdate::Current));
+    std::fs::write(dir.join("Widget.qml"), "mine, edited\n").unwrap();
+    forget_plugin_updates(a);
+    assert_eq!(state("gitty"), Some(PluginUpdate::Edited));
+
+    // Update All skips the edited one, carries on past one that fails, and says so.
+    let clone = |id: &str| {
+        let d = lab.ctx("a").home.join(".config/omarchy/plugins").join(id);
+        run(
+            None,
+            "git",
+            &[
+                "clone",
+                "-q",
+                &upstream.to_string_lossy(),
+                &d.to_string_lossy(),
+            ],
+        )
+        .unwrap();
+        d
+    };
+    // Behind its source by one commit: updates.
+    let behind = clone("behind");
+    run(Some(&behind), "git", &["reset", "-q", "--hard", "HEAD~1"]).unwrap();
+    // Its own commit and a newer one at the source: Omarchy can't fast-forward it.
+    let forked = clone("forked");
+    run(Some(&forked), "git", &["reset", "-q", "--hard", "HEAD~1"]).unwrap();
+    std::fs::write(forked.join("Other.qml"), "fork\n").unwrap();
+    run(Some(&forked), "git", &["add", "."]).unwrap();
+    run(
+        Some(&forked),
+        "git",
+        &[
+            "-c",
+            "user.name=me",
+            "-c",
+            "user.email=me@example.com",
+            "commit",
+            "-q",
+            "-m",
+            "fork",
+        ],
+    )
+    .unwrap();
+    // Up to date already.
+    clone("fresh");
+    let done = update_plugins(a, None, &|_| {}).unwrap();
+    assert!(done.warn, "{}", done.text);
+    assert!(
+        done.text
+            .starts_with("Updated 1 plugin; the rest were up to date. "),
+        "{}",
+        done.text
+    );
+    assert!(
+        done.text
+            .contains("Gitty 2 has changes on this computer, so it wasn't updated."),
+        "{}",
+        done.text
+    );
+    assert!(
+        done.text
+            .contains("couldn't be updated: cannot fast-forward 'forked'"),
+        "{}",
+        done.text
+    );
+    assert_eq!(lab.calls("a").matches("plugin update gitty ").count(), 1);
+    assert_eq!(
+        run(Some(&behind), "git", &["rev-parse", "HEAD"]).unwrap(),
+        run(Some(&upstream), "git", &["rev-parse", "HEAD"]).unwrap()
+    );
+    // The edited copy is untouched.
+    assert_eq!(
+        std::fs::read_to_string(dir.join("Widget.qml")).unwrap(),
+        "mine, edited\n"
+    );
 }
 
 #[test]
@@ -1799,11 +1962,26 @@ fn a_plugin_from_git_is_added_from_git_on_the_other_computer_not_copied() {
     let listed = all_plugins(lab.ctx("b"), &lab.data("b"));
     let gitty = listed.iter().find(|p| p.id == "gitty").unwrap();
     assert!(!gitty.here && gitty.source.is_some());
-    install_plugins(lab.ctx("b"), &["gitty".into()]).unwrap();
+    // One whose source can't be reached doesn't stop the other, and stays waiting: b only
+    // counts as having a plugin once Omarchy added it.
+    lab.edit("b", |d, _| {
+        d.plugin_sources.insert(
+            "nowhere".into(),
+            "https://example.com/unreachable.git".into(),
+        );
+    });
+    let err = install_plugins(lab.ctx("b"), &["nowhere".into(), "gitty".into()]).unwrap_err();
+    assert!(err.contains("couldn't reach"), "{err}");
     assert!(
         lab.calls("b")
             .contains("plugin add https://example.com/gitty.git --enable --yes")
     );
+    let mine = lab.data("b").computers["b"].plugins.clone();
+    assert!(mine.contains(&"gitty".to_string()), "{mine:?}");
+    assert!(!mine.contains(&"nowhere".to_string()), "{mine:?}");
+    lab.edit("b", |d, _| {
+        d.plugin_sources.remove("nowhere");
+    });
     assert!(lab.exists("b", ".config/omarchy/plugins/gitty/.git"));
     assert_eq!(
         lab.ctx("b").plugin_source("gitty").as_deref(),
@@ -1816,7 +1994,7 @@ fn a_plugin_from_git_is_added_from_git_on_the_other_computer_not_copied() {
     assert!(!lab.exists("b", ".config/omarchy/plugins/gitty/Widget.qml"));
     assert!(update_plugins(lab.ctx("b"), Some("gitty"), &|_| {}).is_ok());
     assert!(lab.calls("b").contains("plugin update gitty --yes"));
-    // Removed here only: gone from b, still on a, and b no longer counts as having it.
+    // Removed on b: gone there now, from a at its next sync, and no longer synced.
     remove_plugin(lab.ctx("b"), "gitty").unwrap();
     assert!(!lab.exists("b", ".config/omarchy/plugins/gitty"));
     assert!(
@@ -1825,7 +2003,25 @@ fn a_plugin_from_git_is_added_from_git_on_the_other_computer_not_copied() {
             .contains(&"gitty".to_string())
     );
     lab.settle();
-    assert!(lab.exists("a", ".config/omarchy/plugins/gitty/manifest.json"));
+    assert!(!lab.exists("a", ".config/omarchy/plugins/gitty"));
+    assert!(lab.calls("a").contains("plugin remove gitty --yes"));
+    // a's own change to its copy was saved before it went.
+    let saved = std::fs::read_dir(lab.ctx("a").home.join(".local/share/omarchy-sync/backups"))
+        .unwrap()
+        .flatten()
+        .any(|e| {
+            e.file_name()
+                .to_string_lossy()
+                .starts_with("before-removing-plugins")
+        });
+    assert!(saved);
+    let data = lab.data("a");
+    assert!(!data.plugins.contains(&"gitty".to_string()));
+    assert!(
+        data.removed_plugins.is_empty(),
+        "{:?}",
+        data.removed_plugins
+    );
     // Plain plugins still travel as files, as before.
     assert!(!lab.data("b").plugin_sources.contains_key("dock"));
     // Bad addresses never reach a command.

@@ -35,6 +35,10 @@ pub struct Data {
     /// can be updated.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub plugin_sources: BTreeMap<String, String>,
+    /// Synced plugins someone removed (Remove Plugin…), with the computers that synced them and
+    /// still have to remove their copy at their next sync. A computer takes itself off once done.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub removed_plugins: BTreeMap<String, Vec<String>>,
     /// The layout of this file; older layouts are upgraded when read.
     #[serde(default)]
     pub version: u32,
@@ -197,9 +201,17 @@ impl Data {
             }
         }
         // A script that kept its repository apart becomes one command that clones it first.
+        // The file is shared, so only a plain address and app name reach the command; anything
+        // else is dropped rather than run.
         for (app, script) in self.outside.iter_mut() {
             if let Some(s) = script.as_mut().filter(|s| !s.repo.is_empty()) {
-                s.command = format!("git clone {} {app} && cd {app} && {}", s.repo, s.command);
+                if is_git_address(&s.repo) && is_package_name(app) {
+                    s.command = format!("git clone {} {app} && cd {app} && {}", s.repo, s.command);
+                } else {
+                    *script = None;
+                }
+            }
+            if let Some(s) = script.as_mut() {
                 s.repo.clear();
             }
         }
@@ -275,6 +287,11 @@ impl Data {
                 &base.plugin_sources,
                 &theirs.plugin_sources,
                 &mine.plugin_sources,
+            ),
+            removed_plugins: merge_map(
+                &base.removed_plugins,
+                &theirs.removed_plugins,
+                &mine.removed_plugins,
             ),
             version: theirs.version.max(mine.version),
         }
@@ -354,9 +371,21 @@ pub struct Plugin {
     /// Its git address, when it came from git (so it can be updated); for one of Omarchy's own,
     /// its folder in Omarchy's repository.
     pub source: Option<String>,
-    /// From git: whether its source has something newer, as of the day's check (see
+    /// From git: how this copy compares with its source, as of the day's check (see
     /// `plugin_updates_today`). None when it isn't from git or the check couldn't ask.
-    pub update: Option<bool>,
+    pub update: Option<PluginUpdate>,
+}
+
+/// How a plugin from git compares with its source.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PluginUpdate {
+    /// This copy has every commit at its source (it may be ahead).
+    Current,
+    /// The source has a commit this copy lacks.
+    Newer,
+    /// Changed on this computer and not committed: Omarchy won't update over that.
+    Edited,
 }
 
 /// Adds or removes `item` so that `list.contains(item) == present`.
@@ -553,6 +582,68 @@ mod tests {
             d.outside["numpad"].as_ref().map(|s| s.command.as_str()),
             Some("git clone https://example.com/numpad numpad && cd numpad && ./install.sh")
         );
+    }
+
+    #[test]
+    fn an_older_script_with_an_odd_address_or_name_is_dropped_not_run() {
+        let mut d = Data::default();
+        for (app, repo) in [
+            ("numpad", "https://x;rm -rf ~"),
+            ("a;b", "https://example.com/ok"),
+            ("ok", "https://example.com/ok"),
+        ] {
+            d.outside.insert(
+                app.into(),
+                Some(Script {
+                    command: "./install.sh".into(),
+                    repo: repo.into(),
+                }),
+            );
+        }
+        d.upgrade();
+        assert_eq!(d.outside["numpad"], None);
+        assert_eq!(d.outside["a;b"], None);
+        assert!(
+            d.outside["ok"]
+                .as_ref()
+                .unwrap()
+                .command
+                .starts_with("git clone ")
+        );
+    }
+
+    #[test]
+    fn a_removal_merges_and_switching_sync_back_on_cancels_it() {
+        let base = Data {
+            plugins: vec!["dock".into()],
+            ..Default::default()
+        };
+        let mut theirs = base.clone();
+        toggle(&mut theirs.plugins, "dock", false);
+        theirs
+            .removed_plugins
+            .insert("dock".into(), vec!["b".into()]);
+        let mut mine = base.clone();
+        mine.computers.entry("b".into()).or_default().name = "B".into();
+        let mut m = Data::merge(&base, &theirs, &mine);
+        assert!(m.plugins.is_empty());
+        assert_eq!(m.removed_plugins["dock"], vec!["b".to_string()]);
+        m.place_plugin("b", "dock", true);
+        assert!(m.removed_plugins.is_empty());
+    }
+
+    #[test]
+    fn plugin_update_states_read_as_words() {
+        assert_eq!(
+            serde_json::to_string(&PluginUpdate::Edited).unwrap(),
+            "\"edited\""
+        );
+        assert_eq!(
+            serde_json::from_str::<PluginUpdate>("\"newer\"").unwrap(),
+            PluginUpdate::Newer
+        );
+        // The day's answer an older version kept (true/false) doesn't read, so it's asked again.
+        assert!(serde_json::from_str::<PluginUpdate>("true").is_err());
     }
 
     #[test]

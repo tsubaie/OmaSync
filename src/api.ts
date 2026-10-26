@@ -29,9 +29,13 @@ export type Plugin = {
   /** Its git address, when it came from git (so it can be updated); for one of Omarchy's own,
    * its folder in Omarchy's repository. */
   source: string | null;
-  /** From git: whether its source has something newer, as of the day's check. */
-  update: boolean | null;
+  /** From git, as of the day's check: `newer` when its source has a commit this copy lacks,
+   * `current` when it doesn't (even if this copy is ahead), `edited` when it has uncommitted
+   * changes here (Omarchy won't update over those). */
+  update: 'current' | 'newer' | 'edited' | null;
 };
+/** What updating plugins came to, in sentences; `warn` when one was skipped or failed. */
+export type PluginsUpdated = { text: string; warn: boolean };
 /** An extra package repository another computer has, and the apps here that need it. */
 export type MissingRepo = {
   name: string;
@@ -224,10 +228,10 @@ export const api = {
   setPluginEnabled: (id: string, on: boolean) => invoke<void>('set_plugin_enabled', { id, on }),
   /** Adds a plugin from its git address and switches it on here. */
   addPlugin: (url: string) => invoke<void>('add_plugin', { url }),
-  /** Updates one plugin from git, or all of them (a step each); returns what Omarchy said. */
+  /** Updates one plugin from git, or all of them (a step each); returns a summary. */
   updatePlugins: (id: string | undefined, onStep: OnStep) =>
-    invoke<string>('update_plugins', { id: id ?? null, onStep: steps(onStep) }),
-  /** Removes a plugin from this computer only. */
+    invoke<PluginsUpdated>('update_plugins', { id: id ?? null, onStep: steps(onStep) }),
+  /** Removes a plugin here now, and from the computers that sync it at their next sync. */
   removePlugin: (id: string) => invoke<void>('remove_plugin', { id }),
   setApp: (computer: string, app: string, on: boolean) =>
     invoke<Data>('set_app', { computer, app, on }),
