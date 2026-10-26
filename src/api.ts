@@ -90,7 +90,7 @@ export type Computer = {
   omarchy?: string;
   /** Omarchy's own settings don't sync there for now: a newer Omarchy runs elsewhere. */
   paused?: boolean;
-  /** The newer Omarchy major version whose settings it's trying anyway. */
+  /** The newer Omarchy release (major * 1000 + minor) whose settings it's trying anyway. */
   tried?: number;
 };
 export type Data = {

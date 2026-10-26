@@ -217,6 +217,7 @@ pub fn parse_info(s: &str, field: &str) -> BTreeMap<String, String> {
             if k == "Name" {
                 name = Some(v.trim().to_string());
             } else if k == field
+                && v.trim() != "None"
                 && let Some(n) = name.take()
             {
                 out.insert(n, v.trim().to_string());
@@ -231,9 +232,13 @@ pub fn label(path: &str) -> &str {
     if path.starts_with(".background/") {
         return "Background";
     }
+    // The icons go with the web apps, as in `Data::syncs`.
+    let target = path
+        .strip_prefix(ICON_DIR)
+        .map_or_else(|| path.to_string(), |rest| format!("{APPS_DIR}{rest}"));
     FOLDERS
         .iter()
-        .filter(|(f, _, _)| path == *f || path.starts_with(&format!("{f}/")))
+        .filter(|(f, _, _)| target == *f || target.starts_with(&format!("{f}/")))
         .max_by_key(|(f, _, _)| f.len())
         .map_or(path, |(_, l, _)| l)
 }
@@ -258,6 +263,8 @@ mod tests {
         let sites = parse_info(out, "URL");
         assert_eq!(sites["brave-bin"], "https://brave.com");
         assert!(!sites.contains_key("yazi"));
+        let none = parse_info("Name            : foo\nURL             : None\n", "URL");
+        assert!(none.is_empty());
     }
 
     #[test]
@@ -277,6 +284,10 @@ mod tests {
         assert_eq!(label(".config/hypr/bindings.lua"), "Keyboard shortcuts");
         assert_eq!(label(".config/hyprx/a"), ".config/hyprx/a");
         assert_eq!(label(".config/hypr/hyprland.lua"), "Other window settings");
+        assert_eq!(
+            label(".local/share/icons/hicolor/256x256/apps/foo.png"),
+            "Web apps and their icons"
+        );
         assert_eq!(plural(1, "app"), "1 app");
         assert_eq!(plural(3, "app"), "3 apps");
     }

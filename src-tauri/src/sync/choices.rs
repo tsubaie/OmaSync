@@ -31,22 +31,22 @@ impl Data {
             .is_some_and(|c| skipped(c) || paused(c))
     }
 
-    /// The newest Omarchy major version among the computers.
+    /// The newest Omarchy release (see `release`) among the computers.
     pub fn newest_omarchy(&self) -> Option<u32> {
         self.computers
             .values()
-            .filter_map(|c| major(&c.omarchy))
+            .filter_map(|c| release(&c.omarchy))
             .max()
     }
 
     /// Whether Omarchy's own settings should stop syncing here: another computer runs a newer
-    /// major version (the shared settings follow the newest), and the person hasn't chosen to
+    /// major or minor version (the shared settings follow the newest), and the person hasn't chosen to
     /// try its settings. Each computer only pauses itself; the newest ones carry on.
     pub fn should_pause(&self, host: &str) -> bool {
         let Some(c) = self.computers.get(host) else {
             return false;
         };
-        match (major(&c.omarchy), self.newest_omarchy()) {
+        match (release(&c.omarchy), self.newest_omarchy()) {
             (Some(mine), Some(newest)) => newest > mine && c.tried != newest,
             _ => false,
         }
@@ -413,17 +413,37 @@ mod tests {
         d.computers.insert("old".into(), on("4.0.6-1"));
         d.computers.insert("new".into(), on("5.1.0"));
         d.computers.insert("dev".into(), on("dev (abc123)"));
-        assert_eq!((major("4.0.6-1"), major("dev (abc123)")), (Some(4), None));
-        // The newest computers carry on; an older one pauses, and so would a 4.5 next to a 4.0
-        // only if the major version differed.
+        assert_eq!(
+            (release("4.0.6-1"), release("4.5.0rc1-1"), release("3")),
+            (Some(4000), Some(4005), Some(3000))
+        );
+        assert_eq!(release("dev (abc123)"), None);
+        // The newest computers carry on; an older one pauses.
         assert!(d.should_pause("old") && !d.should_pause("new") && !d.should_pause("dev"));
         d.computers.get_mut("old").unwrap().paused = true;
         assert_eq!(d.active_folders("old"), [".config/alacritty"]);
         assert_eq!(d.active_folders("new").len(), 2);
         // Trying Omarchy 5's settings resumes it, until an Omarchy 6 arrives.
-        d.computers.get_mut("old").unwrap().tried = 5;
+        d.computers.get_mut("old").unwrap().tried = 5001;
         assert!(!d.should_pause("old"));
         d.computers.get_mut("new").unwrap().omarchy = "6.0.0".into();
         assert!(d.should_pause("old"));
+    }
+
+    #[test]
+    fn a_newer_minor_omarchy_pauses_but_a_patch_does_not() {
+        let mut d = Data::default();
+        for (id, v) in [("old", "4.0.6-1"), ("new", "4.5.0rc1-1")] {
+            d.computers.insert(
+                id.into(),
+                Computer {
+                    omarchy: v.into(),
+                    ..Default::default()
+                },
+            );
+        }
+        assert!(d.should_pause("old") && !d.should_pause("new"));
+        d.computers.get_mut("new").unwrap().omarchy = "4.0.1-1".into();
+        assert!(!d.should_pause("old") && !d.should_pause("new"));
     }
 }

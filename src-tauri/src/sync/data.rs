@@ -85,6 +85,21 @@ fn merge_map<T: Clone + PartialEq>(
     out
 }
 
+/// A three-way merge of a list: what `mine` added or removed since `base`, over `theirs`.
+fn list(b: &[String], t: &[String], m: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = t.to_vec();
+    for x in m.iter().filter(|x| !b.contains(x)) {
+        toggle(&mut out, x, true);
+    }
+    out.retain(|x| !(b.contains(x) && !m.contains(x)));
+    out
+}
+
+/// A three-way merge of one value: `mine` if it changed since `base`, else `theirs`.
+fn pick<T: Clone + PartialEq>(b: &T, t: &T, m: &T) -> T {
+    if m != b { m.clone() } else { t.clone() }
+}
+
 /// How to install an app from outside Arch's repos and the AUR: a command, run in an empty
 /// folder in a terminal window the person can see (it may download a repository itself).
 #[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
@@ -137,7 +152,7 @@ pub struct Computer {
     /// and settings made for it may not work on this one (see `should_pause`).
     #[serde(default, skip_serializing_if = "is_false")]
     pub paused: bool,
-    /// The newer Omarchy major version whose settings the person chose to try here anyway.
+    /// The newer Omarchy release (see `release`) whose settings the person chose to try here anyway.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub tried: u32,
 }
@@ -150,9 +165,47 @@ fn is_zero(n: &u32) -> bool {
     *n == 0
 }
 
-/// The major version in what `omarchy version` prints ("4.0.6-1" is 4); none for a dev copy.
-pub fn major(version: &str) -> Option<u32> {
-    version.split('.').next()?.parse().ok()
+/// The major and minor version in what `omarchy version` prints, as one number ("4.5.0rc1-1"
+/// is 4005), so a patch release counts as the same; none for a dev copy.
+pub fn release(version: &str) -> Option<u32> {
+    let mut parts = version.split('.');
+    let major: u32 = parts.next()?.parse().ok()?;
+    let minor = parts.next().map_or(0, |p| {
+        let digits: String = p.chars().take_while(char::is_ascii_digit).collect();
+        digits.parse().unwrap_or(0)
+    });
+    major.checked_mul(1000)?.checked_add(minor.min(999))
+}
+
+impl Computer {
+    /// A three-way merge of one computer's entry, field by field.
+    fn merge(base: &Computer, theirs: &Computer, mine: &Computer) -> Computer {
+        let (b, t, m) = (base, theirs, mine);
+        Computer {
+            name: pick(&b.name, &t.name, &m.name),
+            aka: list(&b.aka, &t.aka, &m.aka),
+            skip_apps: list(&b.skip_apps, &t.skip_apps, &m.skip_apps),
+            skip_files: list(&b.skip_files, &t.skip_files, &m.skip_files),
+            plugins: list(&b.plugins, &t.plugins, &m.plugins),
+            skip_plugins: list(&b.skip_plugins, &t.skip_plugins, &m.skip_plugins),
+            web_apps: list(&b.web_apps, &t.web_apps, &m.web_apps),
+            web_icons: list(&b.web_icons, &t.web_icons, &m.web_icons),
+            manual: pick(&b.manual, &t.manual, &m.manual),
+            install_without_asking: pick(
+                &b.install_without_asking,
+                &t.install_without_asking,
+                &m.install_without_asking,
+            ),
+            no_bar_indicator: pick(
+                &b.no_bar_indicator,
+                &t.no_bar_indicator,
+                &m.no_bar_indicator,
+            ),
+            omarchy: pick(&b.omarchy, &t.omarchy, &m.omarchy),
+            paused: pick(&b.paused, &t.paused, &m.paused),
+            tried: pick(&b.tried, &t.tried, &m.tried),
+        }
+    }
 }
 
 impl Data {
@@ -215,6 +268,14 @@ impl Data {
                 s.repo.clear();
             }
         }
+        // Earlier versions kept only the major version tried.
+        for c in self
+            .computers
+            .values_mut()
+            .filter(|c| (1..1000).contains(&c.tried))
+        {
+            c.tried *= 1000;
+        }
         self.version = 3;
     }
 
@@ -254,32 +315,24 @@ impl Data {
     }
 
     /// A three-way merge of two versions that both started from `base`: list changes from
-    /// both sides are kept, and a computer's entry comes from the side that changed it
-    /// (`mine` when both did).
+    /// both sides are kept, and a value (a computer's settings field by field) comes from the
+    /// side that changed it (`mine` when both did).
     pub fn merge(base: &Data, theirs: &Data, mine: &Data) -> Data {
-        let list = |b: &[String], t: &[String], m: &[String]| -> Vec<String> {
-            let mut out: Vec<String> = t.to_vec();
-            for x in m.iter().filter(|x| !b.contains(x)) {
-                toggle(&mut out, x, true);
+        let mut computers = merge_map(&base.computers, &theirs.computers, &mine.computers);
+        // A computer both sides kept merges field by field: one may have changed another's web
+        // apps while that one changed its own plugins.
+        for (k, m) in &mine.computers {
+            if let (Some(t), Some(out)) = (theirs.computers.get(k), computers.get_mut(k)) {
+                *out = Computer::merge(&base.computers.get(k).cloned().unwrap_or_default(), t, m);
             }
-            out.retain(|x| !(b.contains(x) && !m.contains(x)));
-            out
-        };
+        }
         Data {
             folders: list(&base.folders, &theirs.folders, &mine.folders),
             apps: list(&base.apps, &theirs.apps, &mine.apps),
             plugins: list(&base.plugins, &theirs.plugins, &mine.plugins),
-            theme: if mine.theme != base.theme {
-                mine.theme.clone()
-            } else {
-                theirs.theme.clone()
-            },
-            background: if mine.background != base.background {
-                mine.background.clone()
-            } else {
-                theirs.background.clone()
-            },
-            computers: merge_map(&base.computers, &theirs.computers, &mine.computers),
+            theme: pick(&base.theme, &theirs.theme, &mine.theme),
+            background: pick(&base.background, &theirs.background, &mine.background),
+            computers,
             outside: merge_map(&base.outside, &theirs.outside, &mine.outside),
             repositories: merge_map(&base.repositories, &theirs.repositories, &mine.repositories),
             app_repo: merge_map(&base.app_repo, &theirs.app_repo, &mine.app_repo),
@@ -630,6 +683,52 @@ mod tests {
         assert_eq!(m.removed_plugins["dock"], vec!["b".to_string()]);
         m.place_plugin("b", "dock", true);
         assert!(m.removed_plugins.is_empty());
+    }
+
+    #[test]
+    fn one_computer_merges_field_by_field() {
+        let mut base = Data::default();
+        base.computers.insert(
+            "b".into(),
+            Computer {
+                name: "B".into(),
+                web_apps: vec!["Chat.desktop".into(), "Mail.desktop".into()],
+                plugins: vec!["dock".into()],
+                omarchy: "4.0.6-1".into(),
+                ..Default::default()
+            },
+        );
+        // a deletes a web app everywhere, b's entry included...
+        let mut theirs = base.clone();
+        toggle(
+            &mut theirs.computers.get_mut("b").unwrap().web_apps,
+            "Chat.desktop",
+            false,
+        );
+        // ...while b renames itself, takes a plugin and updates Omarchy.
+        let mut mine = base.clone();
+        let b = mine.computers.get_mut("b").unwrap();
+        b.name = "Laptop".into();
+        toggle(&mut b.plugins, "clock", true);
+        b.omarchy = "4.5.0-1".into();
+        let m = Data::merge(&base, &theirs, &mine);
+        let b = &m.computers["b"];
+        assert_eq!(b.web_apps, ["Mail.desktop"]);
+        assert_eq!(b.plugins, ["dock", "clock"]);
+        assert_eq!((b.name.as_str(), b.omarchy.as_str()), ("Laptop", "4.5.0-1"));
+        // A computer forgotten on one side stays forgotten.
+        let mut gone = base.clone();
+        gone.computers.remove("b");
+        assert!(Data::merge(&base, &theirs, &gone).computers.is_empty());
+    }
+
+    #[test]
+    fn a_tried_major_version_reads_as_its_release() {
+        let mut d = Data::default();
+        d.computers.entry("a".into()).or_default().tried = 5;
+        d.upgrade();
+        d.upgrade();
+        assert_eq!(d.computers["a"].tried, 5000);
     }
 
     #[test]

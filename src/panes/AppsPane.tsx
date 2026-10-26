@@ -25,6 +25,15 @@ function source(from: string | undefined): [string, string] {
 }
 
 /** Install steps in a few words: the only one, or how many and the first. */
+/** A website's host, or null when the package's URL isn't one. */
+function hostOf(url?: string): string | null {
+  try {
+    return url ? new URL(url).host : null;
+  } catch {
+    return null;
+  }
+}
+
 const steps = (command: string) => {
   const lines = command.split('\n').filter((l) => l.trim());
   return lines.length === 1 ? `“${lines[0]}”` : `${lines.length} steps, starting “${lines[0]}”`;
@@ -98,14 +107,14 @@ function AppRow({
   const [tag, meaning] = source(from);
   // Where its link goes: Arch's or the AUR's package page, which say everything about it; an
   // app from Omarchy's repository (no pages) links to its own website.
-  const website = ov.apps.website[app];
+  const site = hostOf(ov.apps.website[app]);
   const page =
     from === 'arch'
       ? (['arch', 'archlinux.org'] as const)
       : from === 'aur'
         ? (['aur', 'the AUR'] as const)
-        : from === 'omarchy' && website
-          ? (['website', new URL(website).host] as const)
+        : from === 'omarchy' && site
+          ? (['website', site] as const)
           : null;
   // Needs an extra repository this computer doesn't have yet: it can't install here until
   // that's added (it never comes from the AUR instead).

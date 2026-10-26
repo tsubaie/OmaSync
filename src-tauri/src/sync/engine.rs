@@ -408,7 +408,7 @@ fn settle_pause(ctx: &Ctx) -> Result<Option<String>, String> {
     let before = c.clone();
     c.paused = pause;
     // Caught up: nothing left to try.
-    if major(&c.omarchy) == newest {
+    if release(&c.omarchy) == newest {
         c.tried = 0;
     }
     if *c == before {

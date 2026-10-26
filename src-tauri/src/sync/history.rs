@@ -160,9 +160,17 @@ pub fn undo(ctx: &Ctx, sha: &str) -> Result<(), String> {
                 .into(),
         );
     }
-    let who = ctx
+    let author = ctx
         .git(&["log", "-1", "--format=%an", sha])
         .unwrap_or_default();
+    let author = author.trim();
+    // Commits are authored by the computer's ID; the message says its name.
+    let who = choices
+        .computers
+        .get(&choices.resolve(author))
+        .map(|c| c.name.as_str())
+        .filter(|n| !n.is_empty())
+        .unwrap_or(author);
     ctx.git(&[
         "commit",
         "-q",
