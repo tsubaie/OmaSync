@@ -178,17 +178,12 @@ pub(crate) fn forget_plugin_updates(ctx: &Ctx) {
     let _ = std::fs::remove_file(checked_file(ctx));
 }
 
-/// What the Plugins page lists: everything Omarchy knows here, plus the plugins other computers
-/// have that this one doesn't, by name.
+/// What the Plugins page lists: everything Omarchy knows here, plus the synced plugins this
+/// computer doesn't have, by name. Another computer's unsynced ones stay its own business.
 pub(crate) fn all_plugins(ctx: &Ctx, data: &Data) -> Vec<Plugin> {
     let mut plugins = omarchy_plugins(ctx);
     let mut ids: BTreeSet<String> = ctx.local_plugins().into_iter().collect();
     ids.extend(data.plugins.iter().cloned());
-    ids.extend(
-        data.computers
-            .values()
-            .flat_map(|c| c.plugins.iter().cloned()),
-    );
     for id in ids {
         if is_plugin_id(&id) && id != BAR_PLUGIN && !plugins.iter().any(|p| p.id == id) {
             plugins.push(ctx.plugin(&id));
@@ -280,13 +275,38 @@ pub fn set_plugin_enabled(ctx: &Ctx, id: &str, on: bool) -> Result<(), String> {
 }
 
 /// Adds a plugin from its git address and switches it on, through Omarchy's own command. Under
-/// the sync lock, so a background sync never saves a half-added plugin.
+/// the sync lock, so a background sync never saves a half-added plugin. It syncs straight away
+/// while plugins sync, added from git on the other computers.
 pub fn add_plugin(ctx: &Ctx, url: &str) -> Result<(), String> {
     forget_plugin_updates(ctx);
     let _lock = lock_wait(ctx)?;
-    here()
-        .plugin(&["add", url, "--enable", "--yes"])
-        .map(|_| ())
+    let before = ctx.local_plugins();
+    here().plugin(&["add", url, "--enable", "--yes"])?;
+    if !is_set_up(ctx) {
+        return Ok(());
+    }
+    let new: Vec<String> = ctx
+        .local_plugins()
+        .into_iter()
+        .filter(|id| !before.contains(id))
+        .collect();
+    edit_locked(ctx, |d, host| {
+        let syncs = d.folders.iter().any(|f| f == PLUGIN_DIR);
+        for id in &new {
+            toggle(
+                &mut d.computers.entry(host.into()).or_default().plugins,
+                id,
+                true,
+            );
+            if let Some(source) = ctx.plugin_source(id) {
+                d.plugin_sources.insert(id.clone(), source);
+            }
+            if syncs && !d.removed_plugins.contains_key(id) {
+                toggle(&mut d.plugins, id, true);
+            }
+        }
+    })
+    .map(|_| ())
 }
 
 /// What updating plugins came to, in sentences; `warn` when one was skipped or failed.

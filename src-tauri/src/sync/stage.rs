@@ -104,16 +104,73 @@ fn prune_web_apps(ctx: &Ctx, data: &Data) {
         (APPS_DIR, keep(|c| &c.web_apps)),
         (ICON_DIR, keep(|c| &c.web_icons)),
     ] {
-        let source = ctx
-            .src
-            .join(dir.replace("/.", "/dot_").replacen('.', "dot_", 1));
-        for e in std::fs::read_dir(&source).into_iter().flatten().flatten() {
+        for e in std::fs::read_dir(source_dir(ctx, dir))
+            .into_iter()
+            .flatten()
+            .flatten()
+        {
             let name = strip_attributes(&e.file_name().to_string_lossy());
             if e.path().is_file() && !keep.contains(&name) {
                 let _ = std::fs::remove_file(e.path());
             }
         }
     }
+}
+
+/// Where a folder under home is kept in the sync folder.
+fn source_dir(ctx: &Ctx, dir: &str) -> PathBuf {
+    ctx.src
+        .join(dir.replace("/.", "/dot_").replacen('.', "dot_", 1))
+}
+
+/// The web apps and icons in the sync folder, by their names under home.
+pub(crate) fn synced_web_apps(ctx: &Ctx) -> BTreeSet<(&'static str, String)> {
+    [APPS_DIR, ICON_DIR]
+        .into_iter()
+        .flat_map(|dir| {
+            std::fs::read_dir(source_dir(ctx, dir))
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter(|e| e.path().is_file())
+                .map(move |e| (dir, strip_attributes(&e.file_name().to_string_lossy())))
+        })
+        .collect()
+}
+
+/// Deletes here the web apps and icons another computer deleted: they were in the sync folder
+/// (`before`, read before taking the other computers' changes) and no longer are. Left here,
+/// they'd count as new at the next sync and come back for everyone. Their files are in the
+/// history.
+pub(crate) fn remove_web_apps_removed_elsewhere(
+    ctx: &Ctx,
+    before: &BTreeSet<(&'static str, String)>,
+) -> Result<(), String> {
+    let mut data = ctx.load_data();
+    if !data.syncs(&ctx.host, APPS_DIR) {
+        return Ok(());
+    }
+    let after = synced_web_apps(ctx);
+    let gone: BTreeSet<(&str, String)> = before.difference(&after).cloned().collect();
+    if gone.is_empty() {
+        return Ok(());
+    }
+    for (dir, name) in &gone {
+        let _ = std::fs::remove_file(ctx.home.join(dir).join(name));
+    }
+    let listed = data.clone();
+    // A clash settled in this computer's favour may have kept them in its own list.
+    for c in data.computers.values_mut() {
+        c.web_apps
+            .retain(|a| !gone.contains(&(APPS_DIR, a.clone())));
+        c.web_icons
+            .retain(|i| !gone.contains(&(ICON_DIR, i.clone())));
+    }
+    if data != listed {
+        ctx.save_data(&data)?;
+        commit(ctx)?;
+    }
+    Ok(())
 }
 
 /// Returns how many new files (or whole folders, for an old chezmoi) it saved.
@@ -398,8 +455,36 @@ pub(crate) fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String
         .collect();
     data.apps.retain(|a| !stuck.contains(a));
     let me = data.computers.entry(ctx.host.clone()).or_default();
+    let (prev_plugins, prev_apps, prev_icons) = (
+        std::mem::take(&mut me.plugins),
+        std::mem::take(&mut me.web_apps),
+        std::mem::take(&mut me.web_icons),
+    );
     me.plugins = ctx.local_plugins();
     (me.web_apps, me.web_icons) = ctx.local_web_apps();
+    let (now_plugins, now_apps, now_icons) = (
+        me.plugins.clone(),
+        me.web_apps.clone(),
+        me.web_icons.clone(),
+    );
+    // A web app deleted here goes from every computer's list, so it leaves the sync folder
+    // (see prune_web_apps) and no computer brings it back.
+    if data.syncs(&ctx.host, APPS_DIR) {
+        for c in data.computers.values_mut() {
+            c.web_apps
+                .retain(|a| now_apps.contains(a) || !prev_apps.contains(a));
+            c.web_icons
+                .retain(|i| now_icons.contains(i) || !prev_icons.contains(i));
+        }
+    }
+    // A plugin added here since the last sync syncs, while plugins sync at all.
+    if data.folders.iter().any(|f| f == PLUGIN_DIR) {
+        for id in now_plugins.iter().filter(|id| !prev_plugins.contains(id)) {
+            if !data.removed_plugins.contains_key(id) {
+                toggle(&mut data.plugins, id, true);
+            }
+        }
+    }
     // Plugins from git aren't copied: each computer adds them from git (see plugin_sources).
     for id in ctx.local_plugins() {
         if let Some(url) = ctx.plugin_source(&id) {
@@ -407,6 +492,12 @@ pub(crate) fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String
             track_plugin(ctx, &id, false)?;
         }
     }
+    let known: BTreeSet<&String> = data
+        .plugins
+        .iter()
+        .chain(data.computers.values().flat_map(|c| &c.plugins))
+        .collect();
+    data.plugin_sources.retain(|id, _| known.contains(id));
     prune_web_apps(ctx, &data);
     ctx.save_data(&data)?;
     stage(ctx, &data, step)?;
@@ -521,15 +612,20 @@ pub fn set_plugin(ctx: &Ctx, computer: Option<&str>, id: &str, on: bool) -> Resu
     let _lock = lock_wait(ctx)?;
     let before = ctx.load_data().plugins.iter().any(|p| p == id);
     let saved = std::fs::read(ctx.data_path()).ok();
+    // A plugin from git is added from git on each computer, never copied.
+    let source = ctx.plugin_source(id).filter(|_| on);
     let data = edit_locked(ctx, |d, host| {
         // This computer's copy may be the one shared, so it counts as having what's here.
         d.computers.entry(host.into()).or_default().plugins = ctx.local_plugins();
+        if let Some(url) = &source {
+            d.plugin_sources.insert(id.into(), url.clone());
+        }
         match computer {
             Some(c) => d.place_plugin(c, id, on),
             None => d.set_plugin_all(host, id, on),
         }
     })?;
-    let after = data.plugins.iter().any(|p| p == id);
+    let after = data.plugins.iter().any(|p| p == id) && source.is_none();
     if before != after
         && let Err(e) = track_plugin(ctx, id, after)
     {

@@ -238,7 +238,10 @@ pub(crate) fn seed(
         theme: ctx.current_theme(),
         ..Default::default()
     };
-    data.computers.entry(ctx.host.clone()).or_default().name = ctx.hostname.clone();
+    let me = data.computers.entry(ctx.host.clone()).or_default();
+    me.name = ctx.hostname.clone();
+    // Counted as here already, so the first sync doesn't take the ones left out as new.
+    me.plugins = ctx.local_plugins();
     if let Some(apps) = apps {
         data.apps = apps
             .iter()
@@ -249,7 +252,6 @@ pub(crate) fn seed(
     if let Some(plugins) = plugins {
         // Upgraded now, so reading it back doesn't sync every plugin here after all.
         data.upgrade();
-        data.computers.entry(ctx.host.clone()).or_default().plugins = ctx.local_plugins();
         data.plugins = plugins
             .iter()
             .filter(|p| is_plugin_id(p))
@@ -324,14 +326,43 @@ pub(crate) fn adopt(
     // Joining with an older Omarchy than the others: its own settings stay as they are.
     note_omarchy(&mut data, &ctx.host);
     let paused = data.should_pause(&ctx.host);
-    data.computers.entry(ctx.host.clone()).or_default().paused = paused;
+    let me = data.computers.entry(ctx.host.clone()).or_default();
+    me.paused = paused;
+    // Counted as here already, so the first sync doesn't share the ones it has as new.
+    me.plugins = ctx.local_plugins();
     ctx.save_data(&data)?;
     step("Backing up this computer's current settings");
-    let backup = backup_now(
-        ctx,
-        &with_current_look(ctx, &data.folders),
-        "before-first-sync",
-    )?;
+    let mut saved = with_current_look(ctx, &data.folders);
+    let web_apps = data.syncs(&ctx.host, APPS_DIR);
+    if web_apps {
+        saved.push(ICON_DIR.into());
+    }
+    let backup = backup_now(ctx, &saved, "before-first-sync")?;
+    // This computer takes the synced web apps: one here that isn't synced (a default someone
+    // deleted elsewhere, say) goes, saved in the backup, rather than coming back for everyone.
+    if web_apps {
+        let (apps, icons) = ctx.local_web_apps();
+        for (dir, names, pick) in [
+            (
+                APPS_DIR,
+                apps,
+                (|c| &c.web_apps) as fn(&Computer) -> &Vec<String>,
+            ),
+            (ICON_DIR, icons, |c| &c.web_icons),
+        ] {
+            for name in names
+                .iter()
+                .filter(|n| !data.computers.values().any(|c| pick(c).contains(n)))
+            {
+                let _ = std::fs::remove_file(ctx.home.join(dir).join(name));
+            }
+        }
+        let me = data.computers.entry(ctx.host.clone()).or_default();
+        (me.web_apps, me.web_icons) = ctx.local_web_apps();
+        ctx.save_data(&data)?;
+    }
+    // The synced repo may hold an older version's ignore rules.
+    std::fs::write(ctx.src.join(".chezmoiignore"), IGNORE).map_err(|e| e.to_string())?;
     step("Updating this computer");
     apply_chezmoi(ctx)?;
     // The shared look goes on now: the first sync saves what shows here, which would
