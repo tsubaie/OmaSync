@@ -333,7 +333,19 @@ pub(crate) fn adopt(
         "before-first-sync",
     )?;
     step("Updating this computer");
-    run(None, "chezmoi", &["apply", "--force"])?;
+    apply_chezmoi(ctx)?;
+    // The shared look goes on now: the first sync saves what shows here, which would
+    // otherwise replace it for everyone.
+    if data.uses_theme(&ctx.host) {
+        let desktop = here();
+        if let Some(theme) = &data.theme
+            && desktop.profile().supports_themes
+            && ctx.current_theme().as_ref() != Some(theme)
+        {
+            let _ = desktop.set_theme(theme);
+        }
+        let _ = apply_background(ctx, &data);
+    }
     Ok(backup)
 }
 

@@ -140,8 +140,10 @@ pub fn overview(
 /// in git until a sync records it, so a change made in Omarchy is listed from here.
 pub(crate) fn look_changes(ctx: &Ctx, data: &Data) -> Vec<String> {
     let mut out = Vec::new();
+    if !data.uses_theme(&ctx.host) {
+        return out;
+    }
     if let Some(theme) = ctx.current_theme().filter(|t| is_file_name(t))
-        && data.uses_theme(&ctx.host)
         && data.theme.as_ref() != Some(&theme)
     {
         out.push(format!(".config/omarchy/themes/{theme}"));

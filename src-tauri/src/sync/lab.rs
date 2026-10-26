@@ -248,6 +248,7 @@ impl Lab {
             std::env::set_var("LAB_LOG", home.join(".lab/calls"));
             let config = home.join(".lab/snapper-root");
             std::env::set_var("OMARCHY_SYNC_SNAPPER_CONFIG", &config);
+            std::env::set_var("OMARCHY_SYNC_POWER_SUPPLY", home.join(".lab/power_supply"));
             let _ = match m.snapper {
                 Some(_) => std::fs::write(&config, ""),
                 None => std::fs::remove_file(&config),
@@ -288,6 +289,16 @@ impl Lab {
     }
 
     /// The person closes (or doesn't) every password window on this computer.
+    /// Gives the computer a battery (a laptop) or none (a desktop, the default).
+    pub fn battery(&mut self, name: &str, on: bool) {
+        let dir = self.ctx(name).home.join(".lab/power_supply/BAT0");
+        let _ = if on {
+            std::fs::create_dir_all(dir)
+        } else {
+            std::fs::remove_dir_all(dir)
+        };
+    }
+
     pub fn cancel_password(&mut self, name: &str, cancels: bool) {
         let i = self.index(name);
         self.machines[i].cancels_password = cancels;
@@ -581,9 +592,18 @@ impl Lab {
                     .collect::<String>(),
                 None => "(none)".into(),
             };
+            // The battery widget's switch is this computer's own and never syncs.
+            let shared = |v: &Option<Vec<u8>>| {
+                on_disk
+                    .as_deref()
+                    .zip(v.as_deref())
+                    .is_some_and(|(d, v)| with_battery(d, false).is_some_and(|d| same_json(&d, v)))
+            };
             assert!(
                 on_disk == committed
                     || on_disk == staged
+                    || shared(&committed)
+                    || shared(&staged)
                     || own.as_ref().is_some_and(|o| *o == on_disk),
                 "{name}: {path} holds a version that is in neither its history nor the person's own change\n  on disk: {:?}\n  in history: {:?}\n  own change: {:?}",
                 show(&on_disk),
@@ -602,9 +622,12 @@ impl Lab {
                 if in_history.contains(id) {
                     m.saved.insert(id.clone(), (path.clone(), content.clone()));
                 }
+                let shared_saved = with_battery(content, false)
+                    .is_some_and(|c| in_history.contains(&blob_id(&src, &c)));
                 assert!(
                     disk(path).as_deref() == Some(content)
                         || in_history.contains(id)
+                        || shared_saved
                         || in_backups(path, content),
                     "{name}: {path} was replaced, and the person's version is in neither the history nor a backup"
                 );
@@ -642,6 +665,7 @@ impl Drop for Lab {
             std::env::set_var("PATH", &self.original_path);
             std::env::remove_var("LAB_FAIL_GIT");
             std::env::remove_var("OMARCHY_SYNC_SNAPPER_CONFIG");
+            std::env::remove_var("OMARCHY_SYNC_POWER_SUPPLY");
         }
         if std::env::var("LAB_KEEP").is_err() {
             let _ = std::fs::remove_dir_all(&self.root);

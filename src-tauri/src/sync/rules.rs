@@ -126,7 +126,12 @@ pub const NESTED: &[&str] = &[
 pub(crate) const IGNORE: &str = r#"**/.git
 **/.git/**
 **/node_modules/**
+**/.keep
+**/*.bak
 **/*.bak.*
+**/*.bak-*
+**/*.orig
+**/*~
 .config/hypr/monitors.lua
 .config/hypr/monitors.conf
 .config/omarchy/backgrounds

@@ -62,6 +62,10 @@ pub(crate) fn strip_attributes(name: &str) -> String {
 
 /// Shows the synced background here when it isn't already, through Omarchy's own command.
 pub(crate) fn apply_background(ctx: &Ctx, data: &Data) -> Result<(), String> {
+    // The background travels with the theme's switch.
+    if !data.uses_theme(&ctx.host) {
+        return Ok(());
+    }
     let Some(name) = data.background.as_ref().filter(|n| is_file_name(n)) else {
         return Ok(());
     };
@@ -131,7 +135,9 @@ pub(crate) fn stage(ctx: &Ctx, data: &Data, step: &dyn Fn(&str)) -> Result<usize
     // Adding whole folders re-reads every file (most of a minute with big plugins), so only
     // changed files are saved again, then only new ones are added.
     step("Saving changed settings");
+    let shell = shell_source(ctx);
     run(None, "chezmoi", &["re-add"])?;
+    tidy(ctx, shell.as_deref());
     step("Looking for new files");
     let mut args = vec!["unmanaged", "--path-style=absolute"];
     args.extend(paths.iter().map(|s| s.as_str()));
@@ -157,15 +163,138 @@ pub(crate) fn stage(ctx: &Ctx, data: &Data, step: &dyn Fn(&str)) -> Result<usize
 }
 
 /// Whether a path holds something that never syncs, whatever the exceptions say: a `.git`
-/// folder, `node_modules` or a backup file. The ignore rules name them, but an exception (a
-/// shared plugin, the current theme) wins over every ignore rule in chezmoi, so chezmoi
-/// reports them as new inside those folders and would add them. Works on a home path or a
+/// folder, `node_modules`, a `.keep` marker or a backup file. The ignore rules name them, but
+/// an exception (a shared plugin, the current theme) wins over every ignore rule in chezmoi, so
+/// chezmoi reports them as new inside those folders and would add them. Works on a home path or a
 /// sync folder path (`dot_git`, attribute prefixes).
 fn never_syncs(path: &Path) -> bool {
     path.components().any(|c| {
         let name = strip_attributes(&c.as_os_str().to_string_lossy());
-        matches!(name.as_str(), ".git" | "dot_git" | "node_modules") || name.contains(".bak.")
+        matches!(
+            name.as_str(),
+            ".git" | "dot_git" | "node_modules" | ".keep" | "dot_keep"
+        ) || name.ends_with(".bak")
+            || name.contains(".bak.")
+            || name.contains(".bak-")
+            || name.ends_with(".orig")
+            || name.ends_with('~')
     })
+}
+
+/// Takes out of the sync folder what never syncs, including ones saved by older versions, and
+/// this computer's battery widget switch. When that switch was the only change to the shell's
+/// settings since `before`, they go back to exactly `before`, so no computer shares a change.
+fn tidy(ctx: &Ctx, before: Option<&[u8]>) {
+    prune_ignored(&ctx.src);
+    let Ok(source) = run(None, "chezmoi", &["source-path", &shell_target(ctx)]) else {
+        return;
+    };
+    let Some(shared) = std::fs::read(&source)
+        .ok()
+        .and_then(|b| with_battery(&b, false))
+    else {
+        return;
+    };
+    let kept = before.filter(|b| same_json(b, &shared)).unwrap_or(&shared);
+    let _ = std::fs::write(&source, kept);
+}
+
+fn shell_target(ctx: &Ctx) -> String {
+    ctx.home.join(SHELL).to_string_lossy().into_owned()
+}
+
+/// The shell's settings as they are in the sync folder.
+fn shell_source(ctx: &Ctx) -> Option<Vec<u8>> {
+    let source = run(None, "chezmoi", &["source-path", &shell_target(ctx)]).ok()?;
+    std::fs::read(source).ok()
+}
+
+/// Whether two shell settings files hold the same JSON, however written; no disabled plugins
+/// is the same as an empty list (what's left once the battery widget's switch comes out).
+pub(crate) fn same_json(a: &[u8], b: &[u8]) -> bool {
+    let read = |b: &[u8]| {
+        let mut json = serde_json::from_slice::<serde_json::Value>(b).ok()?;
+        if let Some(o) = json.as_object_mut() {
+            o.entry("disabledPlugins")
+                .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        }
+        Some(json)
+    };
+    read(a).is_some_and(|a| Some(a) == read(b))
+}
+
+/// The shell's settings, which hold the battery widget's switch.
+const SHELL: &str = ".config/omarchy/shell.json";
+/// The battery widget: on where there's a battery, off where there isn't, so each computer
+/// keeps its own switch and it never syncs.
+const BATTERY: &str = "omarchy.battery";
+
+/// Whether a shell.json switches the battery widget off; None when it doesn't read or doesn't
+/// say.
+fn battery_off(bytes: &[u8]) -> Option<bool> {
+    let json: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let off = json.get("disabledPlugins")?.as_array()?;
+    Some(off.iter().any(|id| id == BATTERY))
+}
+
+/// A shell.json with the battery widget switched off or on, written as the shell writes it;
+/// None when it already is, or doesn't read.
+pub(crate) fn with_battery(bytes: &[u8], off: bool) -> Option<Vec<u8>> {
+    if battery_off(bytes).unwrap_or(false) == off {
+        return None;
+    }
+    let mut json: serde_json::Value = serde_json::from_slice(bytes).ok()?;
+    let list = json
+        .as_object_mut()?
+        .entry("disabledPlugins")
+        .or_insert_with(|| serde_json::Value::Array(Vec::new()))
+        .as_array_mut()?;
+    if off {
+        list.push(BATTERY.into());
+    } else {
+        list.retain(|id| id != BATTERY);
+    }
+    let mut text = serde_json::to_vec_pretty(&json).ok()?;
+    text.push(b'\n');
+    Some(text)
+}
+
+/// Whether this computer runs on a battery. The lab points the folder elsewhere.
+fn has_battery() -> bool {
+    let dir = std::env::var_os("OMARCHY_SYNC_POWER_SUPPLY")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "/sys/class/power_supply".into());
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|e| e.file_name().to_string_lossy().starts_with("BAT"))
+}
+
+/// Puts the sync folder's files in place here. The battery widget keeps this computer's switch
+/// (as it was, or by whether there's a battery), and the shell restarts when its settings
+/// changed: it would otherwise write the ones it holds back over them.
+pub(crate) fn apply_chezmoi(ctx: &Ctx) -> Result<(), String> {
+    let shell = ctx.home.join(SHELL);
+    let before = std::fs::read(&shell).ok();
+    let off = before
+        .as_deref()
+        .and_then(battery_off)
+        .unwrap_or_else(|| !has_battery());
+    run(None, "chezmoi", &["apply", "--force"])?;
+    let mut after = std::fs::read(&shell).ok();
+    if after == before {
+        return Ok(());
+    }
+    if let Some(fixed) = after.as_deref().and_then(|b| with_battery(b, off)) {
+        std::fs::write(&shell, &fixed).map_err(|e| e.to_string())?;
+        after = Some(fixed);
+    }
+    let desktop = here();
+    if after != before && desktop.has_shell() {
+        let _ = desktop.restart_shell();
+    }
+    Ok(())
 }
 
 /// Adds paths to the sync folder, then takes out whatever never syncs that came with them.
@@ -173,7 +302,7 @@ fn add(ctx: &Ctx, paths: &[&str]) -> Result<(), String> {
     let mut args = vec!["add"];
     args.extend(paths);
     run(None, "chezmoi", &args)?;
-    prune_ignored(&ctx.src);
+    tidy(ctx, None);
     Ok(())
 }
 
@@ -244,12 +373,15 @@ pub(crate) fn save_local(ctx: &Ctx, step: &dyn Fn(&str)) -> Result<Option<String
         std::fs::write(&ignore, IGNORE).map_err(|e| e.to_string())?;
     }
     note_omarchy(&mut data, &ctx.host);
-    if let Some(t) = ctx.current_theme().filter(|t| is_file_name(t)) {
-        data.theme = Some(t);
-    }
-    prune_themes(ctx, &data);
-    if let Some(name) = save_background(ctx) {
-        data.background = Some(name);
+    // A computer that leaves the theme out keeps its own look without sharing it.
+    if data.uses_theme(&ctx.host) {
+        if let Some(t) = ctx.current_theme().filter(|t| is_file_name(t)) {
+            data.theme = Some(t);
+        }
+        prune_themes(ctx, &data);
+        if let Some(name) = save_background(ctx) {
+            data.background = Some(name);
+        }
     }
     // Extra repositories here, so other computers can add them for apps that come from them.
     record_repositories(&mut data);

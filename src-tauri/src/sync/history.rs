@@ -171,7 +171,7 @@ pub fn undo(ctx: &Ctx, sha: &str) -> Result<(), String> {
     ])?;
     save_newly_synced(ctx, &synced_before)?;
     // Put the undone files in place now; otherwise the next sync would re-save the old ones over the undo.
-    run(None, "chezmoi", &["apply", "--force"]).map(|_| ())
+    apply_chezmoi(ctx)
 }
 
 #[cfg(test)]
