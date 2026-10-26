@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Package } from 'lucide-react';
 import { api, type MissingRepo } from '../api';
+import { SNAPSHOT_FIRST } from '../format';
 import type { SyncState } from '../state';
 import { Caution, Group, Link, Push, Row, Tile } from '../ui';
 
@@ -49,7 +50,7 @@ function ReposToAdd({ s }: { s: SyncState }) {
   return (
     <Group
       title="Repositories to Add"
-      footer="These apps come from their makers' own repositories, which your other computers use. They install here once the repository is added, and one already installed here updates again."
+      footer={`These apps come from their makers' own repositories, which your other computers use. They install here once the repository is added, and one already installed here updates again.${s.overview!.snapper_available ? ` ${SNAPSHOT_FIRST}` : ''}`}
     >
       {s.overview!.missing_repos.map((r) => (
         <Row
@@ -67,7 +68,10 @@ function ReposToAdd({ s }: { s: SyncState }) {
                     s.act(
                       `Adding the ${r.name} repository`,
                       () => api.addRepository(r.name),
-                      () => s.refresh(),
+                      (snapshot) => {
+                        s.changed(`Added the ${r.name} repository.`, snapshot);
+                        return s.refresh();
+                      },
                     );
                   }}
                 >

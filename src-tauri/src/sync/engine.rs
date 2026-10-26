@@ -43,11 +43,13 @@ pub enum Keep {
     Theirs,
 }
 
-/// What a finished sync has to say: notes for the person, and apps waiting for their approval.
+/// What a finished sync has to say: notes for the person, apps waiting for their approval, and
+/// the snapshot of the system taken before installing apps without asking.
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct Report {
     pub notes: Vec<String>,
     pub waiting: Vec<String>,
+    pub snapshot: Option<SnapshotOutcome>,
 }
 
 /// Every computer writes its own entry in the shared choices file, so two computers syncing
@@ -632,7 +634,7 @@ fn sync_inner(
     let plugins = data.missing_plugins(&ctx.host);
     if install && !plugins.is_empty() {
         step(&format!("Adding {}", plural(plugins.len(), "plugin")));
-        match install_plugins(ctx, &plugins) {
+        match install_plugins_locked(ctx, &plugins) {
             Ok(()) => notes.push(format!("Added {}.", plural(plugins.len(), "plugin"))),
             Err(e) => notes.push(format!("Couldn't add plugins. {}", friendly(&e))),
         }
@@ -645,15 +647,18 @@ fn sync_inner(
             Report {
                 notes,
                 waiting: missing,
+                snapshot: None,
             },
             installed,
         ));
     }
     step(&format!("Installing {}", plural(missing.len(), "app")));
+    let mut snapshot = None;
     match install_apps(&missing) {
-        Ok(()) => {
+        Ok(taken) => {
             notes.push(format!("Installed {}.", missing.join(", ")));
             installed.extend(missing);
+            snapshot = Some(taken);
         }
         Err(e) => notes.push(format!(
             "Couldn't install {}. {}",
@@ -665,6 +670,7 @@ fn sync_inner(
         Report {
             notes,
             waiting: vec![],
+            snapshot,
         },
         installed,
     ))

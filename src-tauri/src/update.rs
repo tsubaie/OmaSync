@@ -111,7 +111,7 @@ pub fn install(ctx: &Ctx, version: &str, step: &dyn Fn(&str)) -> Result<(), Stri
     if how == How::Aur {
         sync::plan(step, &["Installing", "Restarting Omarchy Sync"]);
         step("Installing");
-        return sync::install_apps(&["omarchy-sync-bin".to_string()]);
+        return sync::install_packages(&["omarchy-sync-bin".to_string()]);
     }
     let downloading = format!("Downloading Omarchy Sync {version}");
     sync::plan(

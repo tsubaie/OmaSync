@@ -6,7 +6,7 @@ mod sync;
 mod update;
 
 use serde::Serialize;
-use sync::{Ctx, Data, Overview, Report, SetupState, SyncError};
+use sync::{Ctx, Data, Overview, Report, SetupState, SnapshotOutcome, SyncError};
 use tauri::ipc::Channel;
 use tauri::{Emitter, Manager};
 
@@ -345,8 +345,9 @@ async fn join(on_step: Channel<String>) -> Result<String> {
 }
 
 /// Installs exactly the synced apps this computer is missing, nothing the page names itself.
+/// Returns how the snapshot of the system before it went.
 #[tauri::command]
-async fn install_apps() -> Result<()> {
+async fn install_apps() -> Result<SnapshotOutcome> {
     blocking(|ctx| {
         let missing = sync::missing_apps(
             &ctx.load_data(),
@@ -355,7 +356,7 @@ async fn install_apps() -> Result<()> {
             &sync::repos_here(),
         );
         if missing.is_empty() {
-            Ok(())
+            Ok(SnapshotOutcome::Unavailable)
         } else {
             sync::install_apps(&missing)
         }
@@ -441,7 +442,7 @@ async fn remove_plugin(id: String) -> Result<()> {
 /// Adds an extra package repository on this computer, as another computer has it (after the
 /// person confirmed); only one this computer needs and lacks, by its recorded name.
 #[tauri::command]
-async fn add_repository(name: String) -> Result<()> {
+async fn add_repository(name: String) -> Result<SnapshotOutcome> {
     blocking(move |ctx| {
         let data = ctx.load_data();
         let needed = sync::missing_repos(&data, &ctx.host, &sync::repos_here());
@@ -547,7 +548,7 @@ async fn remove_app_script(app: String) -> Result<Data> {
 /// Installs one waiting app with its script, in a terminal window; only an app this computer
 /// is really waiting for, with the script saved for it (nothing the page names itself).
 #[tauri::command]
-async fn install_with_script(app: String, on_step: Channel<String>) -> Result<()> {
+async fn install_with_script(app: String, on_step: Channel<String>) -> Result<SnapshotOutcome> {
     blocking(move |ctx| {
         let waiting = sync::missing_scripted(&ctx.load_data(), &ctx.host, &sync::installed());
         let (_, script) = waiting

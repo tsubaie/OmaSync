@@ -186,10 +186,90 @@ fn repo_key(name: &str) -> Option<RepoKey> {
     })
 }
 
+/// How the snapshot of this computer's system (Snapper's `root` config: packages and /etc, not
+/// home) went before a change to it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SnapshotOutcome {
+    /// Its number, which the startup menu shows.
+    Taken(u32),
+    /// No Snapper here, or no config for the system: nothing is said.
+    Unavailable,
+    /// The change still goes ahead, and the person is told.
+    Failed(String),
+    /// The password window was closed: the change doesn't go ahead either.
+    Cancelled,
+}
+
+/// Whether Snapper can snapshot the system here. The lab points the config elsewhere.
+pub fn snapper_available() -> bool {
+    let config = std::env::var_os("OMARCHY_SYNC_SNAPPER_CONFIG")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| "/etc/snapper/configs/root".into());
+    config.exists() && has("snapper")
+}
+
+/// A snapshot's number from what `snapper --print-number` printed, or why there's none.
+fn snapshot_from(number: &str, err: &str) -> SnapshotOutcome {
+    match number.trim().parse() {
+        Ok(n) => SnapshotOutcome::Taken(n),
+        Err(_) if !err.trim().is_empty() => SnapshotOutcome::Failed(err.trim().to_string()),
+        Err(_) => SnapshotOutcome::Failed("snapper didn't say which snapshot it made".into()),
+    }
+}
+
+/// Script lines that snapshot the system, as root (`sudo` is "" or "sudo "), writing its number
+/// to `out` and any error beside it, then let Snapper clean up old ones. They never stop the
+/// script: the change goes ahead without a snapshot.
+fn snapshot_lines(label: &str, out: &Path, sudo: &str) -> String {
+    format!(
+        "if {sudo}snapper -c root create -c number -d {} --print-number > {} 2> {}; then {sudo}snapper -c root cleanup number > /dev/null 2>&1 || true; fi\n",
+        quote(label),
+        quote(&out.to_string_lossy()),
+        quote(&out.with_extension("err").to_string_lossy()),
+    )
+}
+
+/// What the lines from `snapshot_lines` left in `out`.
+fn read_snapshot(out: &Path) -> SnapshotOutcome {
+    let read = |p: &Path| std::fs::read_to_string(p).unwrap_or_default();
+    snapshot_from(&read(out), &read(&out.with_extension("err")))
+}
+
+/// Snapshots the system through its own password prompt (pkexec), when Snapper is here.
+fn snapshot(label: &str) -> SnapshotOutcome {
+    if !snapper_available() {
+        return SnapshotOutcome::Unavailable;
+    }
+    // Cleanup is its own step, so its failure never hides a snapshot that was made.
+    let script = "snapper -c root create -c number -d \"$1\" --print-number || exit 2
+snapper -c root cleanup number > /dev/null 2>&1
+exit 0";
+    let out = Command::new("pkexec")
+        .args(["sh", "-c", script, "sh", label])
+        .stdin(Stdio::null())
+        .env("LC_ALL", "C.UTF-8")
+        .output();
+    match out {
+        Err(e) => SnapshotOutcome::Failed(format!("pkexec: {e}")),
+        // pkexec's own codes: the window was closed, or the password not given.
+        Ok(o) if matches!(o.status.code(), Some(126 | 127)) => SnapshotOutcome::Cancelled,
+        Ok(o) => snapshot_from(
+            &String::from_utf8_lossy(&o.stdout),
+            &String::from_utf8_lossy(&o.stderr),
+        ),
+    }
+}
+
+/// A shell word holding exactly `s`.
+fn quote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
 /// Adds an extra repository on this computer, as recorded from another one: its settings file
 /// in /etc/pacman.d, an Include for it in pacman.conf, its key imported and trusted, and the
-/// package lists refreshed. One password prompt (pkexec); every value is checked first.
-pub fn add_repository(data: &Data, name: &str) -> Result<(), String> {
+/// package lists refreshed, after a snapshot of the system. One password prompt (pkexec); every
+/// value is checked first.
+pub fn add_repository(data: &Data, name: &str) -> Result<SnapshotOutcome, String> {
     let repo = data
         .repositories
         .get(name)
@@ -203,7 +283,7 @@ pub fn add_repository(data: &Data, name: &str) -> Result<(), String> {
         return Err(format!("not a repository that can be added: {name}"));
     }
     if repos_here().contains(name) {
-        return Ok(());
+        return Ok(SnapshotOutcome::Unavailable);
     }
     const LEVELS: &[&str] = &[
         "Never",
@@ -240,10 +320,16 @@ pub fn add_repository(data: &Data, name: &str) -> Result<(), String> {
     }
     let target = format!("/etc/pacman.d/omarchy-sync-{name}.conf");
     let include = format!("Include = {target}");
-    let mut script = format!(
-        "set -e\ninstall -m 644 '{}' '{target}'\ngrep -qxF '{include}' /etc/pacman.conf || printf '\\n%s\\n' '{include}' >> /etc/pacman.conf\n",
+    let snapper = snapper_available();
+    let mut script = String::from("set -e\n");
+    if snapper {
+        let label = format!("Before Omarchy Sync added repository {name}");
+        script.push_str(&snapshot_lines(&label, &dir.join("snapshot"), ""));
+    }
+    script.push_str(&format!(
+        "install -m 644 '{}' '{target}'\ngrep -qxF '{include}' /etc/pacman.conf || printf '\\n%s\\n' '{include}' >> /etc/pacman.conf\n",
         dir.join("repo.conf").display()
-    );
+    ));
     std::fs::write(dir.join("repo.conf"), conf).map_err(|e| e.to_string())?;
     if let Some(key) = &repo.key {
         let fpr_ok =
@@ -268,8 +354,12 @@ pub fn add_repository(data: &Data, name: &str) -> Result<(), String> {
         None,
         "pkexec",
         &["bash", &dir.join("add.sh").to_string_lossy()],
-    )
-    .map(|_| ())
+    )?;
+    Ok(if snapper {
+        read_snapshot(&dir.join("snapshot"))
+    } else {
+        SnapshotOutcome::Unavailable
+    })
 }
 
 /// Synced apps from outside the repos that this computer wants, with their install scripts.
@@ -380,14 +470,15 @@ pub fn is_package_name(name: &str) -> bool {
 }
 
 /// Installs an app with its install command, run in a fresh empty folder in a terminal window,
-/// so the person sees what it does and can type a password if it asks. Waits for the command
-/// to finish, then reports how it ended.
+/// so the person sees what it does and can type a password if it asks, after a snapshot of the
+/// system (through sudo, in the same window). Waits for the command to finish, then reports how
+/// it ended.
 pub fn install_with_script(
     ctx: &Ctx,
     app: &str,
     script: &Script,
     step: &dyn Fn(&str),
-) -> Result<(), String> {
+) -> Result<SnapshotOutcome, String> {
     // The name comes from the shared file, which anyone can edit on GitHub: only a plain
     // package name becomes a folder that is emptied below.
     if !is_package_name(app) {
@@ -395,18 +486,30 @@ pub fn install_with_script(
     }
     let dir = ctx.home.join(".cache/omarchy-sync/install").join(app);
     let done = dir.with_extension("done");
+    let taken = dir.with_extension("snapshot");
     let _ = std::fs::remove_dir_all(&dir);
-    let _ = std::fs::remove_file(&done);
+    for f in [&done, &taken, &taken.with_extension("err")] {
+        let _ = std::fs::remove_file(f);
+    }
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     step(&format!("Installing {app} in a terminal window"));
-    let quote = |s: &str| format!("'{}'", s.replace('\'', "'\\''"));
+    let snapper = snapper_available();
+    let snapshot = if snapper {
+        let label = format!("Before Omarchy Sync ran install steps for {app}");
+        format!(
+            "echo 'Taking a snapshot of this computer'\\''s system first.'\n{}",
+            snapshot_lines(&label, &taken, "sudo ")
+        )
+    } else {
+        String::new()
+    };
     // The steps run as one script that stops at the first failing step, so a failed build
     // never goes on to install.
     let file = dir.with_extension("sh");
     std::fs::write(
         &file,
         format!(
-            "set -e -o pipefail\ncd {}\n{}\n",
+            "set -e -o pipefail\n{snapshot}cd {}\n{}\n",
             quote(&dir.to_string_lossy()),
             script.command
         ),
@@ -428,7 +531,8 @@ pub fn install_with_script(
         if let Ok(code) = std::fs::read_to_string(&done) {
             let _ = std::fs::remove_file(&done);
             return match code.trim() {
-                "0" => Ok(()),
+                "0" if snapper => Ok(read_snapshot(&taken)),
+                "0" => Ok(SnapshotOutcome::Unavailable),
                 code => Err(format!(
                     "the install command for {app} stopped with code {code}"
                 )),
@@ -441,7 +545,22 @@ pub fn install_with_script(
     ))
 }
 
-pub fn install_apps(apps: &[String]) -> Result<(), String> {
+/// Installs synced apps through yay, after a snapshot of the system. Closing the snapshot's
+/// password window installs nothing.
+pub fn install_apps(apps: &[String]) -> Result<SnapshotOutcome, String> {
+    let snapshot = snapshot(&format!(
+        "Before Omarchy Sync installed {}",
+        apps.join(", ")
+    ));
+    if snapshot == SnapshotOutcome::Cancelled {
+        return Err("pkexec snapper: Request dismissed".into());
+    }
+    install_packages(apps)?;
+    Ok(snapshot)
+}
+
+/// Installs packages through yay, which asks for the password itself (pkexec).
+pub fn install_packages(apps: &[String]) -> Result<(), String> {
     let mut args = vec!["-S", "--needed", "--noconfirm", "--sudo", "pkexec", "--"];
     args.extend(apps.iter().map(|s| s.as_str()));
     run(None, "yay", &args).map(|_| ())

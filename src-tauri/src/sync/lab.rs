@@ -39,6 +39,10 @@ struct Machine {
     saved: BTreeMap<String, (String, Vec<u8>)>,
     /// Settings files that don't sync here, as they were at the last check.
     untouched: BTreeMap<String, Option<Vec<u8>>>,
+    /// Snapper with a config for the system: None, none here; Some(false), its snapshots fail.
+    snapper: Option<bool>,
+    /// The person closes every password window.
+    cancels_password: bool,
 }
 
 const FAKES: &[(&str, &str)] = &[
@@ -73,7 +77,32 @@ esac"#,
 exit 0"#,
     ),
     ("yay", r#"echo "yay $*" >> "$LAB_LOG""#),
-    ("pkexec", r#"echo "pkexec $*" >> "$LAB_LOG""#),
+    // Runs the command as root would, but with /etc moved into the temporary home (in a script
+    // it's given too), unless the person closes the password window.
+    (
+        "pkexec",
+        r#"echo "pkexec $*" >> "$LAB_LOG"
+[ -n "$LAB_CANCEL_PASSWORD" ] && { echo "Error executing command as another user: Request dismissed" >&2; exit 126; }
+mkdir -p "$HOME/.etc/pacman.d" && touch "$HOME/.etc/pacman.conf"
+args=()
+for a in "$@"; do
+  [ -f "$a" ] && { sed "s#/etc/#$HOME/.etc/#g" "$a" > "$a.lab"; a="$a.lab"; }
+  args+=("$a")
+done
+exec "${args[@]}""#,
+    ),
+    ("sudo", r#"echo "sudo $*" >> "$LAB_LOG"; exec "$@""#),
+    (
+        "snapper",
+        r#"echo "snapper $*" >> "$LAB_LOG"
+case " $* " in *" create "*)
+  [ -n "$LAB_SNAPPER_FAILS" ] && { echo "lab: snapper failed" >&2; exit 1; }
+  echo 42 ;;
+esac"#,
+    ),
+    ("pacman-key", r#"echo "pacman-key $*" >> "$LAB_LOG""#),
+    // The window opens and the command runs; nobody presses Enter.
+    ("xdg-terminal-exec", r#"exec "$@" < /dev/null"#),
     ("notify-send", r#"echo "notify-send $*" >> "$LAB_LOG""#),
     ("curl", "exit 1"),
     (
@@ -172,6 +201,8 @@ impl Lab {
             written: BTreeMap::new(),
             saved: BTreeMap::new(),
             untouched: BTreeMap::new(),
+            snapper: None,
+            cancels_password: false,
         });
         self.write(id, ".config/hypr/bindings.lua", format!("-- {id} keys\n"));
         self.write(id, ".config/hypr/monitors.lua", format!("-- {id} screen\n"));
@@ -205,6 +236,15 @@ impl Lab {
             std::env::set_var("LAB_OMARCHY_VERSION", &m.omarchy);
             std::env::set_var("LAB_PACKAGES", &m.packages);
             std::env::set_var("LAB_LOG", home.join(".lab/calls"));
+            let config = home.join(".lab/snapper-root");
+            std::env::set_var("OMARCHY_SYNC_SNAPPER_CONFIG", &config);
+            let _ = match m.snapper {
+                Some(_) => std::fs::write(&config, ""),
+                None => std::fs::remove_file(&config),
+            };
+            let flag = |on: bool| if on { "1" } else { "" };
+            std::env::set_var("LAB_SNAPPER_FAILS", flag(m.snapper == Some(false)));
+            std::env::set_var("LAB_CANCEL_PASSWORD", flag(m.cancels_password));
         }
         m
     }
@@ -229,6 +269,18 @@ impl Lab {
     pub fn packages(&mut self, name: &str, packages: &str) {
         let i = self.index(name);
         self.machines[i].packages = packages.into();
+    }
+
+    /// Snapper on this computer: None, not set up; Some(true), working; Some(false), failing.
+    pub fn snapper(&mut self, name: &str, works: Option<bool>) {
+        let i = self.index(name);
+        self.machines[i].snapper = works;
+    }
+
+    /// The person closes (or doesn't) every password window on this computer.
+    pub fn cancel_password(&mut self, name: &str, cancels: bool) {
+        let i = self.index(name);
+        self.machines[i].cancels_password = cancels;
     }
 
     /// Makes every git `op` (fetch, push, …) fail on every computer, or none.
@@ -542,6 +594,7 @@ impl Drop for Lab {
         unsafe {
             std::env::set_var("PATH", &self.original_path);
             std::env::remove_var("LAB_FAIL_GIT");
+            std::env::remove_var("OMARCHY_SYNC_SNAPPER_CONFIG");
         }
         if std::env::var("LAB_KEEP").is_err() {
             let _ = std::fs::remove_dir_all(&self.root);

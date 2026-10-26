@@ -92,3 +92,7 @@ export function diffLines(mine: string, theirs: string): DiffRow[] {
   flush();
   return rows;
 }
+
+/** Said before a change to the system, where a snapshot of it is taken first. */
+export const SNAPSHOT_FIRST =
+  "A snapshot of this computer's system is taken first, so you can go back to it from the startup menu.";

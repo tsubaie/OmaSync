@@ -199,6 +199,7 @@ const status = (): Status => ({
     incoming_from: [],
     // "repo": an app here comes from its maker's own repository, which this computer lacks.
     repos_here: [],
+    snapper_available: false,
     missing_repos:
       scenario === 'repo'
         ? [
@@ -370,7 +371,9 @@ mockIPC((cmd, args) => {
         ...(scenario === 'syncing' ? ['\u0001percent\t62'] : []),
       ]);
       if (scenario === 'syncing') return new Promise(() => {});
-      return scenario === 'conflict' ? Promise.reject(conflict) : { notes: [], waiting: [] };
+      return scenario === 'conflict'
+        ? Promise.reject(conflict)
+        : { notes: [], waiting: [], snapshot: null };
     }
     case 'add_apps':
       data = { ...data, apps: [...new Set([...data.apps, ...(a.apps as string[])])] };
@@ -392,7 +395,7 @@ mockIPC((cmd, args) => {
       return data;
     }
     case 'resolve_conflict':
-      return { notes: [], waiting: [] };
+      return { notes: [], waiting: [], snapshot: null };
     case 'update_plugins':
       timezonesUpdated = true;
       if (!a.id) emit(a.onStep, ['\u0001plan\tUpdating Timezones', 'Updating Timezones']);
