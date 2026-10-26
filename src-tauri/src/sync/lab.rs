@@ -374,16 +374,7 @@ impl Lab {
     /// A folder's switch, in the order the `set_folder` command uses.
     pub fn set_folder(&mut self, name: &str, folder: &str, on: bool) -> Result<(), String> {
         let ctx = self.ctx(name).clone();
-        let mut result = Ok(());
-        if !on {
-            result = track(&ctx, folder, false);
-        }
-        if result.is_ok() {
-            self.edit(name, |d, _| toggle(&mut d.folders, folder, on));
-            if on {
-                result = track(&ctx, folder, true);
-            }
-        }
+        let result = super::set_folder(&ctx, folder, on).map(drop);
         self.check(name);
         result
     }
