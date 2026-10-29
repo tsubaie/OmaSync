@@ -491,9 +491,12 @@ mockIPC((cmd, args) => {
       for (const id of a.add as string[]) macosTheme.features[id] = true;
       for (const id of a.remove as string[]) macosTheme.features[id] = false;
       for (const [id, value] of a.set as [string, number][]) macosTheme.settings[id] = value;
+      if (a.switchTo) macosTheme.active = false;
       emit(a.onStep, ['Removed the macOS dock and restored Omarchy’s own', 'Done.']);
       return '==> Removed the macOS dock and restored Omarchy’s own\n==> Done.\n';
     }
+    case 'macos_theme_others':
+      return ['Catppuccin', 'Tokyo Night'];
     case 'macos_theme_update':
       return '==> Done.\n';
     case 'set_bar_indicator':

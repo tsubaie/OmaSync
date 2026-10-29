@@ -50,6 +50,7 @@ fn main() {
             set_bar_indicator,
             macos_theme_status,
             macos_theme_apply,
+            macos_theme_others,
             macos_theme_update,
             add_repository,
             try_omarchy,
@@ -562,6 +563,7 @@ async fn macos_theme_apply(
     add: Vec<String>,
     remove: Vec<String>,
     set: Vec<(String, f64)>,
+    switch_to: Option<String>,
     on_step: Channel<String>,
 ) -> Result<String> {
     if let Some(p) = add
@@ -578,9 +580,27 @@ async fn macos_theme_apply(
     }) {
         return Err(format!("{name} can't be set to {value}").into());
     }
-    blocking(move |_| macos_theme::apply(&add, &remove, &set, &steps(on_step)))
+    if let Some(theme) = &switch_to {
+        let others = blocking(|_| macos_theme::other_themes())
+            .await
+            .map_err(Problem::from)?;
+        if !others.contains(theme) {
+            return Err(format!("Omarchy has no theme called {theme}").into());
+        }
+    }
+    blocking(move |_| {
+        macos_theme::apply(&add, &remove, &set, switch_to.as_deref(), &steps(on_step))
+    })
+    .await
+    .map_err(theme_failed)
+}
+
+/// The themes to switch to before removing the macOS theme.
+#[tauri::command]
+async fn macos_theme_others() -> Result<Vec<String>> {
+    blocking(|_| macos_theme::other_themes())
         .await
-        .map_err(theme_failed)
+        .map_err(Problem::from)
 }
 
 /// Gets the latest macOS theme and installs the installed pieces again from it.

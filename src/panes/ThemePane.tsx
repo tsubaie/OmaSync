@@ -221,7 +221,29 @@ export function useMacosTheme(s: SyncState) {
     // Whole steps, without the float noise of 0.05 sums.
     slide: (id: string, v: number) => setTweaks((d) => ({ ...d, [id]: Math.round(v * 100) / 100 })),
     revert,
-    apply: () => job('Applying', (step) => api.applyMacosTheme(add, remove, set, step)),
+    apply: () => job('Applying', (step) => api.applyMacosTheme(add, remove, set, null, step)),
+    /** Every part, in one go. */
+    installAll: () =>
+      job('Installing the macOS theme', (step) =>
+        api.applyMacosTheme(
+          Object.keys(PIECES).filter((id) => !installed(id)),
+          [],
+          [],
+          null,
+          step,
+        ),
+      ),
+    /** Every part, after switching to another theme if this one is current. */
+    removeAll: (switchTo: string) =>
+      job('Removing the macOS theme', (step) =>
+        api.applyMacosTheme(
+          [],
+          Object.keys(PIECES).filter(installed),
+          [],
+          theme?.active ? switchTo : null,
+          step,
+        ),
+      ),
     update: () => job('Updating the macOS theme', (step) => api.updateMacosTheme(step)),
   };
 }
@@ -247,6 +269,15 @@ export function ThemePane({ s, t, page }: { s: SyncState; t: ThemeState; page: T
 }
 
 function Overview({ s, t }: { s: SyncState; t: ThemeState }) {
+  // While asking to remove it: the themes to switch to, and the one chosen.
+  const [others, setOthers] = useState<string[] | null>(null);
+  const [switchTo, setSwitchTo] = useState('');
+  const any = Object.keys(PIECES).some(t.installed);
+  const askRemove = () =>
+    api.otherThemes().then((list) => {
+      setOthers(list);
+      setSwitchTo(list[0] ?? '');
+    }, s.fail);
   const status =
     t.theme === null
       ? 'Not installed. Choose the parts you want, then press Install.'
@@ -268,16 +299,59 @@ function Overview({ s, t }: { s: SyncState; t: ThemeState }) {
             <h2>macOS Theme</h2>
             <p className="detail">{status}</p>
           </div>
-          {t.theme !== null && (
-            <Push
-              disabled={!s.idle || t.changed}
-              onPress={t.update}
-              tip="Get the latest version and install your parts again"
-            >
-              Update
+          {any ? (
+            <div className="actions">
+              <Push disabled={!s.idle || t.changed || !!others} onPress={askRemove}>
+                Remove…
+              </Push>
+              <Push
+                disabled={!s.idle || t.changed}
+                onPress={t.update}
+                tip="Get the latest version and install your parts again"
+              >
+                Update
+              </Push>
+            </div>
+          ) : (
+            <Push prominent disabled={!s.idle || t.changed} onPress={t.installAll}>
+              Install macOS Theme
             </Push>
           )}
         </div>
+        {others && (
+          <div className="about confirm">
+            <div className="text">
+              <p>Remove the macOS Theme and all of its parts?</p>
+              <p className="detail">
+                Omarchy’s own dock, menu and the rest come back. Wallpapers and files you added to
+                the theme are kept in a backup.
+              </p>
+              {t.theme?.active && (
+                <label className="switch-to">
+                  Switch to
+                  <select value={switchTo} onChange={(e) => setSwitchTo(e.target.value)}>
+                    {others.map((name) => (
+                      <option key={name}>{name}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+            </div>
+            <div className="actions">
+              <Link onPress={() => setOthers(null)}>Cancel</Link>
+              <Push
+                prominent
+                disabled={!s.idle || (!!t.theme?.active && !switchTo)}
+                onPress={() => {
+                  setOthers(null);
+                  t.removeAll(switchTo);
+                }}
+              >
+                Remove
+              </Push>
+            </div>
+          </div>
+        )}
       </div>
       <Group title="Parts">
         {THEME_PAGES.map((p) => {

@@ -133,6 +133,35 @@ test('the macOS theme applies what changed on any of its pages', async ({ page }
   await expect(apply).toBeHidden();
 });
 
+test('the whole macOS theme is removed after choosing a theme, and installed in one go', async ({
+  page,
+}) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'macOS Theme' }).click();
+  await page.getByRole('button', { name: 'Remove…' }).click();
+  await page.getByLabel('Switch to').selectOption('Tokyo Night');
+  expect(await a11y(page), 'Remove').toEqual([]);
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(page.getByText('Done.')).toBeVisible();
+  const [removed] = await calls(page, 'macos_theme_apply');
+  expect(removed.args.switchTo).toBe('Tokyo Night');
+  expect(removed.args.add).toEqual([]);
+  expect(removed.args.remove).toEqual([
+    'theme',
+    'rows',
+    'dock',
+    'menubar',
+    'switcher',
+    'wide-menu',
+    'osd',
+  ]);
+  await page.getByRole('button', { name: 'Install macOS Theme' }).click();
+  await expect(page.getByRole('button', { name: 'Remove…' })).toBeVisible();
+  const [, installed] = await calls(page, 'macos_theme_apply');
+  expect(installed.args.add).toHaveLength(9);
+  expect(installed.args.switchTo).toBeNull();
+});
+
 test('switching an app off saves the choice', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'Installed Apps' }).click();

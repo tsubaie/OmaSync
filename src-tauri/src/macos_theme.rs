@@ -70,13 +70,30 @@ pub fn status() -> Result<Option<Status>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// The other themes Omarchy has, to switch to before the macOS theme is removed.
+pub fn other_themes() -> Result<Vec<String>, String> {
+    let out = Command::new("omarchy")
+        .args(["theme", "list"])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+    }
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter(|t| !t.is_empty() && *t != "Macos")
+        .map(String::from)
+        .collect())
+}
+
 /// Installs and removes the given pieces and sets the given settings (already checked against
-/// `PIECES` and `SETTINGS`), downloading the repository first if needed. Returns everything the
-/// script printed.
+/// `PIECES`, `SETTINGS` and `other_themes`), first switching to `switch_to` if the macOS theme
+/// is current, and downloading the repository if needed. Returns everything the script printed.
 pub fn apply(
     add: &[String],
     remove: &[String],
     set: &[(String, f64)],
+    switch_to: Option<&str>,
     step: &dyn Fn(&str),
 ) -> Result<String, String> {
     if !folder().join("install.sh").exists() {
@@ -87,6 +104,9 @@ pub fn apply(
         run(git, step)?;
     }
     let mut args = Vec::new();
+    if let Some(theme) = switch_to {
+        args.extend(["--switch-to".to_string(), theme.to_string()]);
+    }
     for piece in remove {
         args.extend(["--remove".to_string(), piece.clone()]);
     }
@@ -116,7 +136,7 @@ pub fn update(step: &dyn Fn(&str)) -> Result<String, String> {
         .filter(|(_, on)| on == &serde_json::Value::Bool(true))
         .map(|(piece, _)| piece)
         .collect();
-    log += &apply(&installed, &[], &[], step)?;
+    log += &apply(&installed, &[], &[], None, step)?;
     Ok(log)
 }
 

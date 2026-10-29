@@ -257,8 +257,15 @@ export const api = {
   /** Null until the macOS theme has been downloaded. */
   macosTheme: () => invoke<MacosTheme | null>('macos_theme_status'),
   /** Installs and removes pieces of the macOS theme; returns what its script printed. */
-  applyMacosTheme: (add: string[], remove: string[], set: [string, number][], onStep: OnStep) =>
-    invoke<string>('macos_theme_apply', { add, remove, set, onStep: steps(onStep) }),
+  applyMacosTheme: (
+    add: string[],
+    remove: string[],
+    set: [string, number][],
+    switchTo: string | null,
+    onStep: OnStep,
+  ) => invoke<string>('macos_theme_apply', { add, remove, set, switchTo, onStep: steps(onStep) }),
+  /** The themes to switch to before the macOS theme is removed. */
+  otherThemes: () => invoke<string[]>('macos_theme_others'),
   /** Gets the latest macOS theme and installs the installed pieces again. */
   updateMacosTheme: (onStep: OnStep) =>
     invoke<string>('macos_theme_update', { onStep: steps(onStep) }),
