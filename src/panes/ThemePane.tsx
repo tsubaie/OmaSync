@@ -1,6 +1,7 @@
 import { useEffect, useEffectEvent, useState } from 'react';
 import {
   Blend,
+  ChevronRight,
   FolderClosed,
   Layers,
   Mic,
@@ -13,80 +14,63 @@ import {
   ZoomIn,
   type LucideIcon,
 } from 'lucide-react';
+import { Button } from 'react-aria-components';
 import { api, type MacosTheme } from '../api';
 import { shortList } from '../format';
-import type { SyncState } from '../state';
+import type { SyncState, Tab } from '../state';
 import { Group, Link, Progress, Push, Row, Slider, Tile, Toggle } from '../ui';
 import desktop from '../assets/macos-theme/desktop.jpg';
-import dock from '../assets/macos-theme/dock-menu.jpg';
-import switcher from '../assets/macos-theme/app-switcher.jpg';
-import hud from '../assets/macos-theme/dictation-hud.jpg';
+import titleBar from '../assets/macos-theme/title-bar.png';
+import dock from '../assets/macos-theme/dock.webp';
+import switcher from '../assets/macos-theme/app-switcher.webp';
+import hud from '../assets/macos-theme/dictation-hud.png';
 
-type Piece = { id: string; name: string; about: string; icon: LucideIcon; shot?: string };
+type Piece = { name: string; about: string; icon: LucideIcon };
 
 // The pieces of github.com/tsubaie/omarchy-macos-theme, by the names its install.sh uses.
-const LOOK: Piece[] = [
-  {
-    id: 'theme',
+const PIECES: Record<string, Piece> = {
+  theme: {
     name: 'Theme',
     about: 'Apple’s colors, frosted glass, title bars with traffic lights, gaps and motion.',
     icon: Palette,
   },
-  {
-    id: 'rows',
+  rows: {
     name: 'Striped Rows in Files',
     about: 'Finder-style rows in list view, while the theme is on.',
     icon: Rows3,
   },
-  {
-    id: 'icons',
+  icons: {
     name: 'macOS Icons',
     about: 'The MacTahoe icon theme, downloaded from GitHub (about 100 MB).',
     icon: FolderClosed,
   },
-];
-const DESKTOP: Piece[] = [
-  {
-    id: 'dock',
+  dock: {
     name: 'Dock',
     about: 'Magnification, running dots, a Downloads stack and Trash.',
     icon: PanelBottom,
-    shot: dock,
   },
-  {
-    id: 'menubar',
+  menubar: {
     name: 'Menu Bar',
     about: 'The app’s name in bold, Control Center by the clock, and Inter.',
     icon: PanelTop,
   },
-  {
-    id: 'switcher',
+  switcher: {
     name: 'App Switcher',
     about: 'Alt+Tab for apps and Super+Tab for workspaces.',
     icon: Layers,
-    shot: switcher,
   },
-  {
-    id: 'wide-menu',
+  'wide-menu': {
     name: 'Spotlight-Like Menu',
     about: 'Omarchy’s menu and launcher, wider, with a search line.',
     icon: Search,
   },
-  {
-    id: 'osd',
-    name: 'Volume Capsule',
-    about: 'Volume and brightness as a frosted pill.',
-    icon: Volume2,
-  },
-  {
-    id: 'dictation-hud',
+  osd: { name: 'Volume Capsule', about: 'Volume and brightness as a frosted pill.', icon: Volume2 },
+  'dictation-hud': {
     name: 'Dictation Pill',
     about: 'A recording pill for Voxtype dictation.',
     icon: Mic,
-    shot: hud,
   },
-];
-const NAMES = Object.fromEntries([...LOOK, ...DESKTOP].map((p) => [p.id, p.name]));
+};
 
 type Setting = Piece & {
   /** The piece it adjusts, which has to be on. */
@@ -100,9 +84,8 @@ type Setting = Piece & {
   unit?: string;
 };
 // The settings install.sh --set takes, with its ranges.
-const SETTINGS: Setting[] = [
-  {
-    id: 'glass',
+const SETTINGS: Record<string, Setting> = {
+  glass: {
     name: 'Window Glass',
     about: 'How solid windows are. Terminals, Files, browsers and video keep their own.',
     icon: Blend,
@@ -112,8 +95,7 @@ const SETTINGS: Setting[] = [
     ends: ['Clear', 'Solid'],
     format: { style: 'percent' },
   },
-  {
-    id: 'magnification',
+  magnification: {
     name: 'Dock Magnification',
     about: 'How far icons grow under the pointer.',
     icon: ZoomIn,
@@ -124,37 +106,84 @@ const SETTINGS: Setting[] = [
     format: { maximumFractionDigits: 2 },
     unit: '×',
   },
+};
+
+type Page = {
+  id: Tab;
+  name: string;
+  icon: LucideIcon;
+  pieces: string[];
+  settings: string[];
+  shot?: string;
+};
+/** The theme's pages, each listed under macOS Theme in the sidebar. */
+export const THEME_PAGES: Page[] = [
+  {
+    id: 'theme-look',
+    name: 'Appearance',
+    icon: Palette,
+    pieces: ['theme', 'rows', 'icons'],
+    settings: ['glass'],
+    shot: titleBar,
+  },
+  {
+    id: 'theme-dock',
+    name: 'Dock',
+    icon: PanelBottom,
+    pieces: ['dock'],
+    settings: ['magnification'],
+    shot: dock,
+  },
+  { id: 'theme-menubar', name: 'Menu Bar', icon: PanelTop, pieces: ['menubar'], settings: [] },
+  {
+    id: 'theme-switcher',
+    name: 'App Switcher',
+    icon: Layers,
+    pieces: ['switcher'],
+    settings: [],
+    shot: switcher,
+  },
+  { id: 'theme-menu', name: 'Spotlight Menu', icon: Search, pieces: ['wide-menu'], settings: [] },
+  { id: 'theme-osd', name: 'Volume Capsule', icon: Volume2, pieces: ['osd'], settings: [] },
+  {
+    id: 'theme-hud',
+    name: 'Dictation Pill',
+    icon: Mic,
+    pieces: ['dictation-hud'],
+    settings: [],
+    shot: hud,
+  },
 ];
 
 /**
- * The macOS theme for Omarchy: a switch per piece, applied together with Apply, which runs the
- * theme's own install.sh and shows its steps.
+ * The theme's state, shared by its pages so a change waits for Apply while you move between
+ * them: what is installed, the switches flipped and the sliders moved.
  */
-export function ThemePane({ s }: { s: SyncState }) {
+export function useMacosTheme(s: SyncState) {
   // Not checked yet (undefined), not downloaded (null), or what is installed.
   const [theme, setTheme] = useState<MacosTheme | null | undefined>(undefined);
-  /** Switches flipped and not applied yet. */
   const [draft, setDraft] = useState<Record<string, boolean>>({});
-  /** Settings moved and not applied yet. */
   const [tweaks, setTweaks] = useState<Record<string, number>>({});
   const [working, setWorking] = useState(false);
 
   const load = () => api.macosTheme().then(setTheme, s.fail);
-  const onOpen = useEffectEvent(() => {
-    load();
+  // Checked the first time one of its pages opens.
+  const shown = s.tab.startsWith('theme');
+  const onShow = useEffectEvent(() => {
+    if (theme === undefined) load();
   });
-  useEffect(() => onOpen(), []);
+  useEffect(() => {
+    if (shown) onShow();
+  }, [shown]);
 
-  if (theme === undefined) return null;
   const installed = (id: string) => !!theme?.features[id];
   const on = (id: string) => draft[id] ?? installed(id);
-  const add = Object.keys(NAMES).filter((id) => on(id) && !installed(id));
-  const remove = Object.keys(NAMES).filter((id) => !on(id) && installed(id));
   const value = (id: string) => tweaks[id] ?? theme?.settings?.[id];
-  const set = SETTINGS.filter((t) => value(t.id) !== theme?.settings?.[t.id]).map(
-    (t) => [t.id, value(t.id)!] as [string, number],
-  );
-  const changed = add.length + remove.length + set.length > 0;
+  const add = Object.keys(PIECES).filter((id) => on(id) && !installed(id));
+  const remove = Object.keys(PIECES).filter((id) => !on(id) && installed(id));
+  const set = Object.keys(SETTINGS)
+    .filter((id) => value(id) !== theme?.settings?.[id])
+    .map((id) => [id, value(id)!] as [string, number]);
   const revert = () => {
     setDraft({});
     setTweaks({});
@@ -177,68 +206,55 @@ export function ThemePane({ s }: { s: SyncState }) {
         load();
       });
   };
-  const apply = () => job('Applying', (step) => api.applyMacosTheme(add, remove, set, step));
-  const update = () => job('Updating the macOS theme', (step) => api.updateMacosTheme(step));
 
-  const status =
-    theme === null
-      ? 'Not installed. Choose the pieces you want, then press Install.'
-      : theme.active
-        ? 'Your current theme.'
-        : installed('theme')
-          ? 'Installed. Choose it with Omarchy’s theme picker to see it.'
-          : 'Choose the pieces you want, then press Apply.';
-
-  const summary = [
-    add.length
-      ? `Installs ${shortList(
-          add.map((id) => NAMES[id]),
-          9,
-        )}.`
-      : '',
-    remove.length
-      ? `Removes ${shortList(
-          remove.map((id) => NAMES[id]),
-          9,
-        )}.`
-      : '',
-    set.length
-      ? `Sets ${shortList(
-          set.map(([id, v]) => {
-            const t = SETTINGS.find((each) => each.id === id)!;
-            return `${t.name} to ${new Intl.NumberFormat(undefined, t.format).format(v)}${t.unit ?? ''}`;
-          }),
-          2,
-        )}.`
-      : '',
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  const row = (p: Piece) => {
-    // The theme can only go once another theme is current, so Omarchy is never left without one.
-    const locked = p.id === 'theme' && !!theme?.active && on('theme');
-    return (
-      <Row
-        key={p.id}
-        lead={<Tile icon={p.icon} kind={on(p.id) ? 'accent' : 'plain'} size={26} />}
-        title={p.name}
-        detail={locked ? 'To remove it, switch to another theme first.' : p.about}
-        end={
-          <div className="inline">
-            {p.shot && <img className="shot-thumb" src={p.shot} alt="" />}
-            <Toggle
-              on={on(p.id)}
-              label={p.name}
-              disabled={!s.idle || locked}
-              onChange={(v) => setDraft((d) => ({ ...d, [p.id]: v }))}
-            />
-          </div>
-        }
-      />
-    );
+  return {
+    theme,
+    working,
+    installed,
+    on,
+    value,
+    add,
+    remove,
+    set,
+    changed: add.length + remove.length + set.length > 0,
+    flip: (id: string, v: boolean) => setDraft((d) => ({ ...d, [id]: v })),
+    // Whole steps, without the float noise of 0.05 sums.
+    slide: (id: string, v: number) => setTweaks((d) => ({ ...d, [id]: Math.round(v * 100) / 100 })),
+    revert,
+    apply: () => job('Applying', (step) => api.applyMacosTheme(add, remove, set, step)),
+    update: () => job('Updating the macOS theme', (step) => api.updateMacosTheme(step)),
   };
+}
+type ThemeState = ReturnType<typeof useMacosTheme>;
 
+/** The overview (`theme`) or one of the theme's pages, with Apply below while something changed. */
+export function ThemePane({ s, t, page }: { s: SyncState; t: ThemeState; page: Tab }) {
+  if (t.theme === undefined) return null;
+  const part = THEME_PAGES.find((p) => p.id === page);
+  return (
+    <>
+      {part ? <PartPage s={s} t={t} part={part} /> : <Overview s={s} t={t} />}
+      {t.working && (
+        <div className="box row">
+          <div className="text">
+            <Progress steps={s.steps} plan={s.steps} percent={null} />
+          </div>
+        </div>
+      )}
+      {t.changed && <ApplyBar s={s} t={t} />}
+    </>
+  );
+}
+
+function Overview({ s, t }: { s: SyncState; t: ThemeState }) {
+  const status =
+    t.theme === null
+      ? 'Not installed. Choose the parts you want, then press Install.'
+      : t.theme?.active
+        ? 'Your current theme.'
+        : t.installed('theme')
+          ? 'Installed. Choose it with Omarchy’s theme picker to see it.'
+          : 'Choose the parts you want, then press Apply.';
   return (
     <>
       <div className="box theme-hero">
@@ -252,73 +268,129 @@ export function ThemePane({ s }: { s: SyncState }) {
             <h2>macOS Theme</h2>
             <p className="detail">{status}</p>
           </div>
-          {theme !== null && (
+          {t.theme !== null && (
             <Push
-              disabled={!s.idle || changed}
-              onPress={update}
-              tip="Get the latest version and install your pieces again"
+              disabled={!s.idle || t.changed}
+              onPress={t.update}
+              tip="Get the latest version and install your parts again"
             >
               Update
             </Push>
           )}
         </div>
       </div>
-
-      <Group title="Look">{LOOK.map(row)}</Group>
-      <Group
-        title="Desktop"
-        footer="Each piece replaces or adds to Omarchy’s own. Removing one brings Omarchy’s back."
-      >
-        {DESKTOP.map(row)}
+      <Group title="Parts">
+        {THEME_PAGES.map((p) => {
+          const count = p.pieces.filter(t.on).length;
+          const state =
+            count === p.pieces.length ? 'On' : count ? `${count} of ${p.pieces.length} On` : 'Off';
+          return (
+            <Button key={p.id} className="row page-link" onPress={() => s.setTab(p.id)}>
+              <Tile icon={p.icon} kind={count ? 'accent' : 'plain'} size={26} />
+              <span className="text">{p.name}</span>
+              <span className="detail">{state}</span>
+              <ChevronRight size={14} aria-hidden="true" />
+            </Button>
+          );
+        })}
       </Group>
+    </>
+  );
+}
 
-      {theme?.settings && (
-        <Group title="Adjustments">
-          {SETTINGS.map((t) => (
+function PartPage({ s, t, part }: { s: SyncState; t: ThemeState; part: Page }) {
+  return (
+    <>
+      {part.shot && (
+        <div className="box part-shot">
+          <img src={part.shot} alt={`The ${part.name.toLowerCase()} with the macOS theme`} />
+        </div>
+      )}
+      <Group footer="Each part replaces or adds to Omarchy’s own. Removing one brings Omarchy’s back.">
+        {part.pieces.map((id) => {
+          const p = PIECES[id];
+          // The theme can only go once another theme is current, so Omarchy is never left without one.
+          const locked = id === 'theme' && !!t.theme?.active && t.on('theme');
+          return (
             <Row
-              key={t.id}
-              lead={<Tile icon={t.icon} kind={on(t.needs) ? 'accent' : 'plain'} size={26} />}
-              title={t.name}
-              detail={on(t.needs) ? t.about : `Turn on ${NAMES[t.needs]} to adjust it.`}
+              key={id}
+              lead={<Tile icon={p.icon} kind={t.on(id) ? 'accent' : 'plain'} size={26} />}
+              title={p.name}
+              detail={locked ? 'To remove it, switch to another theme first.' : p.about}
               end={
-                <Slider
-                  value={value(t.id)!}
-                  min={t.min}
-                  max={t.max}
-                  step={0.05}
-                  label={t.name}
-                  ends={t.ends}
-                  format={t.format}
-                  disabled={!s.idle || !on(t.needs)}
-                  // Whole steps, without the float noise of 0.05 sums.
-                  onChange={(v) => setTweaks((d) => ({ ...d, [t.id]: Math.round(v * 100) / 100 }))}
+                <Toggle
+                  on={t.on(id)}
+                  label={p.name}
+                  disabled={!s.idle || locked}
+                  onChange={(v) => t.flip(id, v)}
                 />
               }
             />
-          ))}
-        </Group>
-      )}
-
-      {working && (
-        <div className="box row">
-          <div className="text">
-            <Progress steps={s.steps} plan={s.steps} percent={null} />
-          </div>
-        </div>
-      )}
-
-      {/* Floats at the foot of the pane while there is something to apply. */}
-      {changed && (
-        <div className="apply-bar">
-          <p className="detail">{summary}</p>
-          <Link disabled={!s.idle} onPress={revert}>
-            Revert
-          </Link>
-          <Push prominent disabled={!s.idle} onPress={apply}>
-            {theme === null ? 'Install' : 'Apply'}
-          </Push>
-        </div>
-      )}
+          );
+        })}
+        {/* A copy of the theme older than its settings has none to show. */}
+        {t.theme?.settings &&
+          part.settings.map((id) => {
+            const x = SETTINGS[id];
+            return (
+              <Row
+                key={id}
+                lead={<Tile icon={x.icon} kind={t.on(x.needs) ? 'accent' : 'plain'} size={26} />}
+                title={x.name}
+                detail={t.on(x.needs) ? x.about : `Turn on ${PIECES[x.needs].name} to adjust it.`}
+                end={
+                  <Slider
+                    value={t.value(id)!}
+                    min={x.min}
+                    max={x.max}
+                    step={0.05}
+                    label={x.name}
+                    ends={x.ends}
+                    format={x.format}
+                    disabled={!s.idle || !t.on(x.needs)}
+                    onChange={(v) => t.slide(id, v)}
+                  />
+                }
+              />
+            );
+          })}
+      </Group>
     </>
+  );
+}
+
+const names = (ids: string[]) =>
+  shortList(
+    ids.map((id) => PIECES[id].name),
+    9,
+  );
+
+/** Floats at the foot of every theme page while there is something to apply, from any of them. */
+function ApplyBar({ s, t }: { s: SyncState; t: ThemeState }) {
+  const summary = [
+    t.add.length ? `Installs ${names(t.add)}.` : '',
+    t.remove.length ? `Removes ${names(t.remove)}.` : '',
+    t.set.length
+      ? `Sets ${shortList(
+          t.set.map(([id, v]) => {
+            const x = SETTINGS[id];
+            return `${x.name} to ${new Intl.NumberFormat(undefined, x.format).format(v)}${x.unit ?? ''}`;
+          }),
+          2,
+        )}.`
+      : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return (
+    <div className="apply-bar">
+      <p className="detail">{summary}</p>
+      <Link disabled={!s.idle} onPress={t.revert}>
+        Revert
+      </Link>
+      <Push prominent disabled={!s.idle} onPress={t.apply}>
+        {t.theme === null ? 'Install' : 'Apply'}
+      </Push>
+    </div>
   );
 }

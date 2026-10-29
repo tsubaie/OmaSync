@@ -19,16 +19,33 @@ import {
 import { applyLook } from './theme';
 
 export type Tab =
-  'sync' | 'history' | 'omarchy' | 'plugins' | 'theme' | 'repos' | 'apps' | 'data' | 'settings';
+  | 'sync'
+  | 'history'
+  | 'omarchy'
+  | 'plugins'
+  | 'repos'
+  | 'apps'
+  | 'data'
+  | 'settings'
+  // The macOS theme's overview and its pages.
+  | 'theme'
+  | 'theme-look'
+  | 'theme-dock'
+  | 'theme-menubar'
+  | 'theme-switcher'
+  | 'theme-menu'
+  | 'theme-osd'
+  | 'theme-hud';
+/** Ctrl+1 to 9, in sidebar order: Sync and its pages, then the macOS theme and Settings. */
 export const TABS: Tab[] = [
   'sync',
   'omarchy',
   'plugins',
-  'theme',
   'repos',
   'apps',
   'data',
   'history',
+  'theme',
   'settings',
 ];
 

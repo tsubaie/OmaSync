@@ -60,11 +60,11 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
   for (const [key, name] of [
     ['2', 'Configurations'],
     ['3', 'Plugins'],
-    ['4', 'macOS Theme'],
-    ['5', 'Repositories'],
-    ['6', 'Installed Apps'],
-    ['7', 'App Data'],
-    ['8', 'History'],
+    ['4', 'Repositories'],
+    ['5', 'Installed Apps'],
+    ['6', 'App Data'],
+    ['7', 'History'],
+    ['8', 'macOS Theme'],
     ['9', 'Settings'],
   ]) {
     await page.keyboard.press(`Control+${key}`);
@@ -77,29 +77,52 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
   await expect(page.getByRole('tab', { name: 'Installed Apps' })).toBeFocused();
 });
 
-test('the macOS theme applies the switches and sliders that changed', async ({ page }) => {
+test('a sidebar group folds away its pages and opens again', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  const sync = page.getByRole('tab', { name: 'Sync', exact: true });
+  const plugins = page.getByRole('tab', { name: 'Plugins' });
+  await sync.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(plugins).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await expect(plugins).toBeVisible();
+  // A page opened while its group is folded still shows.
+  await sync.focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Control+3');
+  await expect(page.getByRole('heading', { level: 1, name: 'Plugins' })).toBeVisible();
+  await expect(plugins).toHaveAttribute('aria-selected', 'true');
+});
+
+test('the macOS theme applies what changed on any of its pages', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'macOS Theme' }).click();
+  // The overview lists the parts and opens their pages.
+  await page.getByRole('button', { name: /^Appearance/ }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Appearance' })).toBeVisible();
   const apply = page.getByRole('button', { name: 'Apply' });
   // Apply shows up once there is something to apply.
   await expect(apply).toBeHidden();
   // The current theme can't be removed from here.
   await expect(page.getByRole('switch', { name: 'Theme', exact: true })).toBeDisabled();
-  for (const name of ['Dock', 'macOS Icons']) {
-    await page.getByRole('switch', { name }).focus();
-    await page.keyboard.press('Space');
-  }
-  // A setting waits for the piece it adjusts.
-  await expect(page.getByRole('slider', { name: 'Dock Magnification' })).toBeDisabled();
+  await page.getByRole('switch', { name: 'macOS Icons' }).focus();
+  await page.keyboard.press('Space');
   const glass = page.getByRole('slider', { name: 'Window Glass' });
   await glass.focus();
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await page.keyboard.press('ArrowRight');
   await expect(glass).toHaveAttribute('aria-valuetext', '85%');
+  // The changes wait while another page is changed too.
+  await page.getByRole('tab', { name: 'Dock', exact: true }).click();
+  await page.getByRole('switch', { name: 'Dock' }).focus();
+  await page.keyboard.press('Space');
+  // A setting waits for the piece it adjusts.
+  await expect(page.getByRole('slider', { name: 'Dock Magnification' })).toBeDisabled();
   await expect(
     page.getByText('Installs macOS Icons. Removes Dock. Sets Window Glass to 85%.'),
   ).toBeVisible();
+  expect(await a11y(page), 'Dock').toEqual([]);
   await apply.click();
   await expect(page.getByText('Done.')).toBeVisible();
   const [call] = await calls(page, 'macos_theme_apply');
@@ -628,7 +651,7 @@ test('checking for updates says so when this copy is the latest', async ({ page 
 test('app data shows settings folders for apps that are installed or synced', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+7');
+  await page.keyboard.press('Control+6');
   // Ghostty's folder syncs though Ghostty isn't installed here, and says so; Neovim's folder
   // neither syncs nor belongs to an installed or synced app, so it's left out.
   await expect(page.getByText('~/.config/ghostty, not installed on this computer')).toBeVisible();

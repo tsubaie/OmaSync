@@ -181,20 +181,34 @@ output {
 .nav[data-focus-visible] {
   box-shadow: var(--focus);
 }
-/* A group's quiet heading, as Finder draws one, above its first item (not part of the button). */
-.nav[data-heading] {
-  position: relative;
-  margin-top: 30px;
+/* A group's heading: a little apart from the group above, with a chevron that folds it. */
+.nav.group:not(:first-child) {
+  margin-top: 14px;
 }
-.nav[data-heading]::before {
-  content: attr(data-heading);
-  position: absolute;
-  left: 10px;
-  top: -21px;
-  font-size: 11px;
+.nav.group {
   font-weight: 600;
-  color: var(--quiet);
-  pointer-events: none;
+}
+.nav .disclosure {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  opacity: 0.6;
+  transform: rotate(-90deg);
+  transition: transform var(--normal) var(--ease-out);
+}
+.nav .disclosure:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.nav[data-open] .disclosure {
+  transform: none;
+}
+/* A group's pages, indented under its heading. */
+.nav.child {
+  padding-left: 22px;
 }
 /* Sections that can't open yet (before the first check) look it. */
 .nav[data-disabled] {
@@ -1447,13 +1461,39 @@ kbd {
   margin: 0;
   font-size: 12px;
 }
-/* A peek at the piece, beside its switch. */
-.shot-thumb {
-  width: 96px;
-  height: 48px;
-  object-fit: cover;
+/* A part's page opens with a picture of it, centred on a dark stage. */
+.part-shot {
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: #111;
+  overflow: hidden;
+}
+.part-shot img {
+  display: block;
+  max-width: 100%;
+  max-height: 260px;
   border-radius: 6px;
-  box-shadow: var(--edge);
+}
+/* A row on the overview that opens a part's page. */
+.page-link {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  outline: none;
+  cursor: default;
+}
+.page-link[data-hovered] {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.page-link[data-focus-visible] {
+  box-shadow: inset var(--focus);
+}
+.page-link .detail {
+  font-size: 12px;
 }
 /* Apply floats at the foot of the pane with what it will do. */
 .apply-bar {
