@@ -181,20 +181,34 @@ output {
 .nav[data-focus-visible] {
   box-shadow: var(--focus);
 }
-/* A group's quiet heading, as Finder draws one, above its first item (not part of the button). */
-.nav[data-heading] {
-  position: relative;
-  margin-top: 30px;
+/* A group's heading: a little apart from the group above, with a chevron that folds it. */
+.nav.group:not(:first-child) {
+  margin-top: 14px;
 }
-.nav[data-heading]::before {
-  content: attr(data-heading);
-  position: absolute;
-  left: 10px;
-  top: -21px;
-  font-size: 11px;
+.nav.group {
   font-weight: 600;
-  color: var(--quiet);
-  pointer-events: none;
+}
+.nav .disclosure {
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  opacity: 0.6;
+  transform: rotate(-90deg);
+  transition: transform var(--normal) var(--ease-out);
+}
+.nav .disclosure:hover {
+  opacity: 1;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.nav[data-open] .disclosure {
+  transform: none;
+}
+/* A group's pages, indented under its heading. */
+.nav.child {
+  padding-left: 22px;
 }
 /* Sections that can't open yet (before the first check) look it. */
 .nav[data-disabled] {
@@ -564,6 +578,63 @@ output {
 }
 .switch[data-focus-visible] .track {
   box-shadow: var(--focus);
+}
+/* A slider: a thin track, accent up to a white knob, small words at the ends. */
+.slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 240px;
+  flex: none;
+}
+/* Fixed-width ends keep the tracks of stacked sliders lined up. */
+.slider .end {
+  width: 34px;
+  font-size: 11px;
+  color: var(--quiet);
+}
+.slider .end:first-child {
+  text-align: right;
+}
+.slider .track {
+  flex: 1;
+  height: 22px;
+  position: relative;
+}
+.slider .track::before,
+.slider .fill {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+}
+.slider .track::before {
+  right: 0;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--off-edge);
+}
+.slider .fill {
+  background: var(--accent);
+}
+/* React Aria centres the thumb on its value with left and translate(-50%, -50%). */
+.slider .thumb {
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.3),
+    0 0 0 0.5px rgb(0 0 0 / 0.08);
+}
+.slider .thumb[data-focus-visible] {
+  box-shadow: var(--focus);
+}
+.slider[data-disabled] {
+  opacity: 0.5;
 }
 
 /* Text fields: inset, rounded, focus ring in the accent. */
@@ -1355,4 +1426,121 @@ kbd {
   display: grid;
   gap: 8px;
   margin-top: 8px;
+}
+
+/* ---------- macOS Theme ---------- */
+
+/* The theme's own screenshot on top, as System Settings shows a wallpaper or appearance. */
+.theme-hero {
+  overflow: hidden;
+}
+.theme-hero .shot {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1200 / 440;
+  object-fit: cover;
+  object-position: center 60%;
+}
+.theme-hero .about {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.theme-hero .text {
+  flex: 1;
+  min-width: 0;
+}
+.theme-hero h2 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 2px;
+}
+/* Asking to remove the theme, under its name. */
+.theme-hero .confirm {
+  align-items: flex-end;
+  border-top: 0.5px solid var(--line);
+}
+.theme-hero .confirm p {
+  margin: 0 0 4px;
+}
+.switch-to {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12px;
+}
+.switch-to select {
+  font: inherit;
+  color: var(--ink);
+  background: var(--raised);
+  border: 0;
+  border-radius: 6px;
+  padding: 3px 8px;
+  box-shadow: inset 0 0 0 0.5px var(--off-edge);
+}
+.switch-to select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+.theme-hero .detail {
+  margin: 0;
+  font-size: 12px;
+}
+/* A part's page opens with a picture of it, centred on a dark stage. */
+.part-shot {
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: #111;
+  overflow: hidden;
+}
+.part-shot img {
+  display: block;
+  max-width: 100%;
+  max-height: 260px;
+  border-radius: 6px;
+}
+/* A row on the overview that opens a part's page. */
+.page-link {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  outline: none;
+  cursor: default;
+}
+.page-link[data-hovered] {
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+.page-link[data-focus-visible] {
+  box-shadow: inset var(--focus);
+}
+.page-link .detail {
+  font-size: 12px;
+}
+/* Apply floats at the foot of the pane with what it will do. */
+.apply-bar {
+  position: sticky;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(20px) saturate(1.6);
+  box-shadow: var(--shadow-lg), var(--highlight);
+  animation: rise var(--normal) var(--ease-out);
+}
+.apply-bar .link {
+  margin: 0;
+}
+.apply-bar .detail {
+  flex: 1;
+  margin: 0;
 }

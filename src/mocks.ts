@@ -385,6 +385,29 @@ function emit(channel: unknown, lines: string[]) {
   lines.forEach((message, index) => internals.runCallback(id, { index, message }));
 }
 
+/** The macOS theme's pieces: installed and current, apart from the icons and dictation pill;
+ * and its settings, as the theme ships them. */
+const macosTheme = {
+  active: true,
+  features: Object.fromEntries(
+    [
+      'theme',
+      'rows',
+      'icons',
+      'wide-menu',
+      'dock',
+      'switcher',
+      'osd',
+      'dictation-hud',
+      'menubar',
+    ].map((id) => [id, id !== 'icons' && id !== 'dictation-hud']),
+  ),
+  settings: { glass: 0.7, 'web-glass': 1, snapping: 1, magnification: 1.75 } as Record<
+    string,
+    number
+  >,
+};
+
 mockWindows('main');
 mockIPC((cmd, args) => {
   window.e2eCalls.push({ cmd, args: (args ?? {}) as Record<string, unknown> });
@@ -465,6 +488,20 @@ mockIPC((cmd, args) => {
       data = { ...data, computers: { ...data.computers, aaaa11112222: me } };
       return trying ? data : null;
     }
+    case 'macos_theme_status':
+      return macosTheme;
+    case 'macos_theme_apply': {
+      for (const id of a.add as string[]) macosTheme.features[id] = true;
+      for (const id of a.remove as string[]) macosTheme.features[id] = false;
+      for (const [id, value] of a.set as [string, number][]) macosTheme.settings[id] = value;
+      if (a.switchTo) macosTheme.active = false;
+      emit(a.onStep, ['Removed the macOS dock and restored Omarchy’s own', 'Done.']);
+      return '==> Removed the macOS dock and restored Omarchy’s own\n==> Done.\n';
+    }
+    case 'macos_theme_others':
+      return ['Catppuccin', 'Tokyo Night'];
+    case 'macos_theme_update':
+      return '==> Done.\n';
     case 'set_bar_indicator':
       barIndicator = !!a.on;
       return null;

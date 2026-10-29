@@ -19,7 +19,25 @@ import {
 import { applyLook } from './theme';
 
 export type Tab =
-  'sync' | 'history' | 'omarchy' | 'plugins' | 'repos' | 'apps' | 'data' | 'settings';
+  | 'sync'
+  | 'history'
+  | 'omarchy'
+  | 'plugins'
+  | 'repos'
+  | 'apps'
+  | 'data'
+  | 'settings'
+  // The macOS theme's overview and its pages.
+  | 'theme'
+  | 'theme-look'
+  | 'theme-windows'
+  | 'theme-dock'
+  | 'theme-menubar'
+  | 'theme-switcher'
+  | 'theme-menu'
+  | 'theme-osd'
+  | 'theme-hud';
+/** Ctrl+1 to 9, in sidebar order: Sync and its pages, then the macOS theme and Settings. */
 export const TABS: Tab[] = [
   'sync',
   'omarchy',
@@ -28,6 +46,7 @@ export const TABS: Tab[] = [
   'apps',
   'data',
   'history',
+  'theme',
   'settings',
 ];
 
@@ -333,7 +352,7 @@ export function useSync() {
     return () => clearInterval(timer);
   }, []);
 
-  // Ctrl+Q quits, Ctrl+R or F5 syncs (instead of reloading the page), Ctrl+1 to 8 switch panes.
+  // Ctrl+Q quits, Ctrl+R or F5 syncs (instead of reloading the page), Ctrl+1 to 9 switch panes.
   const onKey = useEffectEvent((e: KeyboardEvent) => {
     const ctrl = e.ctrlKey && !e.altKey && !e.metaKey;
     if (ctrl && e.key === 'q') getCurrentWindow().close();
@@ -342,7 +361,7 @@ export function useSync() {
       if (ready && !conflict) sync();
     }
     // Like the sidebar, only Sync opens before the first check finishes.
-    if (ctrl && ready && e.key >= '1' && e.key <= (status ? '8' : '1')) {
+    if (ctrl && ready && e.key >= '1' && e.key <= (status ? '9' : '1')) {
       e.preventDefault();
       setTab(TABS[Number(e.key) - 1]);
     }

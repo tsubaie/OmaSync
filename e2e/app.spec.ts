@@ -64,16 +64,113 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
     ['5', 'Installed Apps'],
     ['6', 'App Data'],
     ['7', 'History'],
-    ['8', 'Settings'],
+    ['8', 'macOS Theme'],
+    ['9', 'Settings'],
   ]) {
     await page.keyboard.press(`Control+${key}`);
     await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
     expect(await a11y(page), name).toEqual([]);
   }
-  // Arrow keys move through the sidebar like a macOS source list.
+  // Arrow keys move through the sidebar like a macOS source list (in Sync, opened again).
+  await page.keyboard.press('Control+6');
   await page.getByRole('tab', { name: 'App Data' }).focus();
   await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('tab', { name: 'Installed Apps' })).toBeFocused();
+});
+
+test('a sidebar group folds away its pages and opens again', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  const sync = page.getByRole('tab', { name: 'Sync', exact: true });
+  const plugins = page.getByRole('tab', { name: 'Plugins' });
+  await sync.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(plugins).toHaveCount(0);
+  await page.keyboard.press('ArrowRight');
+  await expect(plugins).toBeVisible();
+  // A page opened while its group is folded still shows.
+  await sync.focus();
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('Control+3');
+  await expect(page.getByRole('heading', { level: 1, name: 'Plugins' })).toBeVisible();
+  await expect(plugins).toHaveAttribute('aria-selected', 'true');
+  // One group is open at a time: opening another closes this one.
+  await page.getByRole('tab', { name: 'macOS Theme' }).click();
+  await expect(page.getByRole('tab', { name: 'Appearance' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Repositories' })).toHaveCount(0);
+});
+
+test('the macOS theme applies what changed on any of its pages', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'macOS Theme' }).click();
+  // The overview lists the parts and opens their pages.
+  await page.getByRole('button', { name: /^Appearance/ }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Appearance' })).toBeVisible();
+  const apply = page.getByRole('button', { name: 'Apply' });
+  // Apply shows up once there is something to apply.
+  await expect(apply).toBeHidden();
+  // The current theme can't be removed from here.
+  await expect(page.getByRole('switch', { name: 'Theme', exact: true })).toBeDisabled();
+  await page.getByRole('switch', { name: 'macOS Icons' }).focus();
+  await page.keyboard.press('Space');
+  await page.getByRole('tab', { name: 'Windows' }).click();
+  await page.getByRole('switch', { name: 'Snapping' }).focus();
+  await page.keyboard.press('Space');
+  const glass = page.getByRole('slider', { name: 'Window Glass' });
+  await glass.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(glass).toHaveAttribute('aria-valuetext', '85%');
+  // The changes wait while another page is changed too.
+  await page.getByRole('tab', { name: 'Dock', exact: true }).click();
+  await page.getByRole('switch', { name: 'Dock' }).focus();
+  await page.keyboard.press('Space');
+  // A setting waits for the piece it adjusts.
+  await expect(page.getByRole('slider', { name: 'Dock Magnification' })).toBeDisabled();
+  await expect(
+    page.getByText('Installs macOS Icons. Removes Dock. Sets Window Glass to 85%, Snapping Off.'),
+  ).toBeVisible();
+  expect(await a11y(page), 'Dock').toEqual([]);
+  await apply.click();
+  await expect(page.getByText('Done.')).toBeVisible();
+  const [call] = await calls(page, 'macos_theme_apply');
+  expect(call.args.add).toEqual(['icons']);
+  expect(call.args.remove).toEqual(['dock']);
+  expect(call.args.set).toEqual([
+    ['glass', 0.85],
+    ['snapping', 0],
+  ]);
+  await expect(page.getByRole('switch', { name: 'Dock' })).not.toBeChecked();
+  await expect(apply).toBeHidden();
+});
+
+test('the whole macOS theme is removed after choosing a theme, and installed in one go', async ({
+  page,
+}) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'macOS Theme' }).click();
+  await page.getByRole('button', { name: 'Remove…' }).click();
+  await page.getByLabel('Switch to').selectOption('Tokyo Night');
+  expect(await a11y(page), 'Remove').toEqual([]);
+  await page.getByRole('button', { name: 'Remove', exact: true }).click();
+  await expect(page.getByText('Done.')).toBeVisible();
+  const [removed] = await calls(page, 'macos_theme_apply');
+  expect(removed.args.switchTo).toBe('Tokyo Night');
+  expect(removed.args.add).toEqual([]);
+  expect(removed.args.remove).toEqual([
+    'theme',
+    'rows',
+    'dock',
+    'menubar',
+    'switcher',
+    'wide-menu',
+    'osd',
+  ]);
+  await page.getByRole('button', { name: 'Install macOS Theme' }).click();
+  await expect(page.getByRole('button', { name: 'Remove…' })).toBeVisible();
+  const [, installed] = await calls(page, 'macos_theme_apply');
+  expect(installed.args.add).toHaveLength(9);
+  expect(installed.args.switchTo).toBeNull();
 });
 
 test('switching an app off saves the choice', async ({ page }) => {
@@ -180,7 +277,7 @@ test('undo asks before changing every computer', async ({ page }) => {
 test('settings names this computer and shows the sync space', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+8');
+  await page.keyboard.press('Control+9');
   await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
   await expect(page.getByText('github.com/someone/omarchy-sync')).toBeVisible();
   expect(await a11y(page)).toEqual([]);
@@ -459,7 +556,7 @@ test('the bar indicator is on by default and flips off at once', async ({ page }
   await page.goto('/?scenario=synced');
   // Pane shortcuts only work once the page is ready; the first check must have answered.
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+8');
+  await page.keyboard.press('Control+9');
   const bar = page.getByRole('switch', { name: 'Show in the bar' });
   await expect(bar).toBeChecked();
   await bar.focus();
@@ -551,7 +648,7 @@ test('settings shows the version and installs a newer release after a clear conf
 }) => {
   await page.goto('/?scenario=update');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+8');
+  await page.keyboard.press('Control+9');
   const updates = page.getByRole('region', { name: 'Updates' });
   await expect(updates.getByText('Omarchy Sync 0.1.1')).toBeVisible();
   await updates.getByRole('button', { name: 'Check for Updates' }).click();
@@ -573,7 +670,7 @@ test('settings shows the version and installs a newer release after a clear conf
 test('a copy built from source says how it updates instead', async ({ page }) => {
   await page.goto('/?scenario=source');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+8');
+  await page.keyboard.press('Control+9');
   const updates = page.getByRole('region', { name: 'Updates' });
   await expect(updates.getByText('Built from source', { exact: true })).toBeVisible();
   await expect(updates.getByRole('button', { name: 'Check for Updates' })).toHaveCount(0);
@@ -582,7 +679,7 @@ test('a copy built from source says how it updates instead', async ({ page }) =>
 test('checking for updates says so when this copy is the latest', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+8');
+  await page.keyboard.press('Control+9');
   const updates = page.getByRole('region', { name: 'Updates' });
   await updates.getByRole('button', { name: 'Check for Updates' }).click();
   await expect(updates.getByText('You have the latest version.')).toBeVisible();

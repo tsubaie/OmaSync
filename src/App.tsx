@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { type ReactNode, useEffect, useEffectEvent, useState } from 'react';
 import {
+  AppWindowMac,
+  ChevronDown,
   CircleCheck,
   FolderCog,
   History,
@@ -22,22 +24,36 @@ import { ReposPane } from './panes/ReposPane';
 import { SettingsPane } from './panes/SettingsPane';
 import { Setup } from './panes/Setup';
 import { SyncPane } from './panes/SyncPane';
+import { THEME_PAGES, ThemePane, useMacosTheme } from './panes/ThemePane';
 import { type Tab as TabId, useSync } from './state';
 import { api } from './api';
 import { Push, Tip } from './ui';
 
-// Grouped like a Finder sidebar: a quiet heading starts each group; History and Settings sit at
-// the bottom.
-const SECTIONS: { id: TabId; name: string; icon: LucideIcon; heading?: string; end?: boolean }[] = [
-  { id: 'sync', name: 'Sync', icon: RefreshCw },
-  { id: 'omarchy', name: 'Configurations', icon: SlidersHorizontal, heading: 'Omarchy' },
-  { id: 'plugins', name: 'Plugins', icon: Puzzle },
-  { id: 'repos', name: 'Repositories', icon: Server, heading: 'Apps' },
-  { id: 'apps', name: 'Installed Apps', icon: Package },
-  { id: 'data', name: 'App Data', icon: FolderCog },
-  { id: 'history', name: 'History', icon: History, end: true },
-  { id: 'settings', name: 'Settings', icon: Settings },
+type Section = { id: TabId; name: string; icon: LucideIcon };
+type SidebarGroup = Section & { items: Section[] };
+
+// Each group's heading opens its main page and folds away its other pages, like a disclosure in
+// a Finder sidebar; Settings sits at the bottom. A new part of the app becomes a new group.
+const GROUPS: SidebarGroup[] = [
+  {
+    id: 'sync',
+    name: 'Sync',
+    icon: RefreshCw,
+    items: [
+      { id: 'omarchy', name: 'Configurations', icon: SlidersHorizontal },
+      { id: 'plugins', name: 'Plugins', icon: Puzzle },
+      { id: 'repos', name: 'Repositories', icon: Server },
+      { id: 'apps', name: 'Installed Apps', icon: Package },
+      { id: 'data', name: 'App Data', icon: FolderCog },
+      { id: 'history', name: 'History', icon: History },
+    ],
+  },
+  { id: 'theme', name: 'macOS Theme', icon: AppWindowMac, items: THEME_PAGES },
 ];
+const SETTINGS: Section = { id: 'settings', name: 'Settings', icon: Settings };
+const SECTIONS = [...GROUPS.flatMap((g) => [g, ...g.items]), SETTINGS];
+const groupOf = (id: TabId) =>
+  GROUPS.find((g) => g.id === id || g.items.some((i) => i.id === id))?.id;
 
 /**
  * The logo: two arrows turning into each other, drawn as vectors so they stay sharp, and the
@@ -58,7 +74,7 @@ function Brand() {
   );
 }
 
-const PANES = {
+const PANES: Partial<Record<TabId, (p: { s: ReturnType<typeof useSync> }) => ReactNode>> = {
   sync: SyncPane,
   history: HistoryPane,
   omarchy: OmarchyPane,
@@ -72,6 +88,34 @@ const PANES = {
 export function App() {
   const s = useSync();
   const [scrolled, setScrolled] = useState(false);
+  const theme = useMacosTheme(s);
+  // One group is open at a time, or none: opening a page anywhere (a click, a link, a
+  // shortcut) opens its group and closes the others.
+  const [open, setOpen] = useState<TabId | null>('sync');
+  const [shownTab, setShownTab] = useState(s.tab);
+  if (shownTab !== s.tab) {
+    setShownTab(s.tab);
+    setOpen(groupOf(s.tab) ?? open);
+  }
+  const fold = (g: SidebarGroup, close: boolean) => {
+    setOpen(close ? null : g.id);
+    // A page folded away can't stay open; its group's main page takes its place.
+    if (close && g.items.some((i) => i.id === s.tab)) {
+      setShownTab(g.id);
+      s.setTab(g.id);
+    }
+  };
+  // Right and Left unfold and fold the group whose heading has focus, as in a Finder sidebar.
+  const onKey = useEffectEvent((e: KeyboardEvent) => {
+    const g = GROUPS.find((x) => x.id === (e.target as HTMLElement).dataset?.group);
+    if (g && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) fold(g, e.key === 'ArrowLeft');
+  });
+  useEffect(() => {
+    const listener = (e: KeyboardEvent) => onKey(e);
+    // Before React Aria's tab list, which keeps arrow keys to itself.
+    window.addEventListener('keydown', listener, true);
+    return () => window.removeEventListener('keydown', listener, true);
+  }, []);
 
   if (!s.setup) {
     return (
@@ -107,19 +151,47 @@ export function App() {
       <div className="sidebar">
         <Brand />
         <TabList className="sections" aria-label="Sections">
-          {SECTIONS.map((sec) => (
-            <Tab
-              key={sec.id}
-              id={sec.id}
-              className={`nav ${sec.end ? 'end' : ''}`}
-              data-heading={sec.heading}
-              aria-label={sec.name}
-            >
-              {/* Plain line icons in the text colour, as macOS sidebars draw them. */}
-              <sec.icon size={16} strokeWidth={1.75} aria-hidden="true" />
-              <span className="label">{sec.name}</span>
-            </Tab>
-          ))}
+          {[
+            ...GROUPS.flatMap((g) => {
+              const isOpen = open === g.id;
+              return [
+                <Tab
+                  key={g.id}
+                  id={g.id}
+                  className="nav group"
+                  data-open={isOpen || undefined}
+                  aria-label={g.name}
+                  data-group={g.id}
+                >
+                  {/* Plain line icons in the text colour, as macOS sidebars draw them. */}
+                  <g.icon size={16} strokeWidth={1.75} aria-hidden="true" />
+                  <span className="label">{g.name}</span>
+                  {/* A click here folds or unfolds without opening the page. */}
+                  <span
+                    className="disclosure"
+                    aria-hidden="true"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => fold(g, isOpen)}
+                  >
+                    <ChevronDown size={14} strokeWidth={2} />
+                  </span>
+                </Tab>,
+                // A closed group still shows its page that is open.
+                ...g.items
+                  .filter((i) => isOpen || i.id === s.tab)
+                  .map((sec) => (
+                    <Tab key={sec.id} id={sec.id} className="nav child" aria-label={sec.name}>
+                      <sec.icon size={15} strokeWidth={1.75} aria-hidden="true" />
+                      <span className="label">{sec.name}</span>
+                    </Tab>
+                  )),
+              ];
+            }),
+            <Tab key={SETTINGS.id} id={SETTINGS.id} className="nav end" aria-label={SETTINGS.name}>
+              <SETTINGS.icon size={16} strokeWidth={1.75} aria-hidden="true" />
+              <span className="label">{SETTINGS.name}</span>
+            </Tab>,
+          ]}
         </TabList>
         {/* Beside Settings: report a problem, suggest something, or ask (GitHub issues). */}
         <Tip label="Report a Problem or Suggest Something">
@@ -154,7 +226,7 @@ export function App() {
                   </div>
                 )}
                 {sec.id !== 'sync' && <NoticeLine s={s} />}
-                <Pane s={s} />
+                {Pane ? <Pane s={s} /> : <ThemePane s={s} t={theme} page={sec.id} />}
               </div>
             </div>
           </TabPanel>

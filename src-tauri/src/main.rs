@@ -2,6 +2,7 @@
 //! The page in `ui/` calls the commands below; everything it sends is checked here,
 //! because the commands install packages and change files.
 
+mod macos_theme;
 mod sync;
 mod update;
 
@@ -47,6 +48,10 @@ fn main() {
             install_plugins,
             set_app_script,
             set_bar_indicator,
+            macos_theme_status,
+            macos_theme_apply,
+            macos_theme_others,
+            macos_theme_update,
             add_repository,
             try_omarchy,
             put_back_omarchy,
@@ -541,6 +546,86 @@ async fn add_repository(name: String) -> Result<SnapshotOutcome> {
     })
     .await
     .map_err(Problem::from)
+}
+
+/// Which pieces of the macOS theme are installed; none before it has been downloaded.
+#[tauri::command]
+async fn macos_theme_status() -> Result<Option<macos_theme::Status>> {
+    blocking(|_| macos_theme::status())
+        .await
+        .map_err(Problem::from)
+}
+
+/// Installs and removes pieces of the macOS theme and changes its settings, only pieces and
+/// values `install.sh` knows. Returns what the script printed.
+#[tauri::command]
+async fn macos_theme_apply(
+    add: Vec<String>,
+    remove: Vec<String>,
+    set: Vec<(String, f64)>,
+    switch_to: Option<String>,
+    on_step: Channel<String>,
+) -> Result<String> {
+    if let Some(p) = add
+        .iter()
+        .chain(&remove)
+        .find(|p| !macos_theme::PIECES.contains(&p.as_str()))
+    {
+        return Err(format!("{p} isn't a piece of the macOS theme").into());
+    }
+    if let Some((name, value)) = set.iter().find(|(name, value)| {
+        !macos_theme::SETTINGS.iter().any(|(n, low, high, whole)| {
+            n == name && (low..=high).contains(&value) && (!whole || value.fract() == 0.0)
+        })
+    }) {
+        return Err(format!("{name} can't be set to {value}").into());
+    }
+    if let Some(theme) = &switch_to {
+        let others = blocking(|_| macos_theme::other_themes())
+            .await
+            .map_err(Problem::from)?;
+        if !others.contains(theme) {
+            return Err(format!("Omarchy has no theme called {theme}").into());
+        }
+    }
+    blocking(move |_| {
+        macos_theme::apply(&add, &remove, &set, switch_to.as_deref(), &steps(on_step))
+    })
+    .await
+    .map_err(theme_failed)
+}
+
+/// The themes to switch to before removing the macOS theme.
+#[tauri::command]
+async fn macos_theme_others() -> Result<Vec<String>> {
+    blocking(|_| macos_theme::other_themes())
+        .await
+        .map_err(Problem::from)
+}
+
+/// Gets the latest macOS theme and installs the installed pieces again from it.
+#[tauri::command]
+async fn macos_theme_update(on_step: Channel<String>) -> Result<String> {
+    blocking(move |_| macos_theme::update(&steps(on_step)))
+        .await
+        .map_err(theme_failed)
+}
+
+/// The script explains itself in its last line; the whole output goes in the details.
+fn theme_failed(log: String) -> Problem {
+    let last = log
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("");
+    Problem::Failed {
+        message: if last.is_empty() {
+            sync::friendly(&log)
+        } else {
+            last.trim().to_string()
+        },
+        details: log,
+    }
 }
 
 /// Shows the sync indicator on the Omarchy bar, or takes it off.

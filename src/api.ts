@@ -193,6 +193,13 @@ export type Conflict = {
   /** Files that combined without a clash but came out broken, which is why they need a choice. */
   broken: string[];
 };
+/** Which pieces of the macOS theme are installed, as its `install.sh --status --json` says. */
+export type MacosTheme = {
+  active: boolean;
+  features: Record<string, boolean>;
+  /** Missing from a copy of the theme older than its settings. */
+  settings?: Record<string, number>;
+};
 export type Keep = 'Mine' | 'Theirs';
 /** What a failed command throws. */
 export type Problem =
@@ -247,6 +254,21 @@ export const api = {
     invoke<void>('report', { message: message ?? null, details: details ?? null }),
   /** Puts the sync indicator on the Omarchy bar, or takes it off. */
   setBarIndicator: (on: boolean) => invoke<void>('set_bar_indicator', { on }),
+  /** Null until the macOS theme has been downloaded. */
+  macosTheme: () => invoke<MacosTheme | null>('macos_theme_status'),
+  /** Installs and removes pieces of the macOS theme; returns what its script printed. */
+  applyMacosTheme: (
+    add: string[],
+    remove: string[],
+    set: [string, number][],
+    switchTo: string | null,
+    onStep: OnStep,
+  ) => invoke<string>('macos_theme_apply', { add, remove, set, switchTo, onStep: steps(onStep) }),
+  /** The themes to switch to before the macOS theme is removed. */
+  otherThemes: () => invoke<string[]>('macos_theme_others'),
+  /** Gets the latest macOS theme and installs the installed pieces again. */
+  updateMacosTheme: (onStep: OnStep) =>
+    invoke<string>('macos_theme_update', { onStep: steps(onStep) }),
   setAppScript: (app: string, command: string) => invoke<Data>('set_app_script', { app, command }),
   removeAppScript: (app: string) => invoke<Data>('remove_app_script', { app }),
   /** Installs one waiting app with its script, in a terminal window the person can see. */
