@@ -194,7 +194,12 @@ export type Conflict = {
   broken: string[];
 };
 /** Which pieces of the macOS theme are installed, as its `install.sh --status --json` says. */
-export type MacosTheme = { active: boolean; features: Record<string, boolean> };
+export type MacosTheme = {
+  active: boolean;
+  features: Record<string, boolean>;
+  /** Missing from a copy of the theme older than its settings. */
+  settings?: Record<string, number>;
+};
 export type Keep = 'Mine' | 'Theirs';
 /** What a failed command throws. */
 export type Problem =
@@ -252,8 +257,8 @@ export const api = {
   /** Null until the macOS theme has been downloaded. */
   macosTheme: () => invoke<MacosTheme | null>('macos_theme_status'),
   /** Installs and removes pieces of the macOS theme; returns what its script printed. */
-  applyMacosTheme: (add: string[], remove: string[], onStep: OnStep) =>
-    invoke<string>('macos_theme_apply', { add, remove, onStep: steps(onStep) }),
+  applyMacosTheme: (add: string[], remove: string[], set: [string, number][], onStep: OnStep) =>
+    invoke<string>('macos_theme_apply', { add, remove, set, onStep: steps(onStep) }),
   /** Gets the latest macOS theme and installs the installed pieces again. */
   updateMacosTheme: (onStep: OnStep) =>
     invoke<string>('macos_theme_update', { onStep: steps(onStep) }),

@@ -565,6 +565,63 @@ output {
 .switch[data-focus-visible] .track {
   box-shadow: var(--focus);
 }
+/* A slider: a thin track, accent up to a white knob, small words at the ends. */
+.slider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 240px;
+  flex: none;
+}
+/* Fixed-width ends keep the tracks of stacked sliders lined up. */
+.slider .end {
+  width: 34px;
+  font-size: 11px;
+  color: var(--quiet);
+}
+.slider .end:first-child {
+  text-align: right;
+}
+.slider .track {
+  flex: 1;
+  height: 22px;
+  position: relative;
+}
+.slider .track::before,
+.slider .fill {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+}
+.slider .track::before {
+  right: 0;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--off-edge);
+}
+.slider .fill {
+  background: var(--accent);
+}
+/* React Aria centres the thumb on its value with left and translate(-50%, -50%). */
+.slider .thumb {
+  top: 50%;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: white;
+  box-shadow:
+    0 1px 3px rgb(0 0 0 / 0.3),
+    0 0 0 0.5px rgb(0 0 0 / 0.08);
+}
+.slider .thumb[data-focus-visible] {
+  box-shadow: var(--focus);
+}
+.slider[data-disabled] {
+  opacity: 0.5;
+}
 
 /* Text fields: inset, rounded, focus ring in the accent. */
 .field input {

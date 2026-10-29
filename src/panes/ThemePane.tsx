@@ -1,5 +1,6 @@
 import { useEffect, useEffectEvent, useState } from 'react';
 import {
+  Blend,
   FolderClosed,
   Layers,
   Mic,
@@ -9,12 +10,13 @@ import {
   Rows3,
   Search,
   Volume2,
+  ZoomIn,
   type LucideIcon,
 } from 'lucide-react';
 import { api, type MacosTheme } from '../api';
 import { shortList } from '../format';
 import type { SyncState } from '../state';
-import { Group, Link, Progress, Push, Row, Tile, Toggle } from '../ui';
+import { Group, Link, Progress, Push, Row, Slider, Tile, Toggle } from '../ui';
 import desktop from '../assets/macos-theme/desktop.jpg';
 import dock from '../assets/macos-theme/dock-menu.jpg';
 import switcher from '../assets/macos-theme/app-switcher.jpg';
@@ -86,6 +88,44 @@ const DESKTOP: Piece[] = [
 ];
 const NAMES = Object.fromEntries([...LOOK, ...DESKTOP].map((p) => [p.id, p.name]));
 
+type Setting = Piece & {
+  /** The piece it adjusts, which has to be on. */
+  needs: string;
+  min: number;
+  max: number;
+  ends: [string, string];
+  /** How the value is read out, and in the summary. */
+  format: Intl.NumberFormatOptions;
+  /** After the number in the summary, where Intl has no such unit. */
+  unit?: string;
+};
+// The settings install.sh --set takes, with its ranges.
+const SETTINGS: Setting[] = [
+  {
+    id: 'glass',
+    name: 'Window Glass',
+    about: 'How solid windows are. Terminals, Files, browsers and video keep their own.',
+    icon: Blend,
+    needs: 'theme',
+    min: 0.5,
+    max: 1,
+    ends: ['Clear', 'Solid'],
+    format: { style: 'percent' },
+  },
+  {
+    id: 'magnification',
+    name: 'Dock Magnification',
+    about: 'How far icons grow under the pointer.',
+    icon: ZoomIn,
+    needs: 'dock',
+    min: 1,
+    max: 2,
+    ends: ['Off', 'Large'],
+    format: { maximumFractionDigits: 2 },
+    unit: '×',
+  },
+];
+
 /**
  * The macOS theme for Omarchy: a switch per piece, applied together with Apply, which runs the
  * theme's own install.sh and shows its steps.
@@ -95,6 +135,8 @@ export function ThemePane({ s }: { s: SyncState }) {
   const [theme, setTheme] = useState<MacosTheme | null | undefined>(undefined);
   /** Switches flipped and not applied yet. */
   const [draft, setDraft] = useState<Record<string, boolean>>({});
+  /** Settings moved and not applied yet. */
+  const [tweaks, setTweaks] = useState<Record<string, number>>({});
   const [working, setWorking] = useState(false);
 
   const load = () => api.macosTheme().then(setTheme, s.fail);
@@ -108,13 +150,21 @@ export function ThemePane({ s }: { s: SyncState }) {
   const on = (id: string) => draft[id] ?? installed(id);
   const add = Object.keys(NAMES).filter((id) => on(id) && !installed(id));
   const remove = Object.keys(NAMES).filter((id) => !on(id) && installed(id));
-  const changed = add.length + remove.length > 0;
+  const value = (id: string) => tweaks[id] ?? theme?.settings?.[id];
+  const set = SETTINGS.filter((t) => value(t.id) !== theme?.settings?.[t.id]).map(
+    (t) => [t.id, value(t.id)!] as [string, number],
+  );
+  const changed = add.length + remove.length + set.length > 0;
+  const revert = () => {
+    setDraft({});
+    setTweaks({});
+  };
 
   const job = (label: string, work: (step: (line: string) => void) => Promise<string>) => {
     setWorking(true);
     return s
       .act(label, work, async (log) => {
-        setDraft({});
+        revert();
         s.setNotice({
           good: true,
           text: log.trim().split('\n').at(-1)?.replace(/^==> /, '') ?? '',
@@ -127,7 +177,7 @@ export function ThemePane({ s }: { s: SyncState }) {
         load();
       });
   };
-  const apply = () => job('Applying', (step) => api.applyMacosTheme(add, remove, step));
+  const apply = () => job('Applying', (step) => api.applyMacosTheme(add, remove, set, step));
   const update = () => job('Updating the macOS theme', (step) => api.updateMacosTheme(step));
 
   const status =
@@ -150,6 +200,15 @@ export function ThemePane({ s }: { s: SyncState }) {
       ? `Removes ${shortList(
           remove.map((id) => NAMES[id]),
           9,
+        )}.`
+      : '',
+    set.length
+      ? `Sets ${shortList(
+          set.map(([id, v]) => {
+            const t = SETTINGS.find((each) => each.id === id)!;
+            return `${t.name} to ${new Intl.NumberFormat(undefined, t.format).format(v)}${t.unit ?? ''}`;
+          }),
+          2,
         )}.`
       : '',
   ]
@@ -213,6 +272,33 @@ export function ThemePane({ s }: { s: SyncState }) {
         {DESKTOP.map(row)}
       </Group>
 
+      {theme?.settings && (
+        <Group title="Adjustments">
+          {SETTINGS.map((t) => (
+            <Row
+              key={t.id}
+              lead={<Tile icon={t.icon} kind={on(t.needs) ? 'accent' : 'plain'} size={26} />}
+              title={t.name}
+              detail={on(t.needs) ? t.about : `Turn on ${NAMES[t.needs]} to adjust it.`}
+              end={
+                <Slider
+                  value={value(t.id)!}
+                  min={t.min}
+                  max={t.max}
+                  step={0.05}
+                  label={t.name}
+                  ends={t.ends}
+                  format={t.format}
+                  disabled={!s.idle || !on(t.needs)}
+                  // Whole steps, without the float noise of 0.05 sums.
+                  onChange={(v) => setTweaks((d) => ({ ...d, [t.id]: Math.round(v * 100) / 100 }))}
+                />
+              }
+            />
+          ))}
+        </Group>
+      )}
+
       {working && (
         <div className="box row">
           <div className="text">
@@ -225,7 +311,7 @@ export function ThemePane({ s }: { s: SyncState }) {
       {changed && (
         <div className="apply-bar">
           <p className="detail">{summary}</p>
-          <Link disabled={!s.idle} onPress={() => setDraft({})}>
+          <Link disabled={!s.idle} onPress={revert}>
             Revert
           </Link>
           <Push prominent disabled={!s.idle} onPress={apply}>

@@ -22,6 +22,9 @@ pub const PIECES: [&str; 9] = [
     "dictation-hud",
 ];
 
+/// The settings `install.sh --set` takes, with the lowest and highest value of each.
+pub const SETTINGS: [(&str, f64, f64); 2] = [("glass", 0.5, 1.0), ("magnification", 1.0, 2.0)];
+
 /// What `install.sh --status --json` reports.
 #[derive(Deserialize, serde::Serialize, Debug, PartialEq, Eq)]
 pub struct Status {
@@ -29,6 +32,9 @@ pub struct Status {
     pub active: bool,
     /// Each piece and whether it is installed.
     pub features: serde_json::Map<String, serde_json::Value>,
+    /// Each setting and its value; empty from a copy of the script older than the settings.
+    #[serde(default)]
+    pub settings: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Where the copy of the repository lives. `OMARCHY_MACOS_THEME` points at another copy, such
@@ -64,9 +70,15 @@ pub fn status() -> Result<Option<Status>, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Installs and removes the given pieces (already checked against `PIECES`), downloading the
-/// repository first if needed. Returns everything the script printed.
-pub fn apply(add: &[String], remove: &[String], step: &dyn Fn(&str)) -> Result<String, String> {
+/// Installs and removes the given pieces and sets the given settings (already checked against
+/// `PIECES` and `SETTINGS`), downloading the repository first if needed. Returns everything the
+/// script printed.
+pub fn apply(
+    add: &[String],
+    remove: &[String],
+    set: &[(String, f64)],
+    step: &dyn Fn(&str),
+) -> Result<String, String> {
     if !folder().join("install.sh").exists() {
         step("Downloading the macOS theme");
         let mut git = Command::new("git");
@@ -76,10 +88,13 @@ pub fn apply(add: &[String], remove: &[String], step: &dyn Fn(&str)) -> Result<S
     }
     let mut args = Vec::new();
     for piece in remove {
-        args.extend(["--remove", piece.as_str()]);
+        args.extend(["--remove".to_string(), piece.clone()]);
     }
     for piece in add {
-        args.extend(["--add", piece.as_str()]);
+        args.extend(["--add".to_string(), piece.clone()]);
+    }
+    for (name, value) in set {
+        args.extend(["--set".to_string(), format!("{name}={value}")]);
     }
     let mut script = Command::new("bash");
     script.arg(folder().join("install.sh")).args(args);
@@ -101,7 +116,7 @@ pub fn update(step: &dyn Fn(&str)) -> Result<String, String> {
         .filter(|(_, on)| on == &serde_json::Value::Bool(true))
         .map(|(piece, _)| piece)
         .collect();
-    log += &apply(&installed, &[], step)?;
+    log += &apply(&installed, &[], &[], step)?;
     Ok(log)
 }
 

@@ -77,7 +77,7 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
   await expect(page.getByRole('tab', { name: 'Installed Apps' })).toBeFocused();
 });
 
-test('the macOS theme applies the switches that changed', async ({ page }) => {
+test('the macOS theme applies the switches and sliders that changed', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await page.getByRole('tab', { name: 'macOS Theme' }).click();
   const apply = page.getByRole('button', { name: 'Apply' });
@@ -89,12 +89,23 @@ test('the macOS theme applies the switches that changed', async ({ page }) => {
     await page.getByRole('switch', { name }).focus();
     await page.keyboard.press('Space');
   }
-  await expect(page.getByText('Installs macOS Icons. Removes Dock.')).toBeVisible();
+  // A setting waits for the piece it adjusts.
+  await expect(page.getByRole('slider', { name: 'Dock Magnification' })).toBeDisabled();
+  const glass = page.getByRole('slider', { name: 'Window Glass' });
+  await glass.focus();
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('ArrowRight');
+  await expect(glass).toHaveAttribute('aria-valuetext', '85%');
+  await expect(
+    page.getByText('Installs macOS Icons. Removes Dock. Sets Window Glass to 85%.'),
+  ).toBeVisible();
   await apply.click();
   await expect(page.getByText('Done.')).toBeVisible();
   const [call] = await calls(page, 'macos_theme_apply');
   expect(call.args.add).toEqual(['icons']);
   expect(call.args.remove).toEqual(['dock']);
+  expect(call.args.set).toEqual([['glass', 0.85]]);
   await expect(page.getByRole('switch', { name: 'Dock' })).not.toBeChecked();
   await expect(apply).toBeHidden();
 });

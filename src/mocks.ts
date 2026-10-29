@@ -385,7 +385,8 @@ function emit(channel: unknown, lines: string[]) {
   lines.forEach((message, index) => internals.runCallback(id, { index, message }));
 }
 
-/** The macOS theme's pieces: installed and current, apart from the icons and dictation pill. */
+/** The macOS theme's pieces: installed and current, apart from the icons and dictation pill;
+ * and its settings, as the theme ships them. */
 const macosTheme = {
   active: true,
   features: Object.fromEntries(
@@ -401,6 +402,7 @@ const macosTheme = {
       'menubar',
     ].map((id) => [id, id !== 'icons' && id !== 'dictation-hud']),
   ),
+  settings: { glass: 0.7, magnification: 1.75 } as Record<string, number>,
 };
 
 mockWindows('main');
@@ -488,6 +490,7 @@ mockIPC((cmd, args) => {
     case 'macos_theme_apply': {
       for (const id of a.add as string[]) macosTheme.features[id] = true;
       for (const id of a.remove as string[]) macosTheme.features[id] = false;
+      for (const [id, value] of a.set as [string, number][]) macosTheme.settings[id] = value;
       emit(a.onStep, ['Removed the macOS dock and restored Omarchy’s own', 'Done.']);
       return '==> Removed the macOS dock and restored Omarchy’s own\n==> Done.\n';
     }

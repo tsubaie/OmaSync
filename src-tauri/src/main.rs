@@ -555,12 +555,13 @@ async fn macos_theme_status() -> Result<Option<macos_theme::Status>> {
         .map_err(Problem::from)
 }
 
-/// Installs and removes pieces of the macOS theme, only ones `install.sh` knows. Returns what
-/// the script printed.
+/// Installs and removes pieces of the macOS theme and changes its settings, only pieces and
+/// values `install.sh` knows. Returns what the script printed.
 #[tauri::command]
 async fn macos_theme_apply(
     add: Vec<String>,
     remove: Vec<String>,
+    set: Vec<(String, f64)>,
     on_step: Channel<String>,
 ) -> Result<String> {
     if let Some(p) = add
@@ -570,7 +571,14 @@ async fn macos_theme_apply(
     {
         return Err(format!("{p} isn't a piece of the macOS theme").into());
     }
-    blocking(move |_| macos_theme::apply(&add, &remove, &steps(on_step)))
+    if let Some((name, value)) = set.iter().find(|(name, value)| {
+        !macos_theme::SETTINGS
+            .iter()
+            .any(|(n, low, high)| n == name && (low..=high).contains(&value))
+    }) {
+        return Err(format!("{name} can't be set to {value}").into());
+    }
+    blocking(move |_| macos_theme::apply(&add, &remove, &set, &steps(on_step)))
         .await
         .map_err(theme_failed)
 }

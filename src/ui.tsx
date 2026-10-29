@@ -10,7 +10,15 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from 'lucide-react';
-import { Button, Switch, Tooltip, TooltipTrigger } from 'react-aria-components';
+import {
+  Button,
+  Slider as AriaSlider,
+  SliderThumb,
+  SliderTrack,
+  Switch,
+  Tooltip,
+  TooltipTrigger,
+} from 'react-aria-components';
 import { progress } from './format';
 
 /** A rounded-square icon tile, the System Settings way of marking a section or state. */
@@ -175,6 +183,58 @@ export function Toggle({
     >
       <span className="track" aria-hidden="true" />
     </Switch>
+  );
+}
+
+/** A macOS slider with small words at its ends, as System Settings uses for amounts. */
+export function Slider({
+  value,
+  min,
+  max,
+  step,
+  label,
+  ends,
+  format,
+  disabled,
+  onChange,
+}: {
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  label: string;
+  ends: [string, string];
+  format: Intl.NumberFormatOptions;
+  disabled?: boolean;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <AriaSlider
+      className="slider"
+      value={value}
+      minValue={min}
+      maxValue={max}
+      step={step}
+      isDisabled={disabled}
+      onChange={onChange}
+      aria-label={label}
+      formatOptions={format}
+    >
+      <span className="end" aria-hidden="true">
+        {ends[0]}
+      </span>
+      <SliderTrack className="track">
+        {({ state }) => (
+          <>
+            <span className="fill" style={{ width: `${state.getThumbPercent(0) * 100}%` }} />
+            <SliderThumb className="thumb" />
+          </>
+        )}
+      </SliderTrack>
+      <span className="end" aria-hidden="true">
+        {ends[1]}
+      </span>
+    </AriaSlider>
   );
 }
 
