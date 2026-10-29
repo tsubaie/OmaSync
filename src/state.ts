@@ -19,11 +19,12 @@ import {
 import { applyLook } from './theme';
 
 export type Tab =
-  'sync' | 'history' | 'omarchy' | 'plugins' | 'repos' | 'apps' | 'data' | 'settings';
+  'sync' | 'history' | 'omarchy' | 'plugins' | 'theme' | 'repos' | 'apps' | 'data' | 'settings';
 export const TABS: Tab[] = [
   'sync',
   'omarchy',
   'plugins',
+  'theme',
   'repos',
   'apps',
   'data',
@@ -333,7 +334,7 @@ export function useSync() {
     return () => clearInterval(timer);
   }, []);
 
-  // Ctrl+Q quits, Ctrl+R or F5 syncs (instead of reloading the page), Ctrl+1 to 8 switch panes.
+  // Ctrl+Q quits, Ctrl+R or F5 syncs (instead of reloading the page), Ctrl+1 to 9 switch panes.
   const onKey = useEffectEvent((e: KeyboardEvent) => {
     const ctrl = e.ctrlKey && !e.altKey && !e.metaKey;
     if (ctrl && e.key === 'q') getCurrentWindow().close();
@@ -342,7 +343,7 @@ export function useSync() {
       if (ready && !conflict) sync();
     }
     // Like the sidebar, only Sync opens before the first check finishes.
-    if (ctrl && ready && e.key >= '1' && e.key <= (status ? '8' : '1')) {
+    if (ctrl && ready && e.key >= '1' && e.key <= (status ? '9' : '1')) {
       e.preventDefault();
       setTab(TABS[Number(e.key) - 1]);
     }

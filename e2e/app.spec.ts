@@ -60,11 +60,12 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
   for (const [key, name] of [
     ['2', 'Configurations'],
     ['3', 'Plugins'],
-    ['4', 'Repositories'],
-    ['5', 'Installed Apps'],
-    ['6', 'App Data'],
-    ['7', 'History'],
-    ['8', 'Settings'],
+    ['4', 'macOS Theme'],
+    ['5', 'Repositories'],
+    ['6', 'Installed Apps'],
+    ['7', 'App Data'],
+    ['8', 'History'],
+    ['9', 'Settings'],
   ]) {
     await page.keyboard.press(`Control+${key}`);
     await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
@@ -74,6 +75,28 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
   await page.getByRole('tab', { name: 'App Data' }).focus();
   await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('tab', { name: 'Installed Apps' })).toBeFocused();
+});
+
+test('the macOS theme applies the switches that changed', async ({ page }) => {
+  await page.goto('/?scenario=synced');
+  await page.getByRole('tab', { name: 'macOS Theme' }).click();
+  const apply = page.getByRole('button', { name: 'Apply' });
+  // Apply shows up once there is something to apply.
+  await expect(apply).toBeHidden();
+  // The current theme can't be removed from here.
+  await expect(page.getByRole('switch', { name: 'Theme', exact: true })).toBeDisabled();
+  for (const name of ['Dock', 'macOS Icons']) {
+    await page.getByRole('switch', { name }).focus();
+    await page.keyboard.press('Space');
+  }
+  await expect(page.getByText('Installs macOS Icons. Removes Dock.')).toBeVisible();
+  await apply.click();
+  await expect(page.getByText('Done.')).toBeVisible();
+  const [call] = await calls(page, 'macos_theme_apply');
+  expect(call.args.add).toEqual(['icons']);
+  expect(call.args.remove).toEqual(['dock']);
+  await expect(page.getByRole('switch', { name: 'Dock' })).not.toBeChecked();
+  await expect(apply).toBeHidden();
 });
 
 test('switching an app off saves the choice', async ({ page }) => {
@@ -180,7 +203,7 @@ test('undo asks before changing every computer', async ({ page }) => {
 test('settings names this computer and shows the sync space', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+8');
+  await page.keyboard.press('Control+9');
   await expect(page.getByRole('heading', { level: 1, name: 'Settings' })).toBeVisible();
   await expect(page.getByText('github.com/someone/omarchy-sync')).toBeVisible();
   expect(await a11y(page)).toEqual([]);
@@ -459,7 +482,7 @@ test('the bar indicator is on by default and flips off at once', async ({ page }
   await page.goto('/?scenario=synced');
   // Pane shortcuts only work once the page is ready; the first check must have answered.
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+8');
+  await page.keyboard.press('Control+9');
   const bar = page.getByRole('switch', { name: 'Show in the bar' });
   await expect(bar).toBeChecked();
   await bar.focus();
@@ -551,7 +574,7 @@ test('settings shows the version and installs a newer release after a clear conf
 }) => {
   await page.goto('/?scenario=update');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+8');
+  await page.keyboard.press('Control+9');
   const updates = page.getByRole('region', { name: 'Updates' });
   await expect(updates.getByText('Omarchy Sync 0.1.1')).toBeVisible();
   await updates.getByRole('button', { name: 'Check for Updates' }).click();
@@ -573,7 +596,7 @@ test('settings shows the version and installs a newer release after a clear conf
 test('a copy built from source says how it updates instead', async ({ page }) => {
   await page.goto('/?scenario=source');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+8');
+  await page.keyboard.press('Control+9');
   const updates = page.getByRole('region', { name: 'Updates' });
   await expect(updates.getByText('Built from source', { exact: true })).toBeVisible();
   await expect(updates.getByRole('button', { name: 'Check for Updates' })).toHaveCount(0);
@@ -582,7 +605,7 @@ test('a copy built from source says how it updates instead', async ({ page }) =>
 test('checking for updates says so when this copy is the latest', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+8');
+  await page.keyboard.press('Control+9');
   const updates = page.getByRole('region', { name: 'Updates' });
   await updates.getByRole('button', { name: 'Check for Updates' }).click();
   await expect(updates.getByText('You have the latest version.')).toBeVisible();
@@ -594,7 +617,7 @@ test('checking for updates says so when this copy is the latest', async ({ page 
 test('app data shows settings folders for apps that are installed or synced', async ({ page }) => {
   await page.goto('/?scenario=synced');
   await expect(page.getByText('Sign in to the same GitHub account')).toBeVisible();
-  await page.keyboard.press('Control+6');
+  await page.keyboard.press('Control+7');
   // Ghostty's folder syncs though Ghostty isn't installed here, and says so; Neovim's folder
   // neither syncs nor belongs to an installed or synced app, so it's left out.
   await expect(page.getByText('~/.config/ghostty, not installed on this computer')).toBeVisible();

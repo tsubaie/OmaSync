@@ -1356,3 +1356,66 @@ kbd {
   gap: 8px;
   margin-top: 8px;
 }
+
+/* ---------- macOS Theme ---------- */
+
+/* The theme's own screenshot on top, as System Settings shows a wallpaper or appearance. */
+.theme-hero {
+  overflow: hidden;
+}
+.theme-hero .shot {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1200 / 440;
+  object-fit: cover;
+  object-position: center 60%;
+}
+.theme-hero .about {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+}
+.theme-hero .text {
+  flex: 1;
+  min-width: 0;
+}
+.theme-hero h2 {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0 0 2px;
+}
+.theme-hero .detail {
+  margin: 0;
+  font-size: 12px;
+}
+/* A peek at the piece, beside its switch. */
+.shot-thumb {
+  width: 96px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 6px;
+  box-shadow: var(--edge);
+}
+/* Apply floats at the foot of the pane with what it will do. */
+.apply-bar {
+  position: sticky;
+  bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 12px 10px 16px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(20px) saturate(1.6);
+  box-shadow: var(--shadow-lg), var(--highlight);
+  animation: rise var(--normal) var(--ease-out);
+}
+.apply-bar .link {
+  margin: 0;
+}
+.apply-bar .detail {
+  flex: 1;
+  margin: 0;
+}

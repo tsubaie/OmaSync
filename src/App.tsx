@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  AppWindowMac,
   CircleCheck,
   FolderCog,
   History,
@@ -22,6 +23,7 @@ import { ReposPane } from './panes/ReposPane';
 import { SettingsPane } from './panes/SettingsPane';
 import { Setup } from './panes/Setup';
 import { SyncPane } from './panes/SyncPane';
+import { ThemePane } from './panes/ThemePane';
 import { type Tab as TabId, useSync } from './state';
 import { api } from './api';
 import { Push, Tip } from './ui';
@@ -32,6 +34,7 @@ const SECTIONS: { id: TabId; name: string; icon: LucideIcon; heading?: string; e
   { id: 'sync', name: 'Sync', icon: RefreshCw },
   { id: 'omarchy', name: 'Configurations', icon: SlidersHorizontal, heading: 'Omarchy' },
   { id: 'plugins', name: 'Plugins', icon: Puzzle },
+  { id: 'theme', name: 'macOS Theme', icon: AppWindowMac },
   { id: 'repos', name: 'Repositories', icon: Server, heading: 'Apps' },
   { id: 'apps', name: 'Installed Apps', icon: Package },
   { id: 'data', name: 'App Data', icon: FolderCog },
@@ -63,6 +66,7 @@ const PANES = {
   history: HistoryPane,
   omarchy: OmarchyPane,
   plugins: PluginsPane,
+  theme: ThemePane,
   repos: ReposPane,
   apps: AppsPane,
   data: AppDataPane,
