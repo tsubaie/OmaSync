@@ -402,7 +402,10 @@ const macosTheme = {
       'menubar',
     ].map((id) => [id, id !== 'icons' && id !== 'dictation-hud']),
   ),
-  settings: { glass: 0.7, magnification: 1.75 } as Record<string, number>,
+  settings: { glass: 0.7, 'web-glass': 1, snapping: 1, magnification: 1.75 } as Record<
+    string,
+    number
+  >,
 };
 
 mockWindows('main');

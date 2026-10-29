@@ -22,8 +22,14 @@ pub const PIECES: [&str; 9] = [
     "dictation-hud",
 ];
 
-/// The settings `install.sh --set` takes, with the lowest and highest value of each.
-pub const SETTINGS: [(&str, f64, f64); 2] = [("glass", 0.5, 1.0), ("magnification", 1.0, 2.0)];
+/// The settings `install.sh --set` takes, with the lowest and highest value of each, and whether
+/// it takes only whole numbers (a switch: 0 or 1).
+pub const SETTINGS: [(&str, f64, f64, bool); 4] = [
+    ("glass", 0.5, 1.0, false),
+    ("web-glass", 0.5, 1.0, false),
+    ("magnification", 1.0, 2.0, false),
+    ("snapping", 0.0, 1.0, true),
+];
 
 /// What `install.sh --status --json` reports.
 #[derive(Deserialize, serde::Serialize, Debug, PartialEq, Eq)]

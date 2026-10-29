@@ -574,9 +574,9 @@ async fn macos_theme_apply(
         return Err(format!("{p} isn't a piece of the macOS theme").into());
     }
     if let Some((name, value)) = set.iter().find(|(name, value)| {
-        !macos_theme::SETTINGS
-            .iter()
-            .any(|(n, low, high)| n == name && (low..=high).contains(&value))
+        !macos_theme::SETTINGS.iter().any(|(n, low, high, whole)| {
+            n == name && (low..=high).contains(&value) && (!whole || value.fract() == 0.0)
+        })
     }) {
         return Err(format!("{name} can't be set to {value}").into());
     }

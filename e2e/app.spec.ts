@@ -71,7 +71,8 @@ test('every pane is reachable from the keyboard and passes axe', async ({ page }
     await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
     expect(await a11y(page), name).toEqual([]);
   }
-  // Arrow keys move through the sidebar like a macOS source list.
+  // Arrow keys move through the sidebar like a macOS source list (in Sync, opened again).
+  await page.keyboard.press('Control+6');
   await page.getByRole('tab', { name: 'App Data' }).focus();
   await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('tab', { name: 'Installed Apps' })).toBeFocused();
@@ -92,6 +93,10 @@ test('a sidebar group folds away its pages and opens again', async ({ page }) =>
   await page.keyboard.press('Control+3');
   await expect(page.getByRole('heading', { level: 1, name: 'Plugins' })).toBeVisible();
   await expect(plugins).toHaveAttribute('aria-selected', 'true');
+  // One group is open at a time: opening another closes this one.
+  await page.getByRole('tab', { name: 'macOS Theme' }).click();
+  await expect(page.getByRole('tab', { name: 'Appearance' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Repositories' })).toHaveCount(0);
 });
 
 test('the macOS theme applies what changed on any of its pages', async ({ page }) => {
@@ -107,6 +112,9 @@ test('the macOS theme applies what changed on any of its pages', async ({ page }
   await expect(page.getByRole('switch', { name: 'Theme', exact: true })).toBeDisabled();
   await page.getByRole('switch', { name: 'macOS Icons' }).focus();
   await page.keyboard.press('Space');
+  await page.getByRole('tab', { name: 'Windows' }).click();
+  await page.getByRole('switch', { name: 'Snapping' }).focus();
+  await page.keyboard.press('Space');
   const glass = page.getByRole('slider', { name: 'Window Glass' });
   await glass.focus();
   await page.keyboard.press('ArrowRight');
@@ -120,7 +128,7 @@ test('the macOS theme applies what changed on any of its pages', async ({ page }
   // A setting waits for the piece it adjusts.
   await expect(page.getByRole('slider', { name: 'Dock Magnification' })).toBeDisabled();
   await expect(
-    page.getByText('Installs macOS Icons. Removes Dock. Sets Window Glass to 85%.'),
+    page.getByText('Installs macOS Icons. Removes Dock. Sets Window Glass to 85%, Snapping Off.'),
   ).toBeVisible();
   expect(await a11y(page), 'Dock').toEqual([]);
   await apply.click();
@@ -128,7 +136,10 @@ test('the macOS theme applies what changed on any of its pages', async ({ page }
   const [call] = await calls(page, 'macos_theme_apply');
   expect(call.args.add).toEqual(['icons']);
   expect(call.args.remove).toEqual(['dock']);
-  expect(call.args.set).toEqual([['glass', 0.85]]);
+  expect(call.args.set).toEqual([
+    ['glass', 0.85],
+    ['snapping', 0],
+  ]);
   await expect(page.getByRole('switch', { name: 'Dock' })).not.toBeChecked();
   await expect(apply).toBeHidden();
 });

@@ -52,6 +52,8 @@ const GROUPS: SidebarGroup[] = [
 ];
 const SETTINGS: Section = { id: 'settings', name: 'Settings', icon: Settings };
 const SECTIONS = [...GROUPS.flatMap((g) => [g, ...g.items]), SETTINGS];
+const groupOf = (id: TabId) =>
+  GROUPS.find((g) => g.id === id || g.items.some((i) => i.id === id))?.id;
 
 /**
  * The logo: two arrows turning into each other, drawn as vectors so they stay sharp, and the
@@ -87,12 +89,21 @@ export function App() {
   const s = useSync();
   const [scrolled, setScrolled] = useState(false);
   const theme = useMacosTheme(s);
-  /** The groups folded away. */
-  const [folded, setFolded] = useState<TabId[]>([]);
+  // One group is open at a time, or none: opening a page anywhere (a click, a link, a
+  // shortcut) opens its group and closes the others.
+  const [open, setOpen] = useState<TabId | null>('sync');
+  const [shownTab, setShownTab] = useState(s.tab);
+  if (shownTab !== s.tab) {
+    setShownTab(s.tab);
+    setOpen(groupOf(s.tab) ?? open);
+  }
   const fold = (g: SidebarGroup, close: boolean) => {
-    setFolded((f) => (close ? [...f, g.id] : f.filter((x) => x !== g.id)));
+    setOpen(close ? null : g.id);
     // A page folded away can't stay open; its group's main page takes its place.
-    if (close && g.items.some((i) => i.id === s.tab)) s.setTab(g.id);
+    if (close && g.items.some((i) => i.id === s.tab)) {
+      setShownTab(g.id);
+      s.setTab(g.id);
+    }
   };
   // Right and Left unfold and fold the group whose heading has focus, as in a Finder sidebar.
   const onKey = useEffectEvent((e: KeyboardEvent) => {
@@ -105,11 +116,6 @@ export function App() {
     window.addEventListener('keydown', listener, true);
     return () => window.removeEventListener('keydown', listener, true);
   }, []);
-  const select = (id: TabId) => {
-    // Opening a group's main page unfolds it.
-    setFolded((f) => f.filter((g) => g !== id));
-    s.setTab(id);
-  };
 
   if (!s.setup) {
     return (
@@ -140,21 +146,20 @@ export function App() {
       selectedKey={s.tab}
       // Until the first check finishes there's nothing to show anywhere but Sync.
       disabledKeys={s.overview ? [] : SECTIONS.filter((x) => x.id !== 'sync').map((x) => x.id)}
-      onSelectionChange={(k) => select(k as TabId)}
+      onSelectionChange={(k) => s.setTab(k as TabId)}
     >
       <div className="sidebar">
         <Brand />
         <TabList className="sections" aria-label="Sections">
           {[
             ...GROUPS.flatMap((g) => {
-              // A page opened by a shortcut or a link shows even in a folded group.
-              const open = !folded.includes(g.id) || g.items.some((i) => i.id === s.tab);
+              const isOpen = open === g.id;
               return [
                 <Tab
                   key={g.id}
                   id={g.id}
                   className="nav group"
-                  data-open={open || undefined}
+                  data-open={isOpen || undefined}
                   aria-label={g.name}
                   data-group={g.id}
                 >
@@ -166,17 +171,20 @@ export function App() {
                     className="disclosure"
                     aria-hidden="true"
                     onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => fold(g, open)}
+                    onClick={() => fold(g, isOpen)}
                   >
                     <ChevronDown size={14} strokeWidth={2} />
                   </span>
                 </Tab>,
-                ...(open ? g.items : []).map((sec) => (
-                  <Tab key={sec.id} id={sec.id} className="nav child" aria-label={sec.name}>
-                    <sec.icon size={15} strokeWidth={1.75} aria-hidden="true" />
-                    <span className="label">{sec.name}</span>
-                  </Tab>
-                )),
+                // A closed group still shows its page that is open.
+                ...g.items
+                  .filter((i) => isOpen || i.id === s.tab)
+                  .map((sec) => (
+                    <Tab key={sec.id} id={sec.id} className="nav child" aria-label={sec.name}>
+                      <sec.icon size={15} strokeWidth={1.75} aria-hidden="true" />
+                      <span className="label">{sec.name}</span>
+                    </Tab>
+                  )),
               ];
             }),
             <Tab key={SETTINGS.id} id={SETTINGS.id} className="nav end" aria-label={SETTINGS.name}>

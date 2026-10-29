@@ -30,6 +30,7 @@ export type Tab =
   // The macOS theme's overview and its pages.
   | 'theme'
   | 'theme-look'
+  | 'theme-windows'
   | 'theme-dock'
   | 'theme-menubar'
   | 'theme-switcher'

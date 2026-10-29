@@ -1,7 +1,10 @@
 import { useEffect, useEffectEvent, useState } from 'react';
 import {
+  AppWindow,
   Blend,
   ChevronRight,
+  Globe,
+  LayoutPanelLeft,
   FolderClosed,
   Layers,
   Mic,
@@ -75,36 +78,53 @@ const PIECES: Record<string, Piece> = {
 type Setting = Piece & {
   /** The piece it adjusts, which has to be on. */
   needs: string;
-  min: number;
-  max: number;
-  ends: [string, string];
-  /** How the value is read out, and in the summary. */
-  format: Intl.NumberFormatOptions;
-  /** After the number in the summary, where Intl has no such unit. */
-  unit?: string;
+  /** A slider's range, ends and wording; a setting without one is a switch (1 on, 0 off). */
+  slider?: {
+    min: number;
+    max: number;
+    ends: [string, string];
+    /** How the value is read out, and in the summary. */
+    format: Intl.NumberFormatOptions;
+    /** After the number in the summary, where Intl has no such unit. */
+    unit?: string;
+  };
 };
 // The settings install.sh --set takes, with its ranges.
 const SETTINGS: Record<string, Setting> = {
   glass: {
     name: 'Window Glass',
-    about: 'How solid windows are. Terminals, Files, browsers and video keep their own.',
+    about: 'How solid app windows are. Terminals, Files and video keep their own.',
     icon: Blend,
     needs: 'theme',
-    min: 0.5,
-    max: 1,
-    ends: ['Clear', 'Solid'],
-    format: { style: 'percent' },
+    slider: { min: 0.5, max: 1, ends: ['Clear', 'Solid'], format: { style: 'percent' } },
+  },
+  'web-glass': {
+    name: 'Browser & App Glass',
+    about:
+      'Browsers, web apps and Electron apps such as Claude, VS Code and Slack. Their menus are hard to read on glass, so they start solid.',
+    icon: Globe,
+    needs: 'theme',
+    slider: { min: 0.5, max: 1, ends: ['Clear', 'Solid'], format: { style: 'percent' } },
+  },
+  snapping: {
+    name: 'Snapping',
+    about:
+      'On a floating workspace, drag a window to an edge for half the screen, a corner for a quarter, or the top to fill it.',
+    icon: LayoutPanelLeft,
+    needs: 'theme',
   },
   magnification: {
     name: 'Dock Magnification',
     about: 'How far icons grow under the pointer.',
     icon: ZoomIn,
     needs: 'dock',
-    min: 1,
-    max: 2,
-    ends: ['Off', 'Large'],
-    format: { maximumFractionDigits: 2 },
-    unit: '×',
+    slider: {
+      min: 1,
+      max: 2,
+      ends: ['Off', 'Large'],
+      format: { maximumFractionDigits: 2 },
+      unit: '×',
+    },
   },
 };
 
@@ -123,8 +143,15 @@ export const THEME_PAGES: Page[] = [
     name: 'Appearance',
     icon: Palette,
     pieces: ['theme', 'rows', 'icons'],
-    settings: ['glass'],
+    settings: [],
     shot: titleBar,
+  },
+  {
+    id: 'theme-windows',
+    name: 'Windows',
+    icon: AppWindow,
+    pieces: [],
+    settings: ['glass', 'web-glass', 'snapping'],
   },
   {
     id: 'theme-dock',
@@ -355,9 +382,11 @@ function Overview({ s, t }: { s: SyncState; t: ThemeState }) {
       </div>
       <Group title="Parts">
         {THEME_PAGES.map((p) => {
-          const count = p.pieces.filter(t.on).length;
+          // A page of settings only is on with the theme.
+          const pieces = p.pieces.length ? p.pieces : ['theme'];
+          const count = pieces.filter(t.on).length;
           const state =
-            count === p.pieces.length ? 'On' : count ? `${count} of ${p.pieces.length} On` : 'Off';
+            count === pieces.length ? 'On' : count ? `${count} of ${pieces.length} On` : 'Off';
           return (
             <Button key={p.id} className="row page-link" onPress={() => s.setTab(p.id)}>
               <Tile icon={p.icon} kind={count ? 'accent' : 'plain'} size={26} />
@@ -413,17 +442,26 @@ function PartPage({ s, t, part }: { s: SyncState; t: ThemeState; part: Page }) {
                 title={x.name}
                 detail={t.on(x.needs) ? x.about : `Turn on ${PIECES[x.needs].name} to adjust it.`}
                 end={
-                  <Slider
-                    value={t.value(id)!}
-                    min={x.min}
-                    max={x.max}
-                    step={0.05}
-                    label={x.name}
-                    ends={x.ends}
-                    format={x.format}
-                    disabled={!s.idle || !t.on(x.needs)}
-                    onChange={(v) => t.slide(id, v)}
-                  />
+                  x.slider ? (
+                    <Slider
+                      value={t.value(id)!}
+                      min={x.slider.min}
+                      max={x.slider.max}
+                      step={0.05}
+                      label={x.name}
+                      ends={x.slider.ends}
+                      format={x.slider.format}
+                      disabled={!s.idle || !t.on(x.needs)}
+                      onChange={(v) => t.slide(id, v)}
+                    />
+                  ) : (
+                    <Toggle
+                      on={t.value(id) === 1}
+                      label={x.name}
+                      disabled={!s.idle || !t.on(x.needs)}
+                      onChange={(v) => t.slide(id, v ? 1 : 0)}
+                    />
+                  )
                 }
               />
             );
@@ -448,7 +486,8 @@ function ApplyBar({ s, t }: { s: SyncState; t: ThemeState }) {
       ? `Sets ${shortList(
           t.set.map(([id, v]) => {
             const x = SETTINGS[id];
-            return `${x.name} to ${new Intl.NumberFormat(undefined, x.format).format(v)}${x.unit ?? ''}`;
+            if (!x.slider) return `${x.name} ${v ? 'On' : 'Off'}`;
+            return `${x.name} to ${new Intl.NumberFormat(undefined, x.slider.format).format(v)}${x.slider.unit ?? ''}`;
           }),
           2,
         )}.`
